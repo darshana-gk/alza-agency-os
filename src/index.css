@@ -1,0 +1,50 @@
+@import "tailwindcss";
+
+@theme {
+  --color-alza-blue-50: #eff6ff;
+  --color-alza-blue-100: #dbeafe;
+  --color-alza-blue-200: #bfdbfe;
+  --color-alza-blue-300: #93c5fd;
+  --color-alza-blue-400: #60a5fa;
+  --color-alza-blue-500: #3b82f6;
+  --color-alza-blue-600: #2563eb;
+  --color-alza-blue-700: #1d4ed8;
+  --color-alza-blue-800: #1e40af;
+  --color-alza-blue-900: #1e3a8a;
+
+  --color-alza-teal-50: #f0fdfa;
+  --color-alza-teal-100: #ccfbf1;
+  --color-alza-teal-200: #99f6e4;
+  --color-alza-teal-300: #5eead4;
+  --color-alza-teal-400: #2dd4bf;
+  --color-alza-teal-500: #14b8a6;
+  --color-alza-teal-600: #0d9488;
+  --color-alza-teal-700: #0f766e;
+  --color-alza-teal-800: #115e59;
+  --color-alza-teal-900: #134e4a;
+
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+}
+
+@layer base {
+  * {
+    @apply border-slate-200;
+  }
+
+  body {
+    @apply bg-slate-50 text-slate-900 font-sans antialiased;
+  }
+}
+
+@layer utilities {
+  .gradient-alza {
+    background: linear-gradient(135deg, var(--color-alza-blue-700) 0%, var(--color-alza-teal-600) 100%);
+  }
+
+  .gradient-alza-text {
+    background: linear-gradient(135deg, var(--color-alza-blue-700) 0%, var(--color-alza-teal-600) 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+}
