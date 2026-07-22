@@ -2,6 +2,7 @@ import { Routes, Route } from 'react-router-dom'
 import { AppLayout } from '@/components/layout/AppLayout'
 import { Dashboard } from '@/pages/Dashboard'
 import { Clients } from '@/pages/Clients'
+import { ClientDetails } from '@/pages/ClientDetails'
 import { PolicyFiles } from '@/pages/PolicyFiles'
 import { Transactions } from '@/pages/Transactions'
 import { Financials } from '@/pages/Financials'
@@ -18,6 +19,7 @@ export default function App() {
       <Route element={<AppLayout />}>
         <Route index element={<Dashboard />} />
         <Route path="clients" element={<Clients />} />
+        <Route path="clients/:id" element={<ClientDetails />} />
         <Route path="policy-files" element={<PolicyFiles />} />
         <Route path="transactions" element={<Transactions />} />
         <Route path="financials" element={<Financials />} />

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import {
   ChevronLeft,
   ChevronRight,
@@ -189,10 +189,10 @@ export function hasMatchingClient(searchTerm: string): boolean {
 }
 
 export function Clients() {
+  const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
   const search = searchParams.get('search') ?? ''
   const [page, setPage] = useState(1)
-  const [selectedId, setSelectedId] = useState<number | null>(null)
 
   useEffect(() => {
     setPage(1)
@@ -244,7 +244,7 @@ export function Clients() {
   }
 
   function handleRowClick(client: Client) {
-    setSelectedId(client.id)
+    navigate(`/clients/${client.id}`)
   }
 
   return (
@@ -346,9 +346,7 @@ export function Clients() {
                   <tr
                     key={client.id}
                     onClick={() => handleRowClick(client)}
-                    className={`cursor-pointer transition-colors hover:bg-alza-blue-50/60 ${
-                      selectedId === client.id ? 'bg-alza-blue-50' : ''
-                    }`}
+                    className="cursor-pointer transition-colors hover:bg-alza-blue-50/60"
                   >
                     <td className="px-6 py-4">
                       <p className="font-medium text-slate-900">{client.name}</p>

@@ -9,7 +9,7 @@ interface HeaderProps {
   onMenuClick?: () => void
 }
 
-const SEARCHABLE_PATHS = new Set(['/clients', '/policy-files'])
+const SEARCHABLE_PATHS = new Set(['/clients', '/policy-files', '/admin/producers'])
 
 export function Header({ title, subtitle, onMenuClick }: HeaderProps) {
   const location = useLocation()

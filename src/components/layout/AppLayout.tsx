@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Outlet, useLocation } from 'react-router-dom'
 import { Sidebar } from './Sidebar'
 import { Header } from './Header'
@@ -21,7 +21,12 @@ const pageTitles: Record<string, { title: string; subtitle?: string }> = {
 export function AppLayout() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const location = useLocation()
-  const pageInfo = pageTitles[location.pathname] ?? { title: 'ALZA Flow' }
+  const pageInfo = useMemo(() => {
+    if (/^\/clients\/\d+$/.test(location.pathname)) {
+      return { title: 'Client Details', subtitle: '360° client view' }
+    }
+    return pageTitles[location.pathname] ?? { title: 'ALZA Flow' }
+  }, [location.pathname])
 
   return (
     <div className="min-h-screen bg-slate-50">
