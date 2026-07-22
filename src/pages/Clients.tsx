@@ -1,4 +1,5 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import {
   ChevronLeft,
   ChevronRight,
@@ -172,10 +173,30 @@ const statusLabels: Record<ClientStatus, string> = {
   prospect: 'Prospect',
 }
 
+export function hasMatchingClient(searchTerm: string): boolean {
+  const query = searchTerm.trim().toLowerCase()
+  if (!query) return false
+
+  return clients.some(
+    (client) =>
+      client.name.toLowerCase().includes(query) ||
+      client.contact.toLowerCase().includes(query) ||
+      client.email.toLowerCase().includes(query) ||
+      client.phone.includes(query) ||
+      client.producer.toLowerCase().includes(query) ||
+      statusLabels[client.status].toLowerCase().includes(query),
+  )
+}
+
 export function Clients() {
-  const [search, setSearch] = useState('')
+  const [searchParams, setSearchParams] = useSearchParams()
+  const search = searchParams.get('search') ?? ''
   const [page, setPage] = useState(1)
   const [selectedId, setSelectedId] = useState<number | null>(null)
+
+  useEffect(() => {
+    setPage(1)
+  }, [search])
 
   const filteredClients = useMemo(() => {
     const query = search.trim().toLowerCase()
@@ -205,7 +226,20 @@ export function Clients() {
   const rangeEnd = Math.min(currentPage * PAGE_SIZE, filteredClients.length)
 
   function handleSearchChange(value: string) {
-    setSearch(value)
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev)
+
+        if (value.trim()) {
+          next.set('search', value)
+        } else {
+          next.delete('search')
+        }
+
+        return next
+      },
+      { replace: true },
+    )
     setPage(1)
   }
 
@@ -222,7 +256,8 @@ export function Clients() {
           <input
             type="search"
             value={search}
-            onChange={(e) => handleSearchChange(e.target.value)}
+            onChange={(e) => handleSearchChange(e.currentTarget.value)}
+            onSearch={(e) => handleSearchChange(e.currentTarget.value)}
             placeholder="Search clients by name, contact, producer, or status..."
             className="h-10 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-4 text-sm text-slate-900 placeholder:text-slate-400 focus:border-alza-blue-500 focus:outline-none focus:ring-2 focus:ring-alza-blue-500/20"
           />
