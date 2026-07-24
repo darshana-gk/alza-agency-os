@@ -12,6 +12,7 @@ import { CSRs } from '@/pages/admin/CSRs'
 import { MGAs } from '@/pages/admin/MGAs'
 import { Carriers } from '@/pages/admin/Carriers'
 import { UsersPage } from '@/pages/admin/Users'
+import { TestSupabase } from '@/pages/TestSupabase'
 
 export default function App() {
   return (
@@ -29,6 +30,7 @@ export default function App() {
         <Route path="admin/mgas" element={<MGAs />} />
         <Route path="admin/carriers" element={<Carriers />} />
         <Route path="admin/users" element={<UsersPage />} />
+        <Route path="test-supabase" element={<TestSupabase />} />
       </Route>
     </Routes>
   )
