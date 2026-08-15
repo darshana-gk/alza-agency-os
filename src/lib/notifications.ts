@@ -452,26 +452,26 @@ export async function fetchOperationalNotifications(params: {
       )
     }
 
-    const isOwnProducerTx =
-      !hasProducerIdentity ||
-      !ownProducerName ||
-      producerKeysMatch(tx.producer, ownProducerName)
+    // Own-book match for producer commission context (Owner+Producer / CSR+Producer keep
+    // agency-wide lists; this flag only personalizes own-producer notification copy/items).
+    const isOwnProducerTx = Boolean(
+      hasProducerIdentity &&
+        ownProducerName &&
+        producerKeysMatch(tx.producer, ownProducerName),
+    )
 
-    if (
-      isReadyForPayout(tx) &&
-      roleAllowsKind(roleInput, 'ready_for_payout') &&
-      (producerLocked || !hasProducerIdentity || isOwnProducerTx)
-    ) {
+    // Producer-only transaction lists are already book-scoped above. Owner/Admin/CSR
+    // (including +Producer) must see agency-wide ready payouts.
+    if (isReadyForPayout(tx) && roleAllowsKind(roleInput, 'ready_for_payout')) {
       items.push(
         withReadState(
           {
             id: `ready_for_payout:${tx.id}`,
             kind: 'ready_for_payout',
             category: 'financials',
-            title:
-              producerLocked || hasProducerIdentity
-                ? 'Your commission is ready'
-                : 'Producer commission ready for payout',
+            title: isOwnProducerTx
+              ? 'Your commission is ready'
+              : 'Producer commission ready for payout',
             context: `${display(tx.producer)} · ${formatCurrency(tx.producerCommissionAmount)} · ${display(tx.transactionNumber)}`,
             dateLabel: tx.transactionDate || null,
             href: producerLocked ? `/transactions/${tx.id}` : '/financials?tab=payments',
