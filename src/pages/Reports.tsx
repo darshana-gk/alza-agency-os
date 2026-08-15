@@ -13,6 +13,7 @@ import {
 import {
   CalendarRange,
   CircleDollarSign,
+  Download,
   TrendingUp,
   Users,
   Wallet,
@@ -34,6 +35,7 @@ import {
   resolveProducerBookName,
   roleInputFromProfile,
 } from '../lib/permissions'
+import { exportProducerRevenueReport } from '../lib/reportsExport'
 
 const ALL = 'all'
 const MONTH_LABELS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
@@ -114,6 +116,8 @@ export function Reports() {
   const [policyFilter, setPolicyFilter] = useState(ALL)
   const [typeFilter, setTypeFilter] = useState(ALL)
   const [paymentFilter, setPaymentFilter] = useState(ALL)
+  const [exporting, setExporting] = useState(false)
+  const [exportError, setExportError] = useState<string | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -473,6 +477,60 @@ export function Reports() {
     })
   }, [filtered])
 
+  async function handleExportExcel() {
+    setExportError(null)
+    setExporting(true)
+    try {
+      const clientLabel =
+        clientFilter === ALL
+          ? ALL
+          : clientOptions.find((c) => c.id === clientFilter)?.name ?? clientFilter
+      const policyLabel =
+        policyFilter === ALL
+          ? ALL
+          : policyOptions.find((p) => p.id === policyFilter)?.number ?? policyFilter
+      const monthLabel =
+        monthFilter === ALL
+          ? ALL
+          : MONTH_LABELS[Number(monthFilter) - 1]
+            ? `${MONTH_LABELS[Number(monthFilter) - 1]} (${monthFilter})`
+            : monthFilter
+
+      await exportProducerRevenueReport({
+        filters: {
+          year: yearFilter,
+          month: monthLabel,
+          dateFrom,
+          dateTo,
+          producer: effectiveProducerFilter,
+          client: clientLabel,
+          policy: policyLabel,
+          transactionType: typeFilter === ALL ? ALL : formatTypeLabel(typeFilter),
+          producerPaymentStatus: paymentFilter === ALL ? ALL : formatLabel(paymentFilter),
+        },
+        kpis: {
+          total: kpis.total,
+          currentMonth: kpis.currentMonth,
+          currentYearTotal: kpis.currentYearTotal,
+          agencyNet: kpis.agencyNet,
+          earned: kpis.earned,
+          ready: kpis.ready,
+          paid: kpis.paid,
+        },
+        monthlyBreakdown,
+        detailRows,
+        security: {
+          producerBookScoped: producerLocked,
+          lockedProducerName: producerScope.lockedName,
+        },
+      })
+    } catch (err) {
+      setExportError(err instanceof Error ? err.message : 'Export failed.')
+    } finally {
+      setExporting(false)
+    }
+  }
+
   return (
     <div className="space-y-5">
       <div>
@@ -500,6 +558,12 @@ export function Reports() {
         </div>
       )}
 
+      {exportError && (
+        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          Export failed: {exportError}
+        </div>
+      )}
+
       <div className="rounded-xl border border-slate-200 bg-white shadow-sm">
         <div className="flex flex-col gap-3 border-b border-slate-100 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-2 text-sm font-medium text-slate-700">
@@ -509,15 +573,26 @@ export function Reports() {
               {filtered.length} {filtered.length === 1 ? 'transaction' : 'transactions'}
             </span>
           </div>
-          {hasActiveFilters && (
+          <div className="flex flex-wrap items-center gap-3">
             <button
               type="button"
-              onClick={clearFilters}
-              className="text-sm font-medium text-alza-blue-700 hover:text-alza-blue-800"
+              onClick={() => void handleExportExcel()}
+              disabled={loading || exporting}
+              className="inline-flex items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 shadow-sm transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
             >
-              Clear Filters
+              <Download className="h-4 w-4 text-slate-500" />
+              {exporting ? 'Exporting…' : 'Export Excel'}
             </button>
-          )}
+            {hasActiveFilters && (
+              <button
+                type="button"
+                onClick={clearFilters}
+                className="text-sm font-medium text-alza-blue-700 hover:text-alza-blue-800"
+              >
+                Clear Filters
+              </button>
+            )}
+          </div>
         </div>
         <div className="grid gap-3 px-4 py-3 sm:grid-cols-2 xl:grid-cols-4">
           <FilterSelect id="rep-year" label="Year" value={yearFilter} onChange={setYearFilter}>
