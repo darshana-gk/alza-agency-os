@@ -1,6 +1,6 @@
 # ALZA Flow
 
-A modern SaaS agency management platform built for **ALZA Business Solutions**.
+A modern SaaS agency management platform built for **ALZA Business Solutions LLP**.
 
 ## Tech Stack
 
@@ -42,6 +42,18 @@ VITE_SUPABASE_URL=your_supabase_project_url
 VITE_SUPABASE_ANON_KEY=your_supabase_anon_key
 ```
 
+Invite emails use Edge Function secret `APP_URL` (or `SITE_URL`), not Vite env:
+
+```bash
+# Local (Vite default port)
+npx supabase secrets set APP_URL=http://localhost:5173
+
+# Production
+npx supabase secrets set APP_URL=https://your-alza-flow-domain.com
+```
+
+Add the same origin under **Supabase Dashboard → Authentication → URL Configuration** (Site URL + Redirect URLs). Invite links land on `/auth/set-password`.
+
 ## Project Structure
 
 ```
@@ -77,7 +89,7 @@ src/
 
 ## Brand Colors
 
-The UI uses ALZA Business Solutions brand colors:
+The UI uses ALZA Business Solutions LLP brand colors:
 
 - **Blue** — `#1e40af` → `#2563eb`
 - **Teal** — `#0d9488` → `#14b8a6`
@@ -86,4 +98,4 @@ These are defined as custom Tailwind tokens (`alza-blue-*`, `alza-teal-*`).
 
 ---
 
-Built with ❤️ by ALZA Business Solutions
+Built with ❤️ by ALZA Business Solutions LLP

@@ -1,0 +1,8 @@
+# ALZA Flow — Supabase CLI project config
+# https://supabase.com/docs/guides/local-development/cli/config
+
+[functions.invite-alza-user]
+verify_jwt = true
+
+[functions.notify-transaction-review]
+verify_jwt = true

@@ -1,143 +1,92 @@
-import { useEffect, useMemo, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import type { FormEvent } from 'react'
+import { Link, useSearchParams } from 'react-router-dom'
+import {
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Legend,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from 'recharts'
 import {
   ChevronLeft,
   ChevronRight,
-  DollarSign,
   Plus,
   Search,
+  TrendingUp,
   UserCog,
   Users,
   Wallet,
+  X,
 } from 'lucide-react'
+import { SearchInput } from '../../components/ui/SearchInput'
+import { useAuth } from '../../lib/auth'
+import {
+  archiveProducer,
+  createProducer,
+  isAdminDirectoryRole,
+  updateProducer,
+} from '../../lib/directory'
+import {
+  fetchCommissionTransactions,
+  formatCurrency,
+  type CommissionTransaction,
+} from '../../lib/commission'
+import { supabase } from '../../lib/supabase'
 
 type ProducerStatus = 'active' | 'inactive'
 
 interface Producer {
-  id: number
+  id: string
   name: string
   email: string
   phone: string
-  commissionSplit: string
-  activeClients: number
-  activePolicies: number
-  writtenPremium: number
-  commissionDue: number
   status: ProducerStatus
+  notes: string
+  licenseNumber: string
+  defaultSplitPercentage: number | null
 }
 
-const producers: Producer[] = [
-  {
-    id: 1,
-    name: 'Michael Johnson',
-    email: 'mjohnson@alzaflow.com',
-    phone: '(555) 301-4401',
-    commissionSplit: '50%',
-    activeClients: 4,
-    activePolicies: 9,
-    writtenPremium: 148900,
-    commissionDue: 18612,
-    status: 'active',
-  },
-  {
-    id: 2,
-    name: 'Sarah Wilson',
-    email: 'swilson@alzaflow.com',
-    phone: '(555) 301-4402',
-    commissionSplit: '45%',
-    activeClients: 5,
-    activePolicies: 8,
-    writtenPremium: 121800,
-    commissionDue: 13702,
-    status: 'active',
-  },
-  {
-    id: 3,
-    name: 'James Carter',
-    email: 'jcarter@alzaflow.com',
-    phone: '(555) 301-4403',
-    commissionSplit: '40%',
-    activeClients: 3,
-    activePolicies: 5,
-    writtenPremium: 68600,
-    commissionDue: 8240,
-    status: 'active',
-  },
-  {
-    id: 4,
-    name: 'Emily Rodriguez',
-    email: 'erodriguez@alzaflow.com',
-    phone: '(555) 301-4404',
-    commissionSplit: '35%',
-    activeClients: 2,
-    activePolicies: 4,
-    writtenPremium: 52400,
-    commissionDue: 4585,
-    status: 'active',
-  },
-  {
-    id: 5,
-    name: 'David Park',
-    email: 'dpark@alzaflow.com',
-    phone: '(555) 301-4405',
-    commissionSplit: '30%',
-    activeClients: 2,
-    activePolicies: 3,
-    writtenPremium: 38200,
-    commissionDue: 2865,
-    status: 'active',
-  },
-  {
-    id: 6,
-    name: 'Rachel Thompson',
-    email: 'rthompson@alzaflow.com',
-    phone: '(555) 301-4406',
-    commissionSplit: '25%',
-    activeClients: 1,
-    activePolicies: 2,
-    writtenPremium: 21400,
-    commissionDue: 1284,
-    status: 'active',
-  },
-  {
-    id: 7,
-    name: 'Marcus Bennett',
-    email: 'mbennett@alzaflow.com',
-    phone: '(555) 301-4407',
-    commissionSplit: '20%',
-    activeClients: 0,
-    activePolicies: 0,
-    writtenPremium: 0,
-    commissionDue: 0,
-    status: 'inactive',
-  },
-  {
-    id: 8,
-    name: 'Laura Mitchell',
-    email: 'lmitchell@alzaflow.com',
-    phone: '(555) 301-4408',
-    commissionSplit: '15%',
-    activeClients: 1,
-    activePolicies: 1,
-    writtenPremium: 9600,
-    commissionDue: 432,
-    status: 'active',
-  },
-  {
-    id: 9,
-    name: 'Anthony Reyes',
-    email: 'areyes@alzaflow.com',
-    phone: '(555) 301-4409',
-    commissionSplit: '10%',
-    activeClients: 0,
-    activePolicies: 0,
-    writtenPremium: 8500,
-    commissionDue: 0,
-    status: 'inactive',
-  },
-]
+interface ProducerListRevenue {
+  currentMonth: number
+  currentYear: number
+  priorYear: number
+  totalEarned: number
+}
 
-const PAGE_SIZE = 5
+interface ProducerDetailRevenue {
+  currentMonth: number
+  currentYear: number
+  priorCalendarYear: number
+  totalEarned: number
+  ready: number
+  paid: number
+  selectedYearRevenue: number
+  priorYearRevenue: number
+  yoyChange: number
+  yoyPct: number | null
+  monthlyCompare: {
+    month: string
+    selected: number
+    prior: number
+    change: number
+  }[]
+  yearly: {
+    year: number
+    count: number
+    premium: number
+    revenue: number
+    paid: number
+    ready: number
+  }[]
+}
+
+const PAGE_SIZE = 10
+const ALL = 'all'
+const MONTH_LABELS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 
 const statusLabels: Record<ProducerStatus, string> = {
   active: 'Active',
@@ -149,324 +98,859 @@ const statusStyles: Record<ProducerStatus, string> = {
   inactive: 'bg-slate-100 text-slate-600 ring-slate-500/20',
 }
 
-function formatCurrency(amount: number): string {
-  return new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency: 'USD',
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0,
-  }).format(amount)
+const inputClassName =
+  'h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-900 placeholder:text-slate-400 focus:border-alza-blue-500 focus:outline-none focus:ring-2 focus:ring-alza-blue-500/20'
+const selectClassName =
+  'h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-900 focus:border-alza-blue-500 focus:outline-none focus:ring-2 focus:ring-alza-blue-500/20'
+const textareaClassName =
+  'w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-alza-blue-500 focus:outline-none focus:ring-2 focus:ring-alza-blue-500/20'
+
+function normalizeStatus(value: string | null): ProducerStatus {
+  return (value ?? '').toLowerCase() === 'inactive' ? 'inactive' : 'active'
 }
 
-function matchesProducerSearch(producer: Producer, query: string): boolean {
-  if (!query) return true
+/** Match producers.producer_name ↔ transactions.producer TEXT (no producer_id FK yet). */
+function normalizeProducerKey(name: string): string {
+  return name.trim().toLowerCase().replace(/\s+/g, ' ')
+}
 
-  return (
-    producer.name.toLowerCase().includes(query) ||
-    producer.email.toLowerCase().includes(query) ||
-    producer.phone.includes(query) ||
-    statusLabels[producer.status].toLowerCase().includes(query)
+function currentYear(): number {
+  return new Date().getFullYear()
+}
+
+function currentMonthKey(): string {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+}
+
+function emptyListRevenue(): ProducerListRevenue {
+  return { currentMonth: 0, currentYear: 0, priorYear: 0, totalEarned: 0 }
+}
+
+function emptyDetailRevenue(): ProducerDetailRevenue {
+  return {
+    currentMonth: 0,
+    currentYear: 0,
+    priorCalendarYear: 0,
+    totalEarned: 0,
+    ready: 0,
+    paid: 0,
+    selectedYearRevenue: 0,
+    priorYearRevenue: 0,
+    yoyChange: 0,
+    yoyPct: null,
+    monthlyCompare: MONTH_LABELS.map((month) => ({
+      month,
+      selected: 0,
+      prior: 0,
+      change: 0,
+    })),
+    yearly: [],
+  }
+}
+
+function formatSignedCurrency(amount: number): string {
+  const abs = formatCurrency(Math.abs(amount))
+  if (amount > 0) return `+${abs}`
+  if (amount < 0) return `-${abs}`
+  return abs
+}
+
+function formatYoyPct(pct: number | null): string {
+  if (pct === null) return '—'
+  const rounded = Math.round(pct * 10) / 10
+  const sign = rounded > 0 ? '+' : ''
+  return `${sign}${rounded.toFixed(1)}%`
+}
+
+function buildListRevenueMap(transactions: CommissionTransaction[]): Map<string, ProducerListRevenue> {
+  const map = new Map<string, ProducerListRevenue>()
+  const nowYear = String(currentYear())
+  const priorYear = String(currentYear() - 1)
+  const nowMonth = currentMonthKey()
+
+  function ensure(key: string): ProducerListRevenue {
+    let row = map.get(key)
+    if (!row) {
+      row = emptyListRevenue()
+      map.set(key, row)
+    }
+    return row
+  }
+
+  for (const tx of transactions) {
+    if (!tx.producer || tx.producer === '—') continue
+    const key = normalizeProducerKey(tx.producer)
+    const row = ensure(key)
+    const amount = tx.producerCommissionAmount
+    row.totalEarned += amount
+    const y = tx.transactionDate.slice(0, 4)
+    const ym = tx.transactionDate.slice(0, 7)
+    if (ym === nowMonth) row.currentMonth += amount
+    if (y === nowYear) row.currentYear += amount
+    if (y === priorYear) row.priorYear += amount
+  }
+
+  return map
+}
+
+function buildProducerDetail(
+  transactions: CommissionTransaction[],
+  producerName: string,
+  selectedYear: number,
+): ProducerDetailRevenue {
+  const key = normalizeProducerKey(producerName)
+  const matched = transactions.filter(
+    (tx) => tx.producer && tx.producer !== '—' && normalizeProducerKey(tx.producer) === key,
   )
+
+  const nowY = currentYear()
+  const nowMonth = currentMonthKey()
+  const priorSelected = selectedYear - 1
+  const detail = emptyDetailRevenue()
+  const yearlyMap = new Map<
+    number,
+    { count: number; premium: number; revenue: number; paid: number; ready: number }
+  >()
+
+  for (const tx of matched) {
+    const amount = tx.producerCommissionAmount
+    const y = Number(tx.transactionDate.slice(0, 4))
+    const monthIdx = Number(tx.transactionDate.slice(5, 7)) - 1
+    const ym = tx.transactionDate.slice(0, 7)
+
+    detail.totalEarned += amount
+    if (tx.producerPaymentStatus === 'ready') detail.ready += amount
+    if (tx.producerPaymentStatus === 'paid') detail.paid += amount
+    if (ym === nowMonth) detail.currentMonth += amount
+    if (y === nowY) detail.currentYear += amount
+    if (y === nowY - 1) detail.priorCalendarYear += amount
+    if (y === selectedYear) detail.selectedYearRevenue += amount
+    if (y === priorSelected) detail.priorYearRevenue += amount
+
+    if (monthIdx >= 0 && monthIdx < 12) {
+      if (y === selectedYear) detail.monthlyCompare[monthIdx].selected += amount
+      if (y === priorSelected) detail.monthlyCompare[monthIdx].prior += amount
+    }
+
+    if (Number.isFinite(y) && y > 0) {
+      const yearRow = yearlyMap.get(y) ?? { count: 0, premium: 0, revenue: 0, paid: 0, ready: 0 }
+      yearRow.count += 1
+      yearRow.premium += tx.amount
+      yearRow.revenue += amount
+      if (tx.producerPaymentStatus === 'paid') yearRow.paid += amount
+      if (tx.producerPaymentStatus === 'ready') yearRow.ready += amount
+      yearlyMap.set(y, yearRow)
+    }
+  }
+
+  for (const row of detail.monthlyCompare) {
+    row.change = row.selected - row.prior
+  }
+
+  detail.yoyChange = detail.selectedYearRevenue - detail.priorYearRevenue
+  detail.yoyPct =
+    detail.priorYearRevenue === 0
+      ? null
+      : (detail.yoyChange / detail.priorYearRevenue) * 100
+
+  detail.yearly = [...yearlyMap.entries()]
+    .sort((a, b) => b[0] - a[0])
+    .map(([year, row]) => ({ year, ...row }))
+
+  return detail
 }
 
 export function Producers() {
+  const { profile } = useAuth()
+  const canMutate = isAdminDirectoryRole(profile?.role)
   const [searchParams, setSearchParams] = useSearchParams()
   const search = searchParams.get('search') ?? ''
+  const statusFilter = searchParams.get('status') ?? ALL
+  const revenueYear = Number(searchParams.get('revenueYear') || currentYear()) || currentYear()
   const [page, setPage] = useState(1)
-  const [selectedId, setSelectedId] = useState<number | null>(null)
+  const [rows, setRows] = useState<Producer[]>([])
+  const [transactions, setTransactions] = useState<CommissionTransaction[]>([])
+  const [loading, setLoading] = useState(true)
+  const [fetchError, setFetchError] = useState<string | null>(null)
+  const [modalMode, setModalMode] = useState<'add' | 'edit' | null>(null)
+  const [selected, setSelected] = useState<Producer | null>(null)
+  const [saving, setSaving] = useState(false)
+  const [formError, setFormError] = useState<string | null>(null)
+  const [archiveConfirm, setArchiveConfirm] = useState(false)
+  const [detailYear, setDetailYear] = useState(currentYear())
+  const [form, setForm] = useState({
+    producerName: '',
+    email: '',
+    phone: '',
+    status: 'active',
+    notes: '',
+    licenseNumber: '',
+    defaultSplitPercentage: '',
+  })
+
+  const loadRows = useCallback(async () => {
+    setLoading(true)
+    setFetchError(null)
+    const [producerRes, txRes] = await Promise.all([
+      supabase
+        .from('producers')
+        .select('id, producer_name, email, phone, status, notes, license_number, default_split_percentage, archived_at')
+        .is('archived_at', null)
+        .order('producer_name', { ascending: true }),
+      fetchCommissionTransactions(),
+    ])
+
+    if (producerRes.error) {
+      setFetchError(producerRes.error.message)
+      setRows([])
+    } else {
+      setRows(
+        (producerRes.data ?? []).map((row) => ({
+          id: row.id as string,
+          name: String(row.producer_name ?? '').trim() || '—',
+          email: String(row.email ?? '').trim(),
+          phone: String(row.phone ?? '').trim(),
+          status: normalizeStatus(row.status as string | null),
+          notes: String(row.notes ?? '').trim(),
+          licenseNumber: String(row.license_number ?? '').trim(),
+          defaultSplitPercentage:
+            row.default_split_percentage === null || row.default_split_percentage === undefined
+              ? null
+              : Number(row.default_split_percentage),
+        })),
+      )
+    }
+
+    if (txRes.error) {
+      setFetchError((prev) => prev ?? txRes.error.message)
+      setTransactions([])
+    } else {
+      setTransactions(txRes.data)
+    }
+    setLoading(false)
+  }, [])
+
+  useEffect(() => {
+    void loadRows()
+  }, [loadRows])
 
   useEffect(() => {
     setPage(1)
-  }, [search])
+  }, [search, statusFilter])
 
-  const filteredProducers = useMemo(() => {
-    const query = search.trim().toLowerCase()
-    if (!query) return producers
-    return producers.filter((producer) => matchesProducerSearch(producer, query))
-  }, [search])
+  const revenueByProducer = useMemo(() => buildListRevenueMap(transactions), [transactions])
 
-  const summary = useMemo(() => {
-    const activeCount = producers.filter((p) => p.status === 'active').length
-    const totalPremium = producers.reduce((sum, p) => sum + p.writtenPremium, 0)
-    const totalCommissionDue = producers.reduce((sum, p) => sum + p.commissionDue, 0)
+  function listRevenueFor(name: string): ProducerListRevenue {
+    return revenueByProducer.get(normalizeProducerKey(name)) ?? emptyListRevenue()
+  }
 
-    return {
-      total: producers.length,
-      active: activeCount,
-      totalPremium,
-      totalCommissionDue,
-    }
-  }, [])
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase()
+    return rows.filter((p) => {
+      if (statusFilter !== ALL && p.status !== statusFilter) return false
+      if (!q) return true
+      return (
+        p.name.toLowerCase().includes(q) ||
+        p.email.toLowerCase().includes(q) ||
+        p.phone.toLowerCase().includes(q) ||
+        statusLabels[p.status].toLowerCase().includes(q)
+      )
+    })
+  }, [rows, search, statusFilter])
 
-  const totalPages = Math.max(1, Math.ceil(filteredProducers.length / PAGE_SIZE))
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
   const currentPage = Math.min(page, totalPages)
+  const paginated = filtered.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
+  const activeCount = rows.filter((p) => p.status === 'active').length
 
-  const paginatedProducers = useMemo(() => {
-    const start = (currentPage - 1) * PAGE_SIZE
-    return filteredProducers.slice(start, start + PAGE_SIZE)
-  }, [filteredProducers, currentPage])
+  const kpiRevenue = useMemo(() => {
+    let month = 0
+    let year = 0
+    let allTime = 0
+    for (const producer of rows) {
+      const rev = listRevenueFor(producer.name)
+      month += rev.currentMonth
+      year += rev.currentYear
+      allTime += rev.totalEarned
+    }
+    return { month, year, allTime }
+  }, [rows, revenueByProducer])
 
-  const rangeStart =
-    filteredProducers.length === 0 ? 0 : (currentPage - 1) * PAGE_SIZE + 1
-  const rangeEnd = Math.min(currentPage * PAGE_SIZE, filteredProducers.length)
+  const selectedRevenue = useMemo(() => {
+    if (!selected) return emptyDetailRevenue()
+    return buildProducerDetail(transactions, selected.name, detailYear)
+  }, [selected, transactions, detailYear])
 
-  function handleSearchChange(value: string) {
+  const yearOptions = useMemo(() => {
+    const years = new Set(
+      transactions
+        .map((tx) => Number(tx.transactionDate.slice(0, 4)))
+        .filter((y) => Number.isFinite(y) && y > 0),
+    )
+    years.add(currentYear())
+    years.add(revenueYear)
+    years.add(detailYear)
+    return [...years].sort((a, b) => b - a)
+  }, [transactions, revenueYear, detailYear])
+
+  function setParam(key: string, value: string) {
     setSearchParams(
       (prev) => {
         const next = new URLSearchParams(prev)
-
-        if (value.trim()) {
-          next.set('search', value)
-        } else {
-          next.delete('search')
-        }
-
+        if (!value || value === ALL) next.delete(key)
+        else next.set(key, value)
         return next
       },
       { replace: true },
     )
-    setPage(1)
   }
 
-  function handleRowClick(producer: Producer) {
-    setSelectedId(producer.id)
+  function openAdd() {
+    setSelected(null)
+    setForm({
+      producerName: '',
+      email: '',
+      phone: '',
+      status: 'active',
+      notes: '',
+      licenseNumber: '',
+      defaultSplitPercentage: '',
+    })
+    setFormError(null)
+    setArchiveConfirm(false)
+    setDetailYear(currentYear())
+    setModalMode('add')
+  }
+
+  function openEdit(producer: Producer) {
+    setSelected(producer)
+    setForm({
+      producerName: producer.name,
+      email: producer.email,
+      phone: producer.phone,
+      status: producer.status,
+      notes: producer.notes,
+      licenseNumber: producer.licenseNumber,
+      defaultSplitPercentage:
+        producer.defaultSplitPercentage === null ? '' : String(producer.defaultSplitPercentage),
+    })
+    setFormError(null)
+    setArchiveConfirm(false)
+    setDetailYear(currentYear())
+    setModalMode('edit')
+  }
+
+  async function handleSubmit(e: FormEvent) {
+    e.preventDefault()
+    if (!canMutate || saving) return
+    setSaving(true)
+    setFormError(null)
+
+    const splitRaw = form.defaultSplitPercentage.trim()
+    const split =
+      splitRaw === ''
+        ? null
+        : Number.isFinite(Number(splitRaw))
+          ? Number(splitRaw)
+          : NaN
+    if (splitRaw !== '' && (!Number.isFinite(split) || (split as number) < 0)) {
+      setSaving(false)
+      setFormError('Default split % must be a non-negative number.')
+      return
+    }
+
+    if (modalMode === 'add') {
+      const result = await createProducer({
+        producerName: form.producerName,
+        email: form.email,
+        phone: form.phone,
+        status: form.status,
+        notes: form.notes,
+        licenseNumber: form.licenseNumber,
+        defaultSplitPercentage: split,
+      })
+      setSaving(false)
+      if (result.error) {
+        setFormError(`RLS/query error on ${result.error.table} (${result.error.operation}): ${result.error.message}`)
+        return
+      }
+    } else if (modalMode === 'edit' && selected) {
+      const result = await updateProducer({
+        id: selected.id,
+        email: form.email,
+        phone: form.phone,
+        status: form.status,
+        notes: form.notes,
+        licenseNumber: form.licenseNumber,
+        defaultSplitPercentage: split,
+      })
+      setSaving(false)
+      if (result.error) {
+        setFormError(`RLS/query error on ${result.error.table} (${result.error.operation}): ${result.error.message}`)
+        return
+      }
+    }
+
+    setModalMode(null)
+    await loadRows()
+  }
+
+  async function handleArchive() {
+    if (!canMutate || !selected || saving) return
+    setSaving(true)
+    setFormError(null)
+    const result = await archiveProducer(selected.id)
+    setSaving(false)
+    if (result.error) {
+      setFormError(`RLS/query error on ${result.error.table} (${result.error.operation}): ${result.error.message}`)
+      setArchiveConfirm(false)
+      return
+    }
+    setModalMode(null)
+    setArchiveConfirm(false)
+    await loadRows()
   }
 
   return (
-    <div className="space-y-6">
-      {/* Toolbar */}
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div className="relative flex-1 sm:max-w-md">
-          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-          <input
-            type="search"
-            value={search}
-            onChange={(e) => handleSearchChange(e.currentTarget.value)}
-            onSearch={(e) => handleSearchChange(e.currentTarget.value)}
-            placeholder="Search producers by name, email, phone, or status..."
-            className="h-10 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-4 text-sm text-slate-900 placeholder:text-slate-400 focus:border-alza-blue-500 focus:outline-none focus:ring-2 focus:ring-alza-blue-500/20"
-          />
+    <div className="space-y-5">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+        <div className="flex flex-1 flex-col gap-3 sm:flex-row sm:items-center">
+          <div className="relative flex-1 sm:max-w-md">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+            <SearchInput
+              value={search}
+              onChange={(e) => setParam('search', e.currentTarget.value)}
+              onSearch={(e) => setParam('search', e.currentTarget.value)}
+              placeholder="Search producers..."
+              className="h-10 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-4 text-sm text-slate-900 placeholder:text-slate-400 focus:border-alza-blue-500 focus:outline-none focus:ring-2 focus:ring-alza-blue-500/20"
+            />
+          </div>
+          <select
+            value={statusFilter}
+            onChange={(e) => setParam('status', e.target.value)}
+            className={`${selectClassName} sm:w-40`}
+          >
+            <option value={ALL}>All statuses</option>
+            <option value="active">Active</option>
+            <option value="inactive">Inactive</option>
+          </select>
+          <select
+            value={String(revenueYear)}
+            onChange={(e) => setParam('revenueYear', e.target.value)}
+            className={`${selectClassName} sm:w-36`}
+            title="Revenue year context"
+          >
+            {yearOptions.map((year) => (
+              <option key={year} value={year}>{year}</option>
+            ))}
+          </select>
         </div>
-
-        <button className="inline-flex items-center justify-center gap-2 rounded-lg gradient-alza px-4 py-2.5 text-sm font-medium text-white shadow-sm transition-opacity hover:opacity-90">
-          <Plus className="h-4 w-4" />
-          Add Producer
-        </button>
+        {canMutate && (
+          <button
+            type="button"
+            onClick={openAdd}
+            className="inline-flex items-center justify-center gap-2 rounded-lg gradient-alza px-4 py-2.5 text-sm font-medium text-white shadow-sm hover:opacity-90"
+          >
+            <Plus className="h-4 w-4" />
+            Add Producer
+          </button>
+        )}
       </div>
 
-      {/* Summary cards */}
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-          <div className="flex items-start justify-between">
-            <div>
-              <p className="text-sm font-medium text-slate-500">Total Producers</p>
-              <p className="mt-2 text-2xl font-bold text-slate-900">{summary.total}</p>
-            </div>
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-alza-blue-50">
-              <UserCog className="h-5 w-5 text-alza-blue-600" />
-            </div>
-          </div>
-        </div>
-
-        <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-          <div className="flex items-start justify-between">
-            <div>
-              <p className="text-sm font-medium text-slate-500">Active Producers</p>
-              <p className="mt-2 text-2xl font-bold text-slate-900">{summary.active}</p>
-            </div>
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-50">
-              <Users className="h-5 w-5 text-emerald-600" />
-            </div>
-          </div>
-        </div>
-
-        <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-          <div className="flex items-start justify-between">
-            <div>
-              <p className="text-sm font-medium text-slate-500">Total Written Premium</p>
-              <p className="mt-2 text-2xl font-bold text-slate-900">
-                {formatCurrency(summary.totalPremium)}
-              </p>
-            </div>
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-alza-teal-50">
-              <DollarSign className="h-5 w-5 text-alza-teal-600" />
-            </div>
-          </div>
-        </div>
-
-        <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-          <div className="flex items-start justify-between">
-            <div>
-              <p className="text-sm font-medium text-slate-500">Total Producer Commission Due</p>
-              <p className="mt-2 text-2xl font-bold text-slate-900">
-                {formatCurrency(summary.totalCommissionDue)}
-              </p>
-            </div>
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-violet-50">
-              <Wallet className="h-5 w-5 text-violet-600" />
-            </div>
-          </div>
-        </div>
+      <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+        <KpiCard label="Total Producers" value={String(rows.length)} icon={UserCog} tone="blue" />
+        <KpiCard label="Active Producers" value={String(activeCount)} icon={Users} tone="teal" />
+        <KpiCard label="Current Month Producer Revenue" value={formatCurrency(kpiRevenue.month)} icon={TrendingUp} tone="amber" />
+        <KpiCard label="Current Year Producer Revenue" value={formatCurrency(kpiRevenue.year)} icon={Wallet} tone="violet" />
+      </div>
+      <div className="rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm text-slate-600 shadow-sm">
+        All-time producer revenue earned (stored commission):{' '}
+        <span className="font-semibold tabular-nums text-slate-900">{formatCurrency(kpiRevenue.allTime)}</span>
+        <span className="mt-1 block text-xs text-slate-400">
+          Matched by normalized producer name text. Long-term should use producer_id UUID FK.
+        </span>
       </div>
 
-      {/* Table */}
+      {fetchError && (
+        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          Failed to load producers: {fetchError}
+        </div>
+      )}
+
       <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
         <div className="overflow-x-auto">
-          <table className="min-w-full">
+          <table className="min-w-[1100px] w-full">
             <thead>
               <tr className="border-b border-slate-200 bg-slate-50/80">
-                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">
-                  Producer Name
-                </th>
-                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">
-                  Email
-                </th>
-                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">
-                  Phone
-                </th>
-                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">
-                  Commission Split
-                </th>
-                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">
-                  Active Clients
-                </th>
-                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">
-                  Active Policies
-                </th>
-                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">
-                  Written Premium
-                </th>
-                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">
-                  Commission Due
-                </th>
-                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">
-                  Status
-                </th>
+                {['Producer', 'Email', 'Phone', 'Split %', 'Current Month', 'Current Year', 'Total Earned', 'Status'].map((col) => (
+                  <th
+                    key={col}
+                    className={`px-4 py-3 text-xs font-semibold uppercase tracking-wider text-slate-500 ${
+                      ['Current Month', 'Current Year', 'Total Earned', 'Split %'].includes(col) ? 'text-right' : 'text-left'
+                    }`}
+                  >
+                    {col}
+                  </th>
+                ))}
               </tr>
             </thead>
-
             <tbody className="divide-y divide-slate-100">
-              {paginatedProducers.length === 0 ? (
+              {loading ? (
                 <tr>
-                  <td colSpan={9} className="px-6 py-12 text-center">
-                    <div className="mx-auto flex max-w-sm flex-col items-center gap-2">
-                      <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-slate-100">
-                        <Search className="h-5 w-5 text-slate-400" />
-                      </div>
-                      <p className="text-sm font-medium text-slate-900">No producers found</p>
-                      <p className="text-sm text-slate-500">
-                        Try adjusting your search terms or add a new producer.
-                      </p>
-                    </div>
+                  <td colSpan={8} className="px-6 py-12 text-center text-sm text-slate-600">
+                    Loading producers...
+                  </td>
+                </tr>
+              ) : paginated.length === 0 ? (
+                <tr>
+                  <td colSpan={8} className="px-6 py-12 text-center text-sm text-slate-500">
+                    No producers found
                   </td>
                 </tr>
               ) : (
-                paginatedProducers.map((producer) => (
-                  <tr
-                    key={producer.id}
-                    onClick={() => handleRowClick(producer)}
-                    className={`cursor-pointer transition-colors hover:bg-alza-blue-50/60 ${
-                      selectedId === producer.id ? 'bg-alza-blue-50' : ''
-                    }`}
-                  >
-                    <td className="whitespace-nowrap px-4 py-4">
-                      <p className="text-sm font-medium text-slate-900">{producer.name}</p>
-                    </td>
-
-                    <td className="whitespace-nowrap px-4 py-4 text-sm text-slate-700">
-                      {producer.email}
-                    </td>
-
-                    <td className="whitespace-nowrap px-4 py-4 text-sm text-slate-700">
-                      {producer.phone}
-                    </td>
-
-                    <td className="whitespace-nowrap px-4 py-4 text-sm font-medium text-alza-blue-700">
-                      {producer.commissionSplit}
-                    </td>
-
-                    <td className="whitespace-nowrap px-4 py-4 text-sm text-slate-700">
-                      {producer.activeClients}
-                    </td>
-
-                    <td className="whitespace-nowrap px-4 py-4 text-sm text-slate-700">
-                      {producer.activePolicies}
-                    </td>
-
-                    <td className="whitespace-nowrap px-4 py-4 text-sm font-semibold text-slate-900">
-                      {formatCurrency(producer.writtenPremium)}
-                    </td>
-
-                    <td className="whitespace-nowrap px-4 py-4 text-sm font-semibold text-slate-900">
-                      {formatCurrency(producer.commissionDue)}
-                    </td>
-
-                    <td className="whitespace-nowrap px-4 py-4">
-                      <span
-                        className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ring-inset ${statusStyles[producer.status]}`}
-                      >
-                        {statusLabels[producer.status]}
-                      </span>
-                    </td>
-                  </tr>
-                ))
+                paginated.map((producer) => {
+                  const rev = listRevenueFor(producer.name)
+                  return (
+                    <tr
+                      key={producer.id}
+                      onClick={() => openEdit(producer)}
+                      className="cursor-pointer hover:bg-alza-blue-50/60"
+                    >
+                      <td className="px-4 py-4 text-sm font-medium text-alza-blue-700">{producer.name}</td>
+                      <td className="px-4 py-4 text-sm text-slate-700">{producer.email || '—'}</td>
+                      <td className="px-4 py-4 text-sm text-slate-700">{producer.phone || '—'}</td>
+                      <td className="px-4 py-4 text-right text-sm tabular-nums text-slate-700">
+                        {producer.defaultSplitPercentage === null ? '—' : `${producer.defaultSplitPercentage}%`}
+                      </td>
+                      <td className="px-4 py-4 text-right text-sm font-medium tabular-nums text-slate-900">
+                        {formatCurrency(rev.currentMonth)}
+                      </td>
+                      <td className="px-4 py-4 text-right text-sm font-medium tabular-nums text-slate-900">
+                        {formatCurrency(rev.currentYear)}
+                      </td>
+                      <td className="px-4 py-4 text-right text-sm font-semibold tabular-nums text-slate-900">
+                        {formatCurrency(rev.totalEarned)}
+                      </td>
+                      <td className="px-4 py-4">
+                        <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ring-inset ${statusStyles[producer.status]}`}>
+                          {statusLabels[producer.status]}
+                        </span>
+                      </td>
+                    </tr>
+                  )
+                })
               )}
             </tbody>
           </table>
         </div>
-
-        {/* Pagination */}
-        <div className="flex flex-col gap-3 border-t border-slate-200 bg-slate-50/50 px-6 py-4 sm:flex-row sm:items-center sm:justify-between">
-          <p className="text-sm text-slate-600">
-            Showing{' '}
-            <span className="font-medium text-slate-900">
-              {rangeStart}–{rangeEnd}
-            </span>{' '}
-            of{' '}
-            <span className="font-medium text-slate-900">{filteredProducers.length}</span>{' '}
-            producers
-          </p>
-
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => setPage((p) => Math.max(1, p - 1))}
-              disabled={currentPage <= 1}
-              className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              <ChevronLeft className="h-4 w-4" />
-              Previous
-            </button>
-
-            <div className="flex items-center gap-1">
-              {Array.from({ length: totalPages }, (_, i) => i + 1).map((pageNum) => (
-                <button
-                  key={pageNum}
-                  type="button"
-                  onClick={() => setPage(pageNum)}
-                  className={`h-8 min-w-8 rounded-lg px-2 text-sm font-medium transition-colors ${
-                    pageNum === currentPage
-                      ? 'gradient-alza text-white shadow-sm'
-                      : 'border border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
-                  }`}
-                >
-                  {pageNum}
-                </button>
-              ))}
+        {!loading && filtered.length > 0 && (
+          <div className="flex flex-col gap-3 border-t border-slate-200 px-6 py-4 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-sm text-slate-600">
+              Showing {(currentPage - 1) * PAGE_SIZE + 1}-{Math.min(currentPage * PAGE_SIZE, filtered.length)} of {filtered.length}
+            </p>
+            <div className="flex items-center gap-2">
+              <button type="button" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={currentPage <= 1} className="inline-flex h-9 items-center gap-1 rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50">
+                <ChevronLeft className="h-4 w-4" /> Previous
+              </button>
+              <span className="text-sm text-slate-600">Page {currentPage} of {totalPages}</span>
+              <button type="button" onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={currentPage >= totalPages} className="inline-flex h-9 items-center gap-1 rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50">
+                Next <ChevronRight className="h-4 w-4" />
+              </button>
             </div>
+          </div>
+        )}
+      </div>
 
-            <button
-              type="button"
-              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-              disabled={currentPage >= totalPages}
-              className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              Next
-              <ChevronRight className="h-4 w-4" />
-            </button>
+      {modalMode && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <button type="button" className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" aria-label="Close" onClick={() => !saving && setModalMode(null)} />
+          <div className="relative max-h-[92vh] w-full max-w-3xl overflow-y-auto rounded-xl border border-slate-200 bg-white shadow-2xl">
+            <div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-200 bg-white px-5 py-4">
+              <h3 className="text-lg font-semibold text-slate-900">{modalMode === 'add' ? 'Add Producer' : 'Edit Producer'}</h3>
+              <button type="button" disabled={saving} onClick={() => setModalMode(null)} className="rounded-lg p-2 text-slate-500 hover:bg-slate-100">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <form onSubmit={handleSubmit} className="space-y-4 px-5 py-4">
+              {formError && <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{formError}</div>}
+              <div>
+                <label className="mb-1 block text-xs font-medium uppercase tracking-wider text-slate-500">Producer name *</label>
+                <input
+                  required
+                  disabled={modalMode === 'edit'}
+                  className={`${inputClassName} ${modalMode === 'edit' ? 'bg-slate-50 text-slate-600' : ''}`}
+                  value={form.producerName}
+                  onChange={(e) => setForm((f) => ({ ...f, producerName: e.target.value }))}
+                />
+                {modalMode === 'edit' && (
+                  <p className="mt-1 text-xs text-slate-500">
+                    Name is locked because clients, policies, and transactions store the producer as text.
+                  </p>
+                )}
+              </div>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div>
+                  <label className="mb-1 block text-xs font-medium uppercase tracking-wider text-slate-500">Email</label>
+                  <input type="email" className={inputClassName} value={form.email} onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))} />
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs font-medium uppercase tracking-wider text-slate-500">Phone</label>
+                  <input className={inputClassName} value={form.phone} onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))} />
+                </div>
+              </div>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div>
+                  <label className="mb-1 block text-xs font-medium uppercase tracking-wider text-slate-500">License #</label>
+                  <input className={inputClassName} value={form.licenseNumber} onChange={(e) => setForm((f) => ({ ...f, licenseNumber: e.target.value }))} />
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs font-medium uppercase tracking-wider text-slate-500">Default split %</label>
+                  <input type="number" min="0" step="0.01" className={inputClassName} value={form.defaultSplitPercentage} onChange={(e) => setForm((f) => ({ ...f, defaultSplitPercentage: e.target.value }))} />
+                </div>
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-medium uppercase tracking-wider text-slate-500">Status</label>
+                <select className={selectClassName} value={form.status} onChange={(e) => setForm((f) => ({ ...f, status: e.target.value }))}>
+                  <option value="active">Active</option>
+                  <option value="inactive">Inactive</option>
+                </select>
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-medium uppercase tracking-wider text-slate-500">Notes</label>
+                <textarea rows={3} className={textareaClassName} value={form.notes} onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))} />
+              </div>
+
+              {modalMode === 'edit' && selected && (
+                <div className="rounded-lg border border-slate-200 bg-slate-50/70 p-4">
+                  <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <p className="text-sm font-semibold text-slate-900">Revenue Summary</p>
+                      <p className="text-xs text-slate-500">Stored producer_commission_amount · name-matched</p>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <select
+                        value={String(detailYear)}
+                        onChange={(e) => setDetailYear(Number(e.target.value))}
+                        className={`${selectClassName} w-28`}
+                      >
+                        {yearOptions.map((year) => (
+                          <option key={year} value={year}>{year}</option>
+                        ))}
+                      </select>
+                      <Link
+                        to={`/reports?producer=${encodeURIComponent(selected.name)}`}
+                        className="inline-flex items-center rounded-lg border border-alza-blue-200 bg-alza-blue-50 px-3 py-2 text-sm font-medium text-alza-blue-800 hover:bg-alza-blue-100"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        View Full Revenue Report
+                      </Link>
+                    </div>
+                  </div>
+
+                  <div className="grid gap-2 sm:grid-cols-3 lg:grid-cols-5">
+                    <MiniStat label="Current Month" value={formatCurrency(selectedRevenue.currentMonth)} />
+                    <MiniStat label="Current Year" value={formatCurrency(selectedRevenue.currentYear)} />
+                    <MiniStat label="Prior Year" value={formatCurrency(selectedRevenue.priorCalendarYear)} />
+                    <MiniStat label="All Time" value={formatCurrency(selectedRevenue.totalEarned)} />
+                    <MiniStat
+                      label="YoY (calendar)"
+                      value={
+                        selectedRevenue.priorCalendarYear === 0
+                          ? '—'
+                          : formatYoyPct(
+                              ((selectedRevenue.currentYear - selectedRevenue.priorCalendarYear) /
+                                selectedRevenue.priorCalendarYear) *
+                                100,
+                            )
+                      }
+                      hint={formatSignedCurrency(selectedRevenue.currentYear - selectedRevenue.priorCalendarYear)}
+                    />
+                  </div>
+
+                  <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                    <MiniStat label={`${detailYear} Revenue`} value={formatCurrency(selectedRevenue.selectedYearRevenue)} />
+                    <MiniStat label={`${detailYear - 1} Revenue`} value={formatCurrency(selectedRevenue.priorYearRevenue)} />
+                    <MiniStat label="Change" value={formatSignedCurrency(selectedRevenue.yoyChange)} />
+                    <MiniStat label="YoY" value={formatYoyPct(selectedRevenue.yoyPct)} />
+                  </div>
+
+                  <div className="mt-3 grid gap-2 sm:grid-cols-3">
+                    <MiniStat label="Earned" value={formatCurrency(selectedRevenue.totalEarned)} hint="All non-archived" />
+                    <MiniStat label="Ready" value={formatCurrency(selectedRevenue.ready)} hint="payment_status = ready" />
+                    <MiniStat label="Paid" value={formatCurrency(selectedRevenue.paid)} hint="payment_status = paid" />
+                  </div>
+
+                  <div className="mt-4">
+                    <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-500">
+                      Monthly comparison · {detailYear} vs {detailYear - 1}
+                    </p>
+                    <div className="mb-3 h-52 w-full rounded-lg border border-slate-200 bg-white p-2">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart data={selectedRevenue.monthlyCompare} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                          <XAxis dataKey="month" tick={{ fill: '#64748b', fontSize: 11 }} />
+                          <YAxis
+                            tick={{ fill: '#64748b', fontSize: 11 }}
+                            tickFormatter={(v) =>
+                              new Intl.NumberFormat('en-US', {
+                                notation: 'compact',
+                                maximumFractionDigits: 1,
+                              }).format(Number(v))
+                            }
+                          />
+                          <Tooltip
+                            formatter={(value: number) => formatCurrency(value)}
+                            contentStyle={{ borderRadius: 8, borderColor: '#e2e8f0' }}
+                          />
+                          <Legend />
+                          <Bar dataKey="selected" name={String(detailYear)} fill="#2563eb" radius={[3, 3, 0, 0]} />
+                          <Bar dataKey="prior" name={String(detailYear - 1)} fill="#94a3b8" radius={[3, 3, 0, 0]} />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </div>
+                    <div className="overflow-x-auto">
+                      <table className="min-w-full text-sm">
+                        <thead>
+                          <tr className="border-b border-slate-200 text-left text-xs uppercase tracking-wider text-slate-500">
+                            <th className="px-2 py-1.5">Month</th>
+                            <th className="px-2 py-1.5 text-right">{detailYear}</th>
+                            <th className="px-2 py-1.5 text-right">{detailYear - 1}</th>
+                            <th className="px-2 py-1.5 text-right">Change</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                          {selectedRevenue.monthlyCompare.map((row) => (
+                            <tr key={row.month}>
+                              <td className="px-2 py-1.5 font-medium text-slate-900">{row.month}</td>
+                              <td className="px-2 py-1.5 text-right font-semibold tabular-nums text-slate-900">{formatCurrency(row.selected)}</td>
+                              <td className="px-2 py-1.5 text-right tabular-nums text-slate-700">{formatCurrency(row.prior)}</td>
+                              <td className="px-2 py-1.5 text-right tabular-nums text-slate-700">{formatSignedCurrency(row.change)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+
+                  <div className="mt-4 overflow-x-auto">
+                    <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-500">
+                      All-years performance
+                    </p>
+                    <table className="min-w-full text-sm">
+                      <thead>
+                        <tr className="border-b border-slate-200 text-left text-xs uppercase tracking-wider text-slate-500">
+                          <th className="px-2 py-1.5">Year</th>
+                          <th className="px-2 py-1.5 text-right">Transactions</th>
+                          <th className="px-2 py-1.5 text-right">Premium Volume</th>
+                          <th className="px-2 py-1.5 text-right">Producer Revenue</th>
+                          <th className="px-2 py-1.5 text-right">Paid</th>
+                          <th className="px-2 py-1.5 text-right">Ready</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {selectedRevenue.yearly.length === 0 ? (
+                          <tr>
+                            <td colSpan={6} className="px-2 py-6 text-center text-slate-500">
+                              No transactions for this producer
+                            </td>
+                          </tr>
+                        ) : (
+                          selectedRevenue.yearly.map((row) => (
+                            <tr key={row.year}>
+                              <td className="px-2 py-1.5 font-semibold text-slate-900">{row.year}</td>
+                              <td className="px-2 py-1.5 text-right tabular-nums text-slate-700">{row.count}</td>
+                              <td className="px-2 py-1.5 text-right tabular-nums text-slate-700">{formatCurrency(row.premium)}</td>
+                              <td className="px-2 py-1.5 text-right font-semibold tabular-nums text-slate-900">{formatCurrency(row.revenue)}</td>
+                              <td className="px-2 py-1.5 text-right tabular-nums text-slate-700">{formatCurrency(row.paid)}</td>
+                              <td className="px-2 py-1.5 text-right tabular-nums text-slate-700">{formatCurrency(row.ready)}</td>
+                            </tr>
+                          ))
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              {modalMode === 'edit' && archiveConfirm && (
+                <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-3 text-sm text-amber-900">
+                  <p className="font-medium">Archive this producer?</p>
+                  <p className="mt-1 text-amber-800">Soft-archives the record (sets archived_at). Historical text references on policies/transactions are unchanged. This cannot be undone from this screen.</p>
+                  <div className="mt-3 flex gap-2">
+                    <button type="button" disabled={saving} onClick={() => setArchiveConfirm(false)} className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-700">Cancel</button>
+                    <button type="button" disabled={saving} onClick={() => void handleArchive()} className="rounded-lg bg-amber-700 px-3 py-1.5 text-sm font-medium text-white hover:bg-amber-800 disabled:opacity-60">
+                      {saving ? 'Archiving…' : 'Confirm archive'}
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              <div className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 pt-4">
+                {modalMode === 'edit' && canMutate && !archiveConfirm ? (
+                  <button type="button" disabled={saving} onClick={() => setArchiveConfirm(true)} className="rounded-lg border border-amber-200 px-4 py-2 text-sm font-medium text-amber-800 hover:bg-amber-50">
+                    Soft Archive
+                  </button>
+                ) : (
+                  <span />
+                )}
+                <div className="flex gap-2">
+                  <button type="button" disabled={saving} onClick={() => setModalMode(null)} className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">
+                    Cancel
+                  </button>
+                  {canMutate && (
+                    <button type="submit" disabled={saving || archiveConfirm} className="rounded-lg gradient-alza px-4 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-60">
+                      {saving ? 'Saving…' : 'Save'}
+                    </button>
+                  )}
+                </div>
+              </div>
+            </form>
           </div>
         </div>
+      )}
+    </div>
+  )
+}
+
+function KpiCard({
+  label,
+  value,
+  icon: Icon,
+  tone,
+}: {
+  label: string
+  value: string
+  icon: typeof Wallet
+  tone: 'blue' | 'teal' | 'amber' | 'violet'
+}) {
+  const tones = {
+    blue: 'bg-alza-blue-50 text-alza-blue-600',
+    teal: 'bg-alza-teal-50 text-alza-teal-600',
+    amber: 'bg-amber-50 text-amber-600',
+    violet: 'bg-violet-50 text-violet-600',
+  }
+  return (
+    <div className="rounded-lg border border-slate-200 bg-white px-3.5 py-2.5 shadow-sm">
+      <div className="flex items-center justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-xs font-medium text-slate-500">{label}</p>
+          <p className="mt-0.5 truncate text-base font-bold tabular-nums text-slate-900">{value}</p>
+        </div>
+        <div className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-md ${tones[tone]}`}>
+          <Icon className="h-3.5 w-3.5" />
+        </div>
       </div>
+    </div>
+  )
+}
+
+function MiniStat({ label, value, hint }: { label: string; value: string; hint?: string }) {
+  return (
+    <div className="rounded-lg border border-slate-200 bg-white px-3 py-2">
+      <p className="text-xs font-medium text-slate-500">{label}</p>
+      <p className="mt-0.5 text-sm font-semibold tabular-nums text-slate-900">{value}</p>
+      {hint ? <p className="mt-0.5 text-[11px] text-slate-400">{hint}</p> : null}
     </div>
   )
 }

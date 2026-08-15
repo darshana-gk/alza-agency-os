@@ -1,13 +1,12 @@
 import {
   DollarSign,
-  CreditCard,
-  Users,
   RotateCcw,
   CalendarClock,
   FileCheck,
   UserPlus,
   RefreshCw,
 } from 'lucide-react'
+import { Link } from 'react-router-dom'
 import type { ActivityItem } from '@/types'
 
 const typeConfig = {
@@ -54,9 +53,12 @@ export function RecentActivity({ activities }: RecentActivityProps) {
       </div>
 
       <div className="border-t border-slate-100 px-5 py-3">
-        <button className="text-sm font-medium text-alza-blue-600 hover:text-alza-blue-700 transition-colors">
+        <Link
+          to="/activity"
+          className="text-sm font-medium text-alza-blue-600 hover:text-alza-blue-700 transition-colors"
+        >
           View all activity →
-        </button>
+        </Link>
       </div>
     </div>
   )

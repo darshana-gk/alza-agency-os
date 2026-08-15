@@ -1,73 +1,123 @@
-import { Link, useParams } from 'react-router-dom'
+import { useCallback, useEffect, useState } from 'react'
+import type { FormEvent } from 'react'
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import {
   ArrowLeft,
   Building2,
-  ClipboardList,
   DollarSign,
-  FileCheck,
   FileText,
   MessageSquare,
-  RefreshCw,
-  ScrollText,
-  Shield,
+  Pencil,
+  Plus,
   StickyNote,
+  X,
 } from 'lucide-react'
+import { AddPolicyModal } from '../components/policies/AddPolicyModal'
+import { DirectoryNameSelect } from '../components/directory/DirectoryNameSelect'
+import { useAuth } from '../lib/auth'
+import {
+  financialsReturnFromLocation,
+  transactionLinkState,
+  withFinancialsReturn,
+} from '../lib/financialsNav'
+import {
+  fetchCommissionTransactions,
+  fetchPolicyTransactionSummaries,
+  formatCurrency as formatMoney,
+  formatTypeLabel,
+} from '../lib/commission'
+import { updateClient } from '../lib/directory'
+import {
+  canManageClients,
+  canManagePolicies,
+  isProducerBookScoped,
+  producerKeysMatch,
+  roleInputFromProfile,
+} from '../lib/permissions'
+import { supabase } from '../lib/supabase'
 
 type ClientStatus = 'active' | 'pending' | 'inactive' | 'prospect'
 type PolicyStatus = 'active' | 'pending' | 'expired' | 'cancelled' | 'renewal_due'
-type ActivityType = 'quote' | 'policy_bound' | 'endorsement' | 'audit' | 'renewal' | 'note'
-type DocumentCategory = 'policy_pdf' | 'coi' | 'application' | 'signed_form'
 
 interface ClientPolicy {
+  id: string
   policyNumber: string
   policyType: string
   carrier: string
   mga: string
   effectiveDate: string
   expirationDate: string
-  premium: number
+  /** Original policies.premium (written) — not used for summary Total Premium column. */
+  writtenPremium: number
   status: PolicyStatus
+  transactionCount: number
+  totalPremium: number
+  latestTransactionDate: string | null
 }
 
 interface ClientFinancials {
-  totalWrittenPremium: number
-  brokerFees: number
-  carrierCommission: number
+  totalPremium: number
+  agencyCommission: number
   producerCommission: number
-  outstandingBalance: number
-}
-
-interface ClientActivity {
-  id: string
-  type: ActivityType
-  title: string
-  description: string
-  date: string
-}
-
-interface ClientDocument {
-  id: string
-  name: string
-  category: DocumentCategory
-  uploadedAt: string
+  /** Agency commission on transactions still awaiting receipt confirmation. */
+  outstandingAgencyCommission: number
 }
 
 interface ClientDetail {
-  id: number
+  id: string
+  clientNumber: string
   businessName: string
   dba: string
   fein: string
   contact: string
   phone: string
   email: string
+  mailingAddress: string
+  physicalAddress: string
   address: string
   producer: string
   csr: string
   status: ClientStatus
+  notes: string
   policies: ClientPolicy[]
   financials: ClientFinancials
-  activities: ClientActivity[]
-  documents: ClientDocument[]
+  recentTransactions: {
+    id: string
+    transactionNumber: string
+    transactionDate: string
+    type: string
+    amount: number
+    policyNumber: string
+  }[]
+}
+
+interface ClientRow {
+  id: string
+  client_number: string | null
+  business_name: string | null
+  dba: string | null
+  fein: string | null
+  contact_name: string | null
+  email: string | null
+  phone: string | null
+  mailing_address: string | null
+  physical_address: string | null
+  producer: string | null
+  csr: string | null
+  status: string | null
+  notes: string | null
+}
+
+interface PolicyRow {
+  id: string
+  policy_number: string | null
+  policy_type: string | null
+  carrier: string | null
+  mga: string | null
+  effective_date: string | null
+  expiration_date: string | null
+  premium: number | string | null
+  status: string | null
 }
 
 const clientStatusLabels: Record<ClientStatus, string> = {
@@ -100,412 +150,51 @@ const policyStatusStyles: Record<PolicyStatus, string> = {
   renewal_due: 'bg-orange-50 text-orange-700 ring-orange-600/20',
 }
 
-const activityConfig: Record<
-  ActivityType,
-  { label: string; icon: typeof FileText; color: string }
-> = {
-  quote: { label: 'Quote', icon: ScrollText, color: 'text-alza-blue-600 bg-alza-blue-50' },
-  policy_bound: { label: 'Policy Bound', icon: FileCheck, color: 'text-emerald-600 bg-emerald-50' },
-  endorsement: { label: 'Endorsement', icon: ClipboardList, color: 'text-violet-600 bg-violet-50' },
-  audit: { label: 'Audit', icon: Shield, color: 'text-orange-600 bg-orange-50' },
-  renewal: { label: 'Renewal', icon: RefreshCw, color: 'text-alza-teal-600 bg-alza-teal-50' },
-  note: { label: 'Note', icon: StickyNote, color: 'text-slate-600 bg-slate-100' },
-}
-
-const documentCategoryLabels: Record<DocumentCategory, string> = {
-  policy_pdf: 'Policy PDFs',
-  coi: 'COIs',
-  application: 'Applications',
-  signed_form: 'Signed Forms',
-}
-
-const clientDetails: ClientDetail[] = [
-  {
-    id: 1,
-    businessName: 'ABC Construction LLC',
-    dba: 'ABC Builders',
-    fein: '84-2917365',
-    contact: 'John Miller',
-    phone: '(555) 123-4567',
-    email: 'john@abcconstruction.com',
-    address: '1240 Industrial Parkway, Austin, TX 78744',
-    producer: 'Michael Johnson',
-    csr: 'Emily Nguyen',
-    status: 'active',
-    policies: [
-      {
-        policyNumber: 'CGL-2026-004821',
-        policyType: 'Commercial General Liability',
-        carrier: 'Hartford',
-        mga: 'AmWINS Brokerage',
-        effectiveDate: '2026-01-15',
-        expirationDate: '2027-01-15',
-        premium: 18500,
-        status: 'active',
-      },
-      {
-        policyNumber: 'WC-2026-004822',
-        policyType: 'Workers Compensation',
-        carrier: 'Employers',
-        mga: 'Burns & Wilcox',
-        effectiveDate: '2026-01-15',
-        expirationDate: '2027-01-15',
-        premium: 24000,
-        status: 'active',
-      },
-      {
-        policyNumber: 'CA-2025-004820',
-        policyType: 'Commercial Auto',
-        carrier: 'Travelers',
-        mga: 'RT Specialty',
-        effectiveDate: '2025-06-01',
-        expirationDate: '2026-06-01',
-        premium: 0,
-        status: 'expired',
-      },
-    ],
-    financials: {
-      totalWrittenPremium: 42500,
-      brokerFees: 2125,
-      carrierCommission: 6375,
-      producerCommission: 4250,
-      outstandingBalance: 1850,
-    },
-    activities: [
-      {
-        id: '1',
-        type: 'renewal',
-        title: 'Renewal quote requested',
-        description: 'CGL policy renewal — Hartford quote in progress',
-        date: '2026-07-18',
-      },
-      {
-        id: '2',
-        type: 'endorsement',
-        title: 'Additional insured added',
-        description: 'City of Austin added to CGL-2026-004821',
-        date: '2026-06-22',
-      },
-      {
-        id: '3',
-        type: 'policy_bound',
-        title: 'Workers Comp policy bound',
-        description: 'WC-2026-004822 effective 01/15/2026',
-        date: '2026-01-10',
-      },
-      {
-        id: '4',
-        type: 'quote',
-        title: 'Umbrella quote submitted',
-        description: 'Requested $2M umbrella over CGL and WC',
-        date: '2025-12-05',
-      },
-      {
-        id: '5',
-        type: 'note',
-        title: 'Account review note',
-        description: 'Client expanding to San Antonio — discuss fleet coverage at renewal',
-        date: '2025-11-14',
-      },
-    ],
-    documents: [
-      { id: 'd1', name: 'CGL-2026-004821 Declarations.pdf', category: 'policy_pdf', uploadedAt: '2026-01-15' },
-      { id: 'd2', name: 'WC-2026-004822 Policy Jacket.pdf', category: 'policy_pdf', uploadedAt: '2026-01-15' },
-      { id: 'd3', name: 'COI — City of Austin Project.pdf', category: 'coi', uploadedAt: '2026-06-22' },
-      { id: 'd4', name: 'Commercial Insurance Application.pdf', category: 'application', uploadedAt: '2025-12-01' },
-      { id: 'd5', name: 'Signed Broker of Record Letter.pdf', category: 'signed_form', uploadedAt: '2025-11-20' },
-    ],
-  },
-  {
-    id: 2,
-    businessName: 'Sunrise Roofing Inc',
-    dba: 'Sunrise Roofing',
-    fein: '73-4829104',
-    contact: 'David Smith',
-    phone: '(555) 234-5678',
-    email: 'info@sunriseroofing.com',
-    address: '890 Commerce Drive, Phoenix, AZ 85034',
-    producer: 'Sarah Wilson',
-    csr: 'David Ortiz',
-    status: 'active',
-    policies: [
-      {
-        policyNumber: 'WC-2026-009134',
-        policyType: 'Workers Compensation',
-        carrier: 'Travelers',
-        mga: 'RT Specialty',
-        effectiveDate: '2026-03-01',
-        expirationDate: '2027-03-01',
-        premium: 22400,
-        status: 'active',
-      },
-      {
-        policyNumber: 'GL-2025-009133',
-        policyType: 'Commercial General Liability',
-        carrier: 'Markel',
-        mga: 'AmWINS Brokerage',
-        effectiveDate: '2025-03-01',
-        expirationDate: '2026-03-01',
-        premium: 0,
-        status: 'renewal_due',
-      },
-    ],
-    financials: {
-      totalWrittenPremium: 18900,
-      brokerFees: 945,
-      carrierCommission: 2835,
-      producerCommission: 1890,
-      outstandingBalance: 0,
-    },
-    activities: [
-      { id: '1', type: 'audit', title: 'WC payroll audit scheduled', description: 'Travelers audit for policy year 2025', date: '2026-07-10' },
-      { id: '2', type: 'renewal', title: 'GL renewal due', description: 'Markel GL expiring 03/01/2026', date: '2026-06-15' },
-      { id: '3', type: 'policy_bound', title: 'WC policy bound', description: 'WC-2026-009134 effective 03/01/2026', date: '2026-02-20' },
-    ],
-    documents: [
-      { id: 'd1', name: 'WC-2026-009134 Declarations.pdf', category: 'policy_pdf', uploadedAt: '2026-03-01' },
-      { id: 'd2', name: 'COI — General Contractor.pdf', category: 'coi', uploadedAt: '2026-04-12' },
-      { id: 'd3', name: 'Roofing Operations Application.pdf', category: 'application', uploadedAt: '2026-02-01' },
-    ],
-  },
-  {
-    id: 3,
-    businessName: 'Metro Auto Group LLC',
-    dba: 'Metro Auto Group',
-    fein: '62-1938472',
-    contact: 'Lisa Chen',
-    phone: '(555) 345-6789',
-    email: 'lisa@metroauto.com',
-    address: '4500 Auto Mall Blvd, Dallas, TX 75207',
-    producer: 'Michael Johnson',
-    csr: 'Emily Nguyen',
-    status: 'active',
-    policies: [
-      {
-        policyNumber: 'CA-2025-112907',
-        policyType: 'Commercial Auto',
-        carrier: 'Liberty Mutual',
-        mga: 'CRC Group',
-        effectiveDate: '2025-08-01',
-        expirationDate: '2026-08-01',
-        premium: 34200,
-        status: 'renewal_due',
-      },
-    ],
-    financials: {
-      totalWrittenPremium: 67200,
-      brokerFees: 3360,
-      carrierCommission: 10080,
-      producerCommission: 6720,
-      outstandingBalance: 4200,
-    },
-    activities: [
-      { id: '1', type: 'renewal', title: 'Commercial Auto renewal', description: 'Liberty Mutual renewal quote — 42 vehicles', date: '2026-07-05' },
-      { id: '2', type: 'endorsement', title: 'Vehicle added to fleet', description: '2026 Ford F-150 added to CA-2025-112907', date: '2026-05-18' },
-      { id: '3', type: 'quote', title: 'Garagekeepers quote', description: 'Quoted garagekeepers for service department', date: '2026-03-22' },
-    ],
-    documents: [
-      { id: 'd1', name: 'CA-2025-112907 Policy.pdf', category: 'policy_pdf', uploadedAt: '2025-08-01' },
-      { id: 'd2', name: 'Fleet Schedule — 42 Units.pdf', category: 'application', uploadedAt: '2025-07-15' },
-      { id: 'd3', name: 'Signed Payment Authorization.pdf', category: 'signed_form', uploadedAt: '2025-07-20' },
-    ],
-  },
-]
-
-function getDefaultClientDetail(id: number): ClientDetail | undefined {
-  const defaults: Record<number, Partial<ClientDetail>> = {
-    4: {
-      businessName: 'Coastal Marine Services',
-      dba: 'Coastal Marine',
-      fein: '91-2847361',
-      contact: 'Robert Hayes',
-      phone: '(555) 456-7890',
-      email: 'rhayes@coastmarine.com',
-      address: '220 Harbor View Rd, Tampa, FL 33602',
-      producer: 'Sarah Wilson',
-      csr: 'Rachel Kim',
-      status: 'pending',
-    },
-    5: {
-      businessName: 'Sunrise Properties Inc',
-      dba: 'Sunrise Properties',
-      fein: '55-3928174',
-      contact: 'Amanda Torres',
-      phone: '(555) 567-8901',
-      email: 'amanda@sunriseprops.com',
-      address: '1800 Market Street, Denver, CO 80202',
-      producer: 'James Carter',
-      csr: 'David Ortiz',
-      status: 'active',
-    },
-    6: {
-      businessName: 'Westside Retail Group',
-      dba: 'Westside Retail',
-      fein: '48-1029384',
-      contact: 'Kevin Brooks',
-      phone: '(555) 678-9012',
-      email: 'kbrooks@westsideretail.com',
-      address: '3300 Westheimer Rd, Houston, TX 77098',
-      producer: 'Sarah Wilson',
-      csr: 'Rachel Kim',
-      status: 'inactive',
-    },
-    7: {
-      businessName: 'Johnson Family Trust',
-      dba: '—',
-      fein: 'N/A (Trust)',
-      contact: 'Patricia Johnson',
-      phone: '(555) 789-0123',
-      email: 'pjohnson@jfamilytrust.com',
-      address: '8901 Estate Lane, Naples, FL 34108',
-      producer: 'Michael Johnson',
-      csr: 'Emily Nguyen',
-      status: 'active',
-    },
-    8: {
-      businessName: 'Peak Logistics Corp',
-      dba: 'Peak Logistics',
-      fein: '33-8472910',
-      contact: 'Daniel Wright',
-      phone: '(555) 890-1234',
-      email: 'dwright@peaklogistics.com',
-      address: '5600 Logistics Way, Memphis, TN 38118',
-      producer: 'James Carter',
-      csr: 'Rachel Kim',
-      status: 'prospect',
-    },
-    9: {
-      businessName: 'Harbor Medical Group',
-      dba: 'Harbor Medical',
-      fein: '26-5910384',
-      contact: 'Dr. Emily Park',
-      phone: '(555) 901-2345',
-      email: 'epark@harbormedical.com',
-      address: '1200 Medical Center Dr, Seattle, WA 98101',
-      producer: 'Sarah Wilson',
-      csr: 'David Ortiz',
-      status: 'active',
-    },
-    10: {
-      businessName: 'Summit Tech Solutions',
-      dba: 'Summit Tech',
-      fein: '81-2039481',
-      contact: 'Marcus Lee',
-      phone: '(555) 012-3456',
-      email: 'marcus@summittech.io',
-      address: '500 Innovation Blvd, San Jose, CA 95134',
-      producer: 'James Carter',
-      csr: 'Rachel Kim',
-      status: 'pending',
-    },
-    11: {
-      businessName: 'Green Valley Farms',
-      dba: 'Green Valley Farms',
-      fein: '42-9182736',
-      contact: 'Thomas Green',
-      phone: '(555) 111-2222',
-      email: 'tgreen@greenvalleyfarms.com',
-      address: '7800 County Road 12, Des Moines, IA 50309',
-      producer: 'Michael Johnson',
-      csr: 'Emily Nguyen',
-      status: 'active',
-    },
-    12: {
-      businessName: 'Urban Fitness Studios',
-      dba: 'Urban Fitness',
-      fein: '59-3847261',
-      contact: 'Nina Alvarez',
-      phone: '(555) 222-3333',
-      email: 'nina@urbanfitness.com',
-      address: '1450 Fitness Ave, Miami, FL 33130',
-      producer: 'Sarah Wilson',
-      csr: 'David Ortiz',
-      status: 'prospect',
-    },
+function normalizeClientStatus(status: string | null): ClientStatus {
+  const value = (status ?? '').toLowerCase()
+  if (value === 'active' || value === 'pending' || value === 'inactive' || value === 'prospect') {
+    return value
   }
-
-  const base = defaults[id]
-  if (!base) return undefined
-
-  return {
-    id,
-    businessName: base.businessName!,
-    dba: base.dba!,
-    fein: base.fein!,
-    contact: base.contact!,
-    phone: base.phone!,
-    email: base.email!,
-    address: base.address!,
-    producer: base.producer!,
-    csr: base.csr!,
-    status: base.status!,
-    policies: base.policies ?? [
-      {
-        policyNumber: `GL-2026-${id.toString().padStart(6, '0')}`,
-        policyType: 'Commercial General Liability',
-        carrier: 'Travelers',
-        mga: 'AmWINS Brokerage',
-        effectiveDate: '2026-01-01',
-        expirationDate: '2027-01-01',
-        premium: 8500 + id * 1200,
-        status: base.status === 'inactive' ? 'expired' : 'active',
-      },
-    ],
-    financials: base.financials ?? {
-      totalWrittenPremium: 8500 + id * 3200,
-      brokerFees: 425 + id * 160,
-      carrierCommission: 1275 + id * 480,
-      producerCommission: 850 + id * 320,
-      outstandingBalance: base.status === 'prospect' ? 0 : id * 150,
-    },
-    activities: base.activities ?? [
-      {
-        id: '1',
-        type: 'note',
-        title: 'Account opened',
-        description: `${base.businessName} added to ALZA Flow`,
-        date: '2026-01-15',
-      },
-      {
-        id: '2',
-        type: 'quote',
-        title: 'Initial quote provided',
-        description: 'Commercial package quote sent to client',
-        date: '2026-02-01',
-      },
-    ],
-    documents: base.documents ?? [
-      {
-        id: 'd1',
-        name: 'Client Information Form.pdf',
-        category: 'application',
-        uploadedAt: '2026-01-10',
-      },
-      {
-        id: 'd2',
-        name: 'Signed Agency Agreement.pdf',
-        category: 'signed_form',
-        uploadedAt: '2026-01-12',
-      },
-    ],
-  }
+  return 'prospect'
 }
 
-function getClientDetail(id: number): ClientDetail | undefined {
-  return clientDetails.find((c) => c.id === id) ?? getDefaultClientDetail(id)
+function normalizePolicyStatus(status: string | null): PolicyStatus {
+  const value = (status ?? '').toLowerCase()
+  if (
+    value === 'active' ||
+    value === 'pending' ||
+    value === 'expired' ||
+    value === 'cancelled' ||
+    value === 'renewal_due'
+  ) {
+    return value
+  }
+  return 'pending'
+}
+
+function toNumber(value: number | string | null | undefined): number {
+  if (typeof value === 'number') return Number.isFinite(value) ? value : 0
+  if (typeof value === 'string') {
+    const n = Number(value)
+    return Number.isFinite(n) ? n : 0
+  }
+  return 0
+}
+
+function display(value: string | null | undefined): string {
+  const trimmed = value?.trim()
+  return trimmed ? trimmed : '—'
 }
 
 function formatCurrency(amount: number): string {
-  return new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency: 'USD',
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0,
-  }).format(amount)
+  return formatMoney(amount)
 }
 
 function formatDate(dateStr: string): string {
-  return new Date(`${dateStr}T00:00:00`).toLocaleDateString('en-US', {
+  if (!dateStr || dateStr === '—') return '—'
+  const d = new Date(`${dateStr}T00:00:00`)
+  if (Number.isNaN(d.getTime())) return dateStr
+  return d.toLocaleDateString('en-US', {
     month: 'short',
     day: 'numeric',
     year: 'numeric',
@@ -521,11 +210,309 @@ function InfoField({ label, value }: { label: string; value: string }) {
   )
 }
 
+function mapPolicy(row: PolicyRow): ClientPolicy {
+  return {
+    id: row.id,
+    policyNumber: display(row.policy_number),
+    policyType: display(row.policy_type),
+    carrier: display(row.carrier),
+    mga: display(row.mga),
+    effectiveDate: row.effective_date?.trim() || '',
+    expirationDate: row.expiration_date?.trim() || '',
+    writtenPremium: toNumber(row.premium),
+    status: normalizePolicyStatus(row.status),
+    transactionCount: 0,
+    totalPremium: 0,
+    latestTransactionDate: null,
+  }
+}
+
+const inputClassName =
+  'h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-900 placeholder:text-slate-400 focus:border-alza-blue-500 focus:outline-none focus:ring-2 focus:ring-alza-blue-500/20'
+const selectClassName =
+  'h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-900 focus:border-alza-blue-500 focus:outline-none focus:ring-2 focus:ring-alza-blue-500/20'
+const textareaClassName =
+  'w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-alza-blue-500 focus:outline-none focus:ring-2 focus:ring-alza-blue-500/20'
+
 export function ClientDetails() {
   const { id } = useParams<{ id: string }>()
-  const client = getClientDetail(Number(id))
+  const navigate = useNavigate()
+  const location = useLocation()
+  const financialsReturnTo = financialsReturnFromLocation(location)
+  const { profile } = useAuth()
+  const roleInput = roleInputFromProfile(profile)
+  const canEdit = canManageClients(roleInput)
+  const canAddPolicy = canManagePolicies(roleInput)
+  const producerLocked = isProducerBookScoped(roleInput)
+  const [client, setClient] = useState<ClientDetail | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [notFound, setNotFound] = useState(false)
+  const [addPolicyOpen, setAddPolicyOpen] = useState(false)
+  const [editOpen, setEditOpen] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [formError, setFormError] = useState<string | null>(null)
+  const [actionSuccess, setActionSuccess] = useState<string | null>(null)
+  const [editForm, setEditForm] = useState({
+    businessName: '',
+    dba: '',
+    fein: '',
+    contactName: '',
+    email: '',
+    phone: '',
+    mailingAddress: '',
+    physicalAddress: '',
+    producer: '',
+    csr: '',
+    status: 'active' as ClientStatus,
+    notes: '',
+  })
 
-  if (!client) {
+  const loadClient = useCallback(async () => {
+    if (!id) {
+      setNotFound(true)
+      setLoading(false)
+      return
+    }
+
+    setLoading(true)
+    setError(null)
+    setNotFound(false)
+
+    const { data: clientRow, error: clientError } = await supabase
+      .from('clients')
+      .select(
+        `
+        id,
+        client_number,
+        business_name,
+        dba,
+        fein,
+        contact_name,
+        email,
+        phone,
+        mailing_address,
+        physical_address,
+        producer,
+        csr,
+        status,
+        notes
+      `,
+      )
+      .eq('id', id)
+      .maybeSingle()
+
+    if (clientError) {
+      setClient(null)
+      setError(clientError.message)
+      setLoading(false)
+      return
+    }
+
+    if (!clientRow) {
+      setClient(null)
+      setNotFound(true)
+      setLoading(false)
+      return
+    }
+
+    const { data: policyRows, error: policyError } = await supabase
+      .from('policies')
+      .select(
+        `
+        id,
+        policy_number,
+        policy_type,
+        carrier,
+        mga,
+        effective_date,
+        expiration_date,
+        premium,
+        status
+      `,
+      )
+      .eq('client_id', id)
+      .is('archived_at', null)
+      .order('effective_date', { ascending: false })
+
+    if (policyError) {
+      setClient(null)
+      setError(policyError.message)
+      setLoading(false)
+      return
+    }
+
+    const policiesBase = ((policyRows ?? []) as PolicyRow[]).map(mapPolicy)
+    const [summaryRes, txRes] = await Promise.all([
+      fetchPolicyTransactionSummaries(policiesBase.map((p) => p.id)),
+      fetchCommissionTransactions(),
+    ])
+    if (summaryRes.error) {
+      setClient(null)
+      setError(summaryRes.error.message)
+      setLoading(false)
+      return
+    }
+    if (txRes.error) {
+      setClient(null)
+      setError(txRes.error.message)
+      setLoading(false)
+      return
+    }
+
+    const policies = policiesBase.map((policy) => {
+      const summary = summaryRes.data[policy.id]
+      return {
+        ...policy,
+        transactionCount: summary?.transactionCount ?? 0,
+        totalPremium: summary?.totalPremium ?? 0,
+        latestTransactionDate: summary?.latestTransactionDate ?? null,
+      }
+    })
+
+    const clientTxns = txRes.data.filter((tx) => tx.clientId === id && !tx.archived)
+    const totalPremium = clientTxns.reduce((sum, tx) => sum + tx.amount, 0)
+    const agencyCommission = clientTxns.reduce((sum, tx) => sum + tx.agencyCommissionAmount, 0)
+    const producerCommission = clientTxns.reduce((sum, tx) => sum + tx.producerCommissionAmount, 0)
+    const outstandingAgencyCommission = clientTxns
+      .filter((tx) => !tx.agencyCommissionConfirmed)
+      .reduce((sum, tx) => sum + tx.agencyCommissionAmount, 0)
+
+    const recentTransactions = [...clientTxns]
+      .sort((a, b) => String(b.transactionDate).localeCompare(String(a.transactionDate)))
+      .slice(0, 8)
+      .map((tx) => ({
+        id: tx.id,
+        transactionNumber: tx.transactionNumber || '—',
+        transactionDate: tx.transactionDate,
+        type: tx.type,
+        amount: tx.amount,
+        policyNumber: tx.policyNumber || '—',
+      }))
+
+    const row = clientRow as ClientRow
+    const clientProducer = display(row.producer)
+
+    if (producerLocked) {
+      if (!producerKeysMatch(clientProducer, profile?.fullName)) {
+        setClient(null)
+        setNotFound(true)
+        setError('You do not have permission to access this client record.')
+        setLoading(false)
+        return
+      }
+    }
+
+    setClient({
+      id: String(row.id),
+      clientNumber: display(row.client_number),
+      businessName: display(row.business_name),
+      dba: display(row.dba),
+      fein: display(row.fein),
+      contact: display(row.contact_name),
+      phone: display(row.phone),
+      email: display(row.email),
+      mailingAddress: display(row.mailing_address),
+      physicalAddress: display(row.physical_address),
+      address: display(row.physical_address || row.mailing_address),
+      producer: clientProducer,
+      csr: display(row.csr),
+      status: normalizeClientStatus(row.status),
+      notes: display(row.notes),
+      policies,
+      financials: {
+        totalPremium,
+        agencyCommission,
+        producerCommission,
+        outstandingAgencyCommission,
+      },
+      recentTransactions,
+    })
+    setLoading(false)
+  }, [id, producerLocked, profile?.fullName])
+
+  useEffect(() => {
+    void loadClient()
+  }, [loadClient])
+
+  function openEdit() {
+    if (!client || !canEdit) return
+    setEditForm({
+      businessName: client.businessName === '—' ? '' : client.businessName,
+      dba: client.dba === '—' ? '' : client.dba,
+      fein: client.fein === '—' ? '' : client.fein,
+      contactName: client.contact === '—' ? '' : client.contact,
+      email: client.email === '—' ? '' : client.email,
+      phone: client.phone === '—' ? '' : client.phone,
+      mailingAddress: client.mailingAddress === '—' ? '' : client.mailingAddress,
+      physicalAddress: client.physicalAddress === '—' ? '' : client.physicalAddress,
+      producer: client.producer === '—' ? '' : client.producer,
+      csr: client.csr === '—' ? '' : client.csr,
+      status: client.status,
+      notes: client.notes === '—' ? '' : client.notes,
+    })
+    setFormError(null)
+    setEditOpen(true)
+  }
+
+  async function handleSaveEdit(e: FormEvent) {
+    e.preventDefault()
+    if (!client || !canEdit || saving) return
+    setSaving(true)
+    setFormError(null)
+    const result = await updateClient({
+      id: client.id,
+      businessName: editForm.businessName,
+      dba: editForm.dba,
+      fein: editForm.fein,
+      contactName: editForm.contactName,
+      email: editForm.email,
+      phone: editForm.phone,
+      mailingAddress: editForm.mailingAddress,
+      physicalAddress: editForm.physicalAddress,
+      producer: editForm.producer,
+      csr: editForm.csr,
+      status: editForm.status,
+      notes: editForm.notes,
+    })
+    setSaving(false)
+    if (result.error) {
+      setFormError(
+        `RLS/query error on ${result.error.table} (${result.error.operation}): ${result.error.message}`,
+      )
+      return
+    }
+    setEditOpen(false)
+    setActionSuccess('Client updated.')
+    await loadClient()
+  }
+
+  if (loading) {
+    return (
+      <div className="rounded-xl border border-slate-200 bg-white p-12 text-center shadow-sm">
+        <p className="text-sm text-slate-500">Loading client…</p>
+      </div>
+    )
+  }
+
+  if (error) {
+    return (
+      <div className="rounded-xl border border-slate-200 bg-white p-12 text-center shadow-sm">
+        <Building2 className="mx-auto h-12 w-12 text-slate-300" />
+        <h2 className="mt-4 text-lg font-semibold text-slate-900">Unable to load client</h2>
+        <p className="mt-2 text-sm text-slate-500">{error}</p>
+        <Link
+          to="/clients"
+          className="mt-6 inline-flex items-center gap-2 text-sm font-medium text-alza-blue-600 hover:text-alza-blue-700"
+        >
+          <ArrowLeft className="h-4 w-4" />
+          Back to Clients
+        </Link>
+      </div>
+    )
+  }
+
+  if (notFound || !client) {
     return (
       <div className="rounded-xl border border-slate-200 bg-white p-12 text-center shadow-sm">
         <Building2 className="mx-auto h-12 w-12 text-slate-300" />
@@ -542,39 +529,60 @@ export function ClientDetails() {
     )
   }
 
-  const documentGroups = (Object.keys(documentCategoryLabels) as DocumentCategory[]).map(
-    (category) => ({
-      category,
-      label: documentCategoryLabels[category],
-      items: client.documents.filter((doc) => doc.category === category),
-    }),
-  )
-
   return (
     <div className="space-y-6">
-      {/* Back link */}
-      <Link
-        to="/clients"
-        className="inline-flex items-center gap-2 text-sm font-medium text-slate-600 transition-colors hover:text-alza-blue-600"
-      >
-        <ArrowLeft className="h-4 w-4" />
-        Back to Clients
-      </Link>
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+        {financialsReturnTo ? (
+          <Link
+            to={financialsReturnTo}
+            className="inline-flex items-center gap-2 text-sm font-medium text-slate-600 transition-colors hover:text-alza-blue-600"
+          >
+            <ArrowLeft className="h-4 w-4" />
+            Back to Financials
+          </Link>
+        ) : (
+          <Link
+            to="/clients"
+            className="inline-flex items-center gap-2 text-sm font-medium text-slate-600 transition-colors hover:text-alza-blue-600"
+          >
+            <ArrowLeft className="h-4 w-4" />
+            Back to Clients
+          </Link>
+        )}
+      </div>
 
-      {/* Page header */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold text-slate-900">{client.businessName}</h1>
-          <p className="text-sm text-slate-500">Client 360° View · ID #{client.id.toString().padStart(4, '0')}</p>
+          <p className="text-sm text-slate-500">
+            Client 360° View · {client.clientNumber}
+          </p>
         </div>
-        <span
-          className={`inline-flex w-fit items-center rounded-full px-3 py-1 text-sm font-medium ring-1 ring-inset ${clientStatusStyles[client.status]}`}
-        >
-          {clientStatusLabels[client.status]}
-        </span>
+        <div className="flex flex-wrap items-center gap-2">
+          {canEdit && (
+            <button
+              type="button"
+              onClick={openEdit}
+              className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+            >
+              <Pencil className="h-4 w-4" />
+              Edit Client
+            </button>
+          )}
+          <span
+            className={`inline-flex w-fit items-center rounded-full px-3 py-1 text-sm font-medium ring-1 ring-inset ${clientStatusStyles[client.status]}`}
+          >
+            {clientStatusLabels[client.status]}
+          </span>
+        </div>
       </div>
 
-      {/* Client Information */}
+      {actionSuccess && (
+        <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
+          {actionSuccess}
+        </div>
+      )}
+
       <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
         <div className="mb-5 flex items-center gap-3">
           <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-alza-blue-50">
@@ -593,17 +601,40 @@ export function ClientDetails() {
           <InfoField label="Producer" value={client.producer} />
           <InfoField label="CSR" value={client.csr} />
           <InfoField label="Status" value={clientStatusLabels[client.status]} />
+          <InfoField label="Notes" value={client.notes} />
         </div>
       </div>
 
-      {/* Financial Summary */}
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {[
-          { label: 'Total Written Premium', value: formatCurrency(client.financials.totalWrittenPremium), icon: DollarSign, bg: 'bg-alza-teal-50', color: 'text-alza-teal-600' },
-          { label: 'Broker Fees', value: formatCurrency(client.financials.brokerFees), icon: DollarSign, bg: 'bg-alza-blue-50', color: 'text-alza-blue-600' },
-          { label: 'Carrier Commission', value: formatCurrency(client.financials.carrierCommission), icon: DollarSign, bg: 'bg-violet-50', color: 'text-violet-600' },
-          { label: 'Producer Commission', value: formatCurrency(client.financials.producerCommission), icon: DollarSign, bg: 'bg-emerald-50', color: 'text-emerald-600' },
-          { label: 'Outstanding Balance', value: formatCurrency(client.financials.outstandingBalance), icon: DollarSign, bg: 'bg-orange-50', color: 'text-orange-600' },
+          {
+            label: 'Total Premium',
+            value: formatCurrency(client.financials.totalPremium),
+            icon: DollarSign,
+            bg: 'bg-alza-teal-50',
+            color: 'text-alza-teal-600',
+          },
+          {
+            label: 'Agency Commission',
+            value: formatCurrency(client.financials.agencyCommission),
+            icon: DollarSign,
+            bg: 'bg-violet-50',
+            color: 'text-violet-600',
+          },
+          {
+            label: 'Producer Commission',
+            value: formatCurrency(client.financials.producerCommission),
+            icon: DollarSign,
+            bg: 'bg-emerald-50',
+            color: 'text-emerald-600',
+          },
+          {
+            label: 'Outstanding Agency Commission',
+            value: formatCurrency(client.financials.outstandingAgencyCommission),
+            icon: DollarSign,
+            bg: 'bg-orange-50',
+            color: 'text-orange-600',
+          },
         ].map((card) => (
           <div key={card.label} className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
             <div className="flex items-start justify-between">
@@ -619,125 +650,359 @@ export function ClientDetails() {
         ))}
       </div>
 
-      {/* Policy Summary */}
       <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
         <div className="border-b border-slate-200 px-6 py-4">
-          <div className="flex items-center gap-3">
-            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-alza-blue-50">
-              <FileText className="h-4 w-4 text-alza-blue-600" />
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-center gap-3">
+              <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-alza-blue-50">
+                <FileText className="h-4 w-4 text-alza-blue-600" />
+              </div>
+              <h2 className="text-lg font-semibold text-slate-900">Policy Summary</h2>
             </div>
-            <h2 className="text-lg font-semibold text-slate-900">Policy Summary</h2>
+            {canAddPolicy && (
+              <button
+                type="button"
+                onClick={() => setAddPolicyOpen(true)}
+                className="inline-flex items-center justify-center gap-2 rounded-lg gradient-alza px-4 py-2.5 text-sm font-medium text-white shadow-sm hover:opacity-90"
+              >
+                <Plus className="h-4 w-4" />
+                Add Policy
+              </button>
+            )}
           </div>
         </div>
+        {actionSuccess && (
+          <div className="border-b border-emerald-100 bg-emerald-50 px-6 py-2 text-sm text-emerald-700">
+            {actionSuccess}
+          </div>
+        )}
         <div className="overflow-x-auto">
           <table className="min-w-full">
             <thead>
               <tr className="border-b border-slate-200 bg-slate-50/80">
-                {['Policy Number', 'Policy Type', 'Carrier', 'MGA', 'Effective Date', 'Expiration Date', 'Premium', 'Status'].map((col) => (
-                  <th key={col} className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">
+                {[
+                  'Policy Number',
+                  'Policy Type',
+                  'Carrier / MGA',
+                  'Effective Date',
+                  'Expiration Date',
+                  'Total Premium',
+                  'Status',
+                  'Transactions',
+                ].map((col) => (
+                  <th
+                    key={col}
+                    className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500"
+                  >
                     {col}
                   </th>
                 ))}
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {client.policies.map((policy) => (
-                <tr key={policy.policyNumber} className="hover:bg-slate-50/60">
-                  <td className="whitespace-nowrap px-4 py-4 text-sm font-medium text-alza-blue-700">
-                    {policy.policyNumber}
-                  </td>
-                  <td className="px-4 py-4 text-sm text-slate-700">{policy.policyType}</td>
-                  <td className="whitespace-nowrap px-4 py-4 text-sm text-slate-700">{policy.carrier}</td>
-                  <td className="whitespace-nowrap px-4 py-4 text-sm text-slate-700">{policy.mga}</td>
-                  <td className="whitespace-nowrap px-4 py-4 text-sm text-slate-700">{formatDate(policy.effectiveDate)}</td>
-                  <td className="whitespace-nowrap px-4 py-4 text-sm text-slate-700">{formatDate(policy.expirationDate)}</td>
-                  <td className="whitespace-nowrap px-4 py-4 text-sm font-semibold text-slate-900">
-                    {formatCurrency(policy.premium)}
-                  </td>
-                  <td className="whitespace-nowrap px-4 py-4">
-                    <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ring-inset ${policyStatusStyles[policy.status]}`}>
-                      {policyStatusLabels[policy.status]}
-                    </span>
+              {client.policies.length === 0 ? (
+                <tr>
+                  <td colSpan={8} className="px-4 py-10 text-center text-sm text-slate-500">
+                    No policies found for this client
                   </td>
                 </tr>
-              ))}
+              ) : (
+                client.policies.map((policy) => (
+                  <tr key={policy.id} className="hover:bg-alza-blue-50/40">
+                    <td className="whitespace-nowrap px-4 py-4 text-sm font-medium">
+                      <Link
+                        to={`/policies/${policy.id}`}
+                        state={withFinancialsReturn(financialsReturnTo)}
+                        className="font-semibold text-alza-blue-700 underline-offset-2 hover:underline"
+                      >
+                        {policy.policyNumber}
+                      </Link>
+                    </td>
+                    <td className="px-4 py-4 text-sm text-slate-700">{policy.policyType}</td>
+                    <td className="px-4 py-4 text-sm text-slate-700">
+                      <p>{policy.carrier}</p>
+                      <p className="text-xs text-slate-500">{policy.mga}</p>
+                    </td>
+                    <td className="whitespace-nowrap px-4 py-4 text-sm text-slate-700">
+                      {formatDate(policy.effectiveDate)}
+                    </td>
+                    <td className="whitespace-nowrap px-4 py-4 text-sm text-slate-700">
+                      {formatDate(policy.expirationDate)}
+                    </td>
+                    <td className="whitespace-nowrap px-4 py-4 text-sm font-semibold text-slate-900">
+                      {formatCurrency(policy.totalPremium)}
+                    </td>
+                    <td className="whitespace-nowrap px-4 py-4">
+                      <span
+                        className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ring-inset ${policyStatusStyles[policy.status]}`}
+                      >
+                        {policyStatusLabels[policy.status]}
+                      </span>
+                    </td>
+                    <td className="whitespace-nowrap px-4 py-4 text-sm text-slate-700">
+                      <p className="font-semibold tabular-nums text-slate-900">{policy.transactionCount}</p>
+                      {policy.transactionCount > 0 && (
+                        <p className="text-xs text-slate-500">
+                          Vol {formatCurrency(policy.totalPremium)}
+                          {policy.latestTransactionDate
+                            ? ` · ${formatDate(policy.latestTransactionDate)}`
+                            : ''}
+                        </p>
+                      )}
+                    </td>
+                  </tr>
+                ))
+              )}
             </tbody>
           </table>
         </div>
       </div>
 
+      <AddPolicyModal
+        open={addPolicyOpen}
+        onClose={() => setAddPolicyOpen(false)}
+        lockedClientId={client.id}
+        lockedClientLabel={client.businessName}
+        onCreated={async (policyId) => {
+          setActionSuccess('Policy created.')
+          await loadClient()
+          navigate(`/policies/${policyId}`, {
+            state: withFinancialsReturn(financialsReturnTo),
+          })
+        }}
+      />
+
+      {editOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <button
+            type="button"
+            className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
+            aria-label="Close"
+            onClick={() => !saving && setEditOpen(false)}
+          />
+          <div className="relative max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-xl border border-slate-200 bg-white shadow-2xl">
+            <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
+              <h3 className="text-lg font-semibold text-slate-900">Edit Client</h3>
+              <button
+                type="button"
+                disabled={saving}
+                onClick={() => setEditOpen(false)}
+                className="rounded-lg p-2 text-slate-500 hover:bg-slate-100"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <form onSubmit={handleSaveEdit} className="space-y-4 px-5 py-4">
+              {formError && (
+                <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                  {formError}
+                </div>
+              )}
+              <div>
+                <label className="mb-1 block text-xs font-medium uppercase tracking-wider text-slate-500">
+                  Business name *
+                </label>
+                <input
+                  required
+                  className={inputClassName}
+                  value={editForm.businessName}
+                  onChange={(e) => setEditForm((f) => ({ ...f, businessName: e.target.value }))}
+                />
+              </div>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div>
+                  <label className="mb-1 block text-xs font-medium uppercase tracking-wider text-slate-500">DBA</label>
+                  <input
+                    className={inputClassName}
+                    value={editForm.dba}
+                    onChange={(e) => setEditForm((f) => ({ ...f, dba: e.target.value }))}
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs font-medium uppercase tracking-wider text-slate-500">FEIN</label>
+                  <input
+                    className={inputClassName}
+                    value={editForm.fein}
+                    onChange={(e) => setEditForm((f) => ({ ...f, fein: e.target.value }))}
+                  />
+                </div>
+              </div>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div>
+                  <label className="mb-1 block text-xs font-medium uppercase tracking-wider text-slate-500">
+                    Contact name
+                  </label>
+                  <input
+                    className={inputClassName}
+                    value={editForm.contactName}
+                    onChange={(e) => setEditForm((f) => ({ ...f, contactName: e.target.value }))}
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs font-medium uppercase tracking-wider text-slate-500">Status</label>
+                  <select
+                    className={selectClassName}
+                    value={editForm.status}
+                    onChange={(e) =>
+                      setEditForm((f) => ({ ...f, status: e.target.value as ClientStatus }))
+                    }
+                  >
+                    {(Object.keys(clientStatusLabels) as ClientStatus[]).map((status) => (
+                      <option key={status} value={status}>
+                        {clientStatusLabels[status]}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div>
+                  <label className="mb-1 block text-xs font-medium uppercase tracking-wider text-slate-500">Email</label>
+                  <input
+                    type="email"
+                    className={inputClassName}
+                    value={editForm.email}
+                    onChange={(e) => setEditForm((f) => ({ ...f, email: e.target.value }))}
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs font-medium uppercase tracking-wider text-slate-500">Phone</label>
+                  <input
+                    className={inputClassName}
+                    value={editForm.phone}
+                    onChange={(e) => setEditForm((f) => ({ ...f, phone: e.target.value }))}
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-medium uppercase tracking-wider text-slate-500">
+                  Mailing address
+                </label>
+                <textarea
+                  rows={2}
+                  className={textareaClassName}
+                  value={editForm.mailingAddress}
+                  onChange={(e) => setEditForm((f) => ({ ...f, mailingAddress: e.target.value }))}
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-medium uppercase tracking-wider text-slate-500">
+                  Physical address
+                </label>
+                <textarea
+                  rows={2}
+                  className={textareaClassName}
+                  value={editForm.physicalAddress}
+                  onChange={(e) => setEditForm((f) => ({ ...f, physicalAddress: e.target.value }))}
+                />
+              </div>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div>
+                  <label className="mb-1 block text-xs font-medium uppercase tracking-wider text-slate-500">
+                    Producer
+                  </label>
+                  <DirectoryNameSelect
+                    kind="producer"
+                    value={editForm.producer}
+                    onChange={(v) => setEditForm((f) => ({ ...f, producer: v }))}
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs font-medium uppercase tracking-wider text-slate-500">CSR</label>
+                  <DirectoryNameSelect
+                    kind="csr"
+                    value={editForm.csr}
+                    onChange={(v) => setEditForm((f) => ({ ...f, csr: v }))}
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-medium uppercase tracking-wider text-slate-500">Notes</label>
+                <textarea
+                  rows={3}
+                  className={textareaClassName}
+                  value={editForm.notes}
+                  onChange={(e) => setEditForm((f) => ({ ...f, notes: e.target.value }))}
+                />
+              </div>
+              <div className="flex justify-end gap-2 border-t border-slate-100 pt-4">
+                <button
+                  type="button"
+                  disabled={saving}
+                  onClick={() => setEditOpen(false)}
+                  className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={saving}
+                  className="rounded-lg gradient-alza px-4 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-60"
+                >
+                  {saving ? 'Saving…' : 'Save'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       <div className="grid gap-6 lg:grid-cols-2">
-        {/* Activity Timeline */}
         <div className="rounded-xl border border-slate-200 bg-white shadow-sm">
           <div className="border-b border-slate-200 px-6 py-4">
             <div className="flex items-center gap-3">
               <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-alza-teal-50">
                 <MessageSquare className="h-4 w-4 text-alza-teal-600" />
               </div>
-              <h2 className="text-lg font-semibold text-slate-900">Activity Timeline</h2>
+              <h2 className="text-lg font-semibold text-slate-900">Recent Transactions</h2>
             </div>
           </div>
-          <div className="divide-y divide-slate-100">
-            {client.activities.map((activity) => {
-              const config = activityConfig[activity.type]
-              const Icon = config.icon
-              return (
-                <div key={activity.id} className="flex gap-4 px-6 py-4">
-                  <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${config.color}`}>
-                    <Icon className="h-4 w-4" />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-start justify-between gap-2">
-                      <p className="text-sm font-medium text-slate-900">{activity.title}</p>
-                      <span className="shrink-0 text-xs text-slate-500">{formatDate(activity.date)}</span>
+          {client.recentTransactions.length === 0 ? (
+            <div className="px-6 py-10 text-center text-sm text-slate-500">
+              No transactions recorded for this client yet.
+            </div>
+          ) : (
+            <ul className="divide-y divide-slate-100">
+              {client.recentTransactions.map((tx) => (
+                <li key={tx.id}>
+                  <Link
+                    to={`/transactions/${tx.id}`}
+                    state={transactionLinkState({
+                      returnTo: `/clients/${client.id}`,
+                      returnLabel: 'Client',
+                      financialsReturnTo,
+                    })}
+                    className="flex items-center justify-between gap-3 px-6 py-3.5 transition-colors hover:bg-slate-50"
+                  >
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium text-alza-blue-700 hover:underline">
+                        {tx.transactionNumber}
+                      </p>
+                      <p className="truncate text-xs text-slate-500">
+                        {formatTypeLabel(tx.type)} · {tx.policyNumber} · {formatDate(tx.transactionDate)}
+                      </p>
                     </div>
-                    <p className="mt-0.5 text-sm text-slate-600">{activity.description}</p>
-                    <span className="mt-1.5 inline-flex rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600">
-                      {config.label}
-                    </span>
-                  </div>
-                </div>
-              )
-            })}
-          </div>
+                    <p className="shrink-0 text-sm font-semibold tabular-nums text-slate-900">
+                      {formatCurrency(tx.amount)}
+                    </p>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
 
-        {/* Documents */}
         <div className="rounded-xl border border-slate-200 bg-white shadow-sm">
           <div className="border-b border-slate-200 px-6 py-4">
             <div className="flex items-center gap-3">
-              <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-violet-50">
-                <FileText className="h-4 w-4 text-violet-600" />
+              <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-alza-blue-50">
+                <StickyNote className="h-4 w-4 text-alza-blue-600" />
               </div>
               <h2 className="text-lg font-semibold text-slate-900">Documents</h2>
             </div>
           </div>
-          <div className="space-y-5 p-6">
-            {documentGroups.map((group) => (
-              <div key={group.category}>
-                <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-500">
-                  {group.label}
-                </h3>
-                {group.items.length === 0 ? (
-                  <p className="text-sm text-slate-400">No documents uploaded</p>
-                ) : (
-                  <ul className="space-y-2">
-                    {group.items.map((doc) => (
-                      <li
-                        key={doc.id}
-                        className="flex items-center justify-between rounded-lg border border-slate-100 bg-slate-50/50 px-3 py-2.5 transition-colors hover:border-alza-blue-200 hover:bg-alza-blue-50/30"
-                      >
-                        <div className="flex items-center gap-2.5">
-                          <FileText className="h-4 w-4 shrink-0 text-slate-400" />
-                          <span className="text-sm font-medium text-slate-800">{doc.name}</span>
-                        </div>
-                        <span className="shrink-0 text-xs text-slate-500">{formatDate(doc.uploadedAt)}</span>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-            ))}
+          <div className="px-6 py-10 text-center text-sm text-slate-500">
+            No documents uploaded for this client yet.
           </div>
         </div>
       </div>

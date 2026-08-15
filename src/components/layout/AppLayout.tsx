@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Outlet, useLocation } from 'react-router-dom'
 import { Sidebar } from './Sidebar'
 import { Header } from './Header'
@@ -8,25 +8,52 @@ const pageTitles: Record<string, { title: string; subtitle?: string }> = {
   '/': { title: 'Dashboard', subtitle: 'Overview of your agency performance' },
   '/clients': { title: 'Clients', subtitle: 'Manage client accounts and policies' },
   '/policy-files': { title: 'Policy Files', subtitle: 'Browse and manage policy documents' },
-  '/transactions': { title: 'Transactions', subtitle: 'Track payments and financial activity' },
+  '/transactions': { title: 'Transactions', subtitle: 'Premium and commission activity · client → policy → transaction' },
   '/financials': { title: 'Financials', subtitle: 'Revenue, payables, and accounting' },
-  '/reports': { title: 'Reports', subtitle: 'Analytics and business intelligence' },
+  '/reports': { title: 'Reports', subtitle: 'Producer revenue from stored transaction commissions' },
+  '/activity': {
+    title: 'Activity History',
+    subtitle: 'Append-only audit trail of operational and financial actions',
+  },
   '/admin/producers': { title: 'Producers', subtitle: 'Manage producer accounts' },
   '/admin/csrs': { title: 'CSRs', subtitle: 'Customer service representatives' },
   '/admin/mgas': { title: 'MGAs', subtitle: 'Managing general agents' },
   '/admin/carriers': { title: 'Carriers', subtitle: 'Insurance carrier partners' },
   '/admin/users': { title: 'Users', subtitle: 'System user management' },
+  '/admin/agency-settings': {
+    title: 'Agency Settings',
+    subtitle: 'Customer workspace identity and branding',
+  },
+  '/notifications': {
+    title: 'Notifications',
+    subtitle: 'Live operational alerts from current agency data',
+  },
 }
 
 export function AppLayout() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const location = useLocation()
   const pageInfo = useMemo(() => {
-    if (/^\/clients\/\d+$/.test(location.pathname)) {
+    if (/^\/clients\/[^/]+$/.test(location.pathname)) {
       return { title: 'Client Details', subtitle: '360° client view' }
+    }
+    if (/^\/policies\/[^/]+$/.test(location.pathname)) {
+      return { title: 'Policy Details', subtitle: 'Policy hub and related transactions' }
+    }
+    if (/^\/transactions\/[^/]+$/.test(location.pathname)) {
+      return {
+        title: 'Transactions',
+        subtitle: 'Premium and commission activity · client → policy → transaction',
+      }
     }
     return pageTitles[location.pathname] ?? { title: 'ALZA Flow' }
   }, [location.pathname])
+
+  useEffect(() => {
+    const pageName = pageInfo.title.trim()
+    document.title =
+      !pageName || pageName === 'ALZA Flow' ? 'ALZA Flow' : `${pageName} | ALZA Flow`
+  }, [pageInfo.title])
 
   return (
     <div className="min-h-screen bg-slate-50">

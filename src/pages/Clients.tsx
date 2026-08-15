@@ -8,7 +8,20 @@ import {
   Search,
   Users,
 } from 'lucide-react'
+import { DirectoryNameSelect } from '../components/directory/DirectoryNameSelect'
+import { useAuth } from '../lib/auth'
+import { formatCurrency } from '../lib/commission'
+import { createClient } from '../lib/directory'
+import {
+  canManageClients,
+  isProducerBookScoped,
+  producerKeysMatch,
+  resolveProducerBookName,
+  roleInputFromProfile,
+} from '../lib/permissions'
 import { supabase } from '../lib/supabase'
+
+const ALL = 'all'
 
 type ClientStatus = 'active' | 'pending' | 'inactive' | 'prospect'
 
@@ -22,6 +35,7 @@ interface Client {
   csr: string
   policies: number
   premium: string
+  totalPremium: number
   status: ClientStatus
 }
 
@@ -145,7 +159,8 @@ function mapRowToClient(row: SupabaseClientRow): Client {
     csr: row.csr ?? '',
     status: normalizeStatus(row.status),
     policies: 0,
-    premium: '$0',
+    premium: '$0.00',
+    totalPremium: 0,
   }
 }
 
@@ -184,12 +199,20 @@ export function hasMatchingClient(searchTerm: string): boolean {
 
 export function Clients() {
   const navigate = useNavigate()
+  const { profile } = useAuth()
+  const roleInput = roleInputFromProfile(profile)
+  const canMutate = canManageClients(roleInput)
+  const producerLocked = isProducerBookScoped(roleInput)
   const [searchParams, setSearchParams] = useSearchParams()
   const search = searchParams.get('search') ?? ''
+  const statusFilter = searchParams.get('status') ?? ALL
+  const producerFilter = searchParams.get('producer') ?? ALL
+  const csrFilter = searchParams.get('csr') ?? ALL
   const [page, setPage] = useState(1)
   const [clients, setClients] = useState<Client[]>([])
   const [loading, setLoading] = useState(true)
   const [fetchError, setFetchError] = useState<string | null>(null)
+  const [producerScopeLimitation, setProducerScopeLimitation] = useState<string | null>(null)
   const [isAddModalOpen, setIsAddModalOpen] = useState(false)
   const [form, setForm] = useState<AddClientForm>(emptyAddClientForm)
   const [saving, setSaving] = useState(false)
@@ -199,23 +222,84 @@ export function Clients() {
     setLoading(true)
     setFetchError(null)
 
-    const { data, error } = await supabase
-      .from('clients')
-      .select('*')
-      .order('business_name')
+    const [clientsRes, policiesRes, txRes] = await Promise.all([
+      supabase.from('clients').select('*').order('business_name'),
+      supabase.from('policies').select('id, client_id, archived_at').is('archived_at', null),
+      supabase.from('transactions').select('client_id, amount').is('archived_at', null),
+    ])
 
-    if (error) {
-      setFetchError(error.message)
+    if (clientsRes.error) {
+      setFetchError(clientsRes.error.message)
       setClients([])
       cachedClients = []
+      setLoading(false)
+      return
+    }
+
+    if (policiesRes.error) {
+      setFetchError(policiesRes.error.message)
+      setClients([])
+      cachedClients = []
+      setLoading(false)
+      return
+    }
+
+    if (txRes.error) {
+      setFetchError(txRes.error.message)
+      setClients([])
+      cachedClients = []
+      setLoading(false)
+      return
+    }
+
+    const policyCountByClient = new Map<string, number>()
+    for (const row of policiesRes.data ?? []) {
+      const clientId = String(row.client_id ?? '')
+      if (!clientId) continue
+      policyCountByClient.set(clientId, (policyCountByClient.get(clientId) ?? 0) + 1)
+    }
+
+    const premiumByClient = new Map<string, number>()
+    for (const row of txRes.data ?? []) {
+      const clientId = String(row.client_id ?? '')
+      if (!clientId) continue
+      const amount =
+        typeof row.amount === 'number'
+          ? row.amount
+          : Number(row.amount ?? 0)
+      premiumByClient.set(
+        clientId,
+        (premiumByClient.get(clientId) ?? 0) + (Number.isFinite(amount) ? amount : 0),
+      )
+    }
+
+    const mapped = ((clientsRes.data as SupabaseClientRow[] | null) ?? []).map((row) => {
+      const base = mapRowToClient(row)
+      const totalPremium = premiumByClient.get(base.id) ?? 0
+      return {
+        ...base,
+        policies: policyCountByClient.get(base.id) ?? 0,
+        premium: formatCurrency(totalPremium),
+        totalPremium,
+      }
+    })
+
+    if (isProducerBookScoped(roleInput)) {
+      const names = [...new Set(mapped.map((c) => c.producer).filter(Boolean))]
+      const scope = resolveProducerBookName(roleInput, profile?.fullName, names)
+      setProducerScopeLimitation(scope.limitation)
+      const scoped = scope.lockedName
+        ? mapped.filter((c) => producerKeysMatch(c.producer, scope.lockedName))
+        : []
+      setClients(scoped)
+      cachedClients = scoped
     } else {
-      const mapped = (data as SupabaseClientRow[] ?? []).map(mapRowToClient)
+      setProducerScopeLimitation(null)
       setClients(mapped)
       cachedClients = mapped
     }
-
     setLoading(false)
-  }, [])
+  }, [roleInput, profile?.fullName])
 
   useEffect(() => {
     loadClients()
@@ -223,14 +307,28 @@ export function Clients() {
 
   useEffect(() => {
     setPage(1)
-  }, [search])
+  }, [search, statusFilter, producerFilter, csrFilter])
+
+  const producerOptions = useMemo(
+    () => [...new Set(clients.map((c) => c.producer).filter(Boolean))].sort((a, b) => a.localeCompare(b)),
+    [clients],
+  )
+
+  const csrOptions = useMemo(
+    () => [...new Set(clients.map((c) => c.csr).filter(Boolean))].sort((a, b) => a.localeCompare(b)),
+    [clients],
+  )
 
   const filteredClients = useMemo(() => {
     const query = search.trim().toLowerCase()
-    if (!query) return clients
-
-    return clients.filter((client) => clientMatchesQuery(client, query))
-  }, [search, clients])
+    return clients.filter((client) => {
+      if (statusFilter !== ALL && client.status !== statusFilter) return false
+      if (producerFilter !== ALL && client.producer !== producerFilter) return false
+      if (csrFilter !== ALL && client.csr !== csrFilter) return false
+      if (!query) return true
+      return clientMatchesQuery(client, query)
+    })
+  }, [search, clients, statusFilter, producerFilter, csrFilter])
 
   const totalPages = Math.max(1, Math.ceil(filteredClients.length / PAGE_SIZE))
   const currentPage = Math.min(page, totalPages)
@@ -244,17 +342,12 @@ export function Clients() {
     filteredClients.length === 0 ? 0 : (currentPage - 1) * PAGE_SIZE + 1
   const rangeEnd = Math.min(currentPage * PAGE_SIZE, filteredClients.length)
 
-  function handleSearchChange(value: string) {
+  function setParam(key: string, value: string) {
     setSearchParams(
       (prev) => {
         const next = new URLSearchParams(prev)
-
-        if (value.trim()) {
-          next.set('search', value)
-        } else {
-          next.delete('search')
-        }
-
+        if (!value || value === ALL) next.delete(key)
+        else next.set(key, value)
         return next
       },
       { replace: true },
@@ -262,11 +355,16 @@ export function Clients() {
     setPage(1)
   }
 
+  function handleSearchChange(value: string) {
+    setParam('search', value.trim() ? value : '')
+  }
+
   function handleRowClick(client: Client) {
     navigate(`/clients/${client.id}`)
   }
 
   function openAddModal() {
+    if (!canMutate) return
     setSaveError(null)
     setIsAddModalOpen(true)
   }
@@ -283,6 +381,7 @@ export function Clients() {
 
   async function handleSaveClient(e: FormEvent) {
     e.preventDefault()
+    if (!canMutate) return
 
     if (!form.business_name.trim()) {
       setSaveError('Business Name is required.')
@@ -302,27 +401,29 @@ export function Clients() {
     }
 
     const payload = {
-      client_number: clientNumber,
-      business_name: form.business_name.trim(),
-      dba: form.dba.trim() || null,
-      fein: form.fein.trim() || null,
-      contact_name: form.contact_name.trim() || null,
-      email: form.email.trim() || null,
-      phone: form.phone.trim() || null,
-      mailing_address: form.mailing_address.trim() || null,
-      physical_address: form.physical_address.trim() || null,
-      producer: form.producer.trim() || null,
-      csr: form.csr.trim() || null,
+      clientNumber,
+      businessName: form.business_name,
+      dba: form.dba,
+      fein: form.fein,
+      contactName: form.contact_name,
+      email: form.email,
+      phone: form.phone,
+      mailingAddress: form.mailing_address,
+      physicalAddress: form.physical_address,
+      producer: form.producer,
+      csr: form.csr,
       status: form.status,
-      renewal_month: form.renewal_month ? Number(form.renewal_month) : null,
-      renewal_day: form.renewal_day ? Number(form.renewal_day) : null,
-      notes: form.notes.trim() || null,
+      renewalMonth: form.renewal_month ? Number(form.renewal_month) : null,
+      renewalDay: form.renewal_day ? Number(form.renewal_day) : null,
+      notes: form.notes,
     }
 
-    const { error } = await supabase.from('clients').insert(payload)
+    const result = await createClient(payload)
 
-    if (error) {
-      setSaveError(error.message)
+    if (result.error) {
+      setSaveError(
+        `RLS/query error on ${result.error.table} (${result.error.operation}): ${result.error.message}`,
+      )
       setSaving(false)
       return
     }
@@ -336,27 +437,74 @@ export function Clients() {
   return (
     <div className="space-y-6">
       {/* Toolbar */}
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div className="relative flex-1 sm:max-w-md">
-          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-          <input
-            type="search"
-            value={search}
-            onChange={(e) => handleSearchChange(e.currentTarget.value)}
-            placeholder="Search clients by name, contact, producer, or status..."
-            className="h-10 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-4 text-sm text-slate-900 placeholder:text-slate-400 focus:border-alza-blue-500 focus:outline-none focus:ring-2 focus:ring-alza-blue-500/20"
-          />
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+        <div className="flex flex-1 flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
+          <div className="relative flex-1 sm:max-w-md">
+            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+            <input
+              type="search"
+              value={search}
+              onChange={(e) => handleSearchChange(e.currentTarget.value)}
+              placeholder="Search clients by name, contact, producer, or status..."
+              className="h-10 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-4 text-sm text-slate-900 placeholder:text-slate-400 focus:border-alza-blue-500 focus:outline-none focus:ring-2 focus:ring-alza-blue-500/20"
+            />
+          </div>
+          <select
+            value={statusFilter}
+            onChange={(e) => setParam('status', e.target.value)}
+            className={`${selectClassName} sm:w-40`}
+          >
+            <option value={ALL}>All statuses</option>
+            {(Object.keys(statusLabels) as ClientStatus[]).map((status) => (
+              <option key={status} value={status}>
+                {statusLabels[status]}
+              </option>
+            ))}
+          </select>
+          <select
+            value={producerFilter}
+            onChange={(e) => setParam('producer', e.target.value)}
+            disabled={producerLocked}
+            className={`${selectClassName} sm:w-44`}
+          >
+            <option value={ALL}>All producers</option>
+            {producerOptions.map((producer) => (
+              <option key={producer} value={producer}>
+                {producer}
+              </option>
+            ))}
+          </select>
+          <select
+            value={csrFilter}
+            onChange={(e) => setParam('csr', e.target.value)}
+            className={`${selectClassName} sm:w-40`}
+          >
+            <option value={ALL}>All CSRs</option>
+            {csrOptions.map((csr) => (
+              <option key={csr} value={csr}>
+                {csr}
+              </option>
+            ))}
+          </select>
         </div>
 
-        <button
-          type="button"
-          onClick={openAddModal}
-          className="inline-flex items-center justify-center gap-2 rounded-lg gradient-alza px-4 py-2.5 text-sm font-medium text-white shadow-sm transition-opacity hover:opacity-90"
-        >
-          <Plus className="h-4 w-4" />
-          Add Client
-        </button>
+        {canMutate && (
+          <button
+            type="button"
+            onClick={openAddModal}
+            className="inline-flex items-center justify-center gap-2 rounded-lg gradient-alza px-4 py-2.5 text-sm font-medium text-white shadow-sm transition-opacity hover:opacity-90"
+          >
+            <Plus className="h-4 w-4" />
+            Add Client
+          </button>
+        )}
       </div>
+
+      {producerLocked && producerScopeLimitation && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          {producerScopeLimitation}
+        </div>
+      )}
 
       {/* Summary strip */}
       <div className="flex flex-wrap items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
@@ -416,7 +564,7 @@ export function Clients() {
                   Policies
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">
-                  Annual Premium
+                  Total Premium
                 </th>
               </tr>
             </thead>
@@ -651,12 +799,11 @@ export function Clients() {
                       <label htmlFor="producer" className="mb-1.5 block text-xs font-medium text-slate-500">
                         Producer
                       </label>
-                      <input
+                      <DirectoryNameSelect
                         id="producer"
-                        type="text"
+                        kind="producer"
                         value={form.producer}
-                        onChange={(e) => updateFormField('producer', e.target.value)}
-                        className={inputClassName}
+                        onChange={(value) => updateFormField('producer', value)}
                       />
                     </div>
 
@@ -664,12 +811,11 @@ export function Clients() {
                       <label htmlFor="csr" className="mb-1.5 block text-xs font-medium text-slate-500">
                         CSR
                       </label>
-                      <input
+                      <DirectoryNameSelect
                         id="csr"
-                        type="text"
+                        kind="csr"
                         value={form.csr}
-                        onChange={(e) => updateFormField('csr', e.target.value)}
-                        className={inputClassName}
+                        onChange={(value) => updateFormField('csr', value)}
                       />
                     </div>
 

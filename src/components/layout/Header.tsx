@@ -1,7 +1,11 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState, type ChangeEvent, type FormEvent, type KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
-import { Bell, Search, Menu } from 'lucide-react'
+import { LogOut, Menu, Search } from 'lucide-react'
 import { hasMatchingClient } from '@/pages/Clients'
+import { formatRoleLabel, getInitials, useAuth } from '@/lib/auth'
+import { useAgency } from '@/lib/agencyContext'
+import { NotificationBell } from './NotificationBell'
+import { SearchInput } from '@/components/ui/SearchInput'
 
 interface HeaderProps {
   title: string
@@ -9,24 +13,66 @@ interface HeaderProps {
   onMenuClick?: () => void
 }
 
-const SEARCHABLE_PATHS = new Set(['/clients', '/policy-files', '/admin/producers', '/admin/csrs', '/admin/carriers', '/admin/mgas'])
+const SEARCHABLE_PATHS = new Set([
+  '/clients',
+  '/policy-files',
+  '/admin/producers',
+  '/admin/csrs',
+  '/admin/carriers',
+  '/admin/mgas',
+])
 
 export function Header({ title, subtitle, onMenuClick }: HeaderProps) {
+  const { profile, signOut } = useAuth()
+  const { agency } = useAgency()
   const location = useLocation()
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
   const urlSearch = searchParams.get('search') ?? ''
   const isSearchablePage = SEARCHABLE_PATHS.has(location.pathname)
   const isDashboard = location.pathname === '/'
+  const menuRef = useRef<HTMLDivElement>(null)
 
   const [draftSearch, setDraftSearch] = useState('')
   const [isSearchFocused, setIsSearchFocused] = useState(false)
+  const [menuOpen, setMenuOpen] = useState(false)
+  const [signingOut, setSigningOut] = useState(false)
+
+  const displayName = profile?.fullName ?? 'ALZA User'
+  const displayRole = formatRoleLabel(profile?.role ?? 'user')
+  const initials = getInitials(displayName)
 
   useEffect(() => {
     if (!isSearchFocused) {
       setDraftSearch(isSearchablePage ? urlSearch : '')
     }
   }, [urlSearch, isSearchablePage, isSearchFocused, location.pathname])
+
+  useEffect(() => {
+    setMenuOpen(false)
+  }, [location.pathname])
+
+  useEffect(() => {
+    if (!menuOpen) return
+
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape') setMenuOpen(false)
+    }
+
+    function onPointerDown(event: PointerEvent) {
+      const target = event.target as Node | null
+      if (menuRef.current && target && !menuRef.current.contains(target)) {
+        setMenuOpen(false)
+      }
+    }
+
+    document.addEventListener('keydown', onKeyDown)
+    document.addEventListener('pointerdown', onPointerDown)
+    return () => {
+      document.removeEventListener('keydown', onKeyDown)
+      document.removeEventListener('pointerdown', onPointerDown)
+    }
+  }, [menuOpen])
 
   function clearSearchParam() {
     if (!isSearchablePage) {
@@ -75,7 +121,7 @@ export function Header({ title, subtitle, onMenuClick }: HeaderProps) {
     navigate(`${destination}?${params.toString()}`)
   }
 
-  function handleSearchChange(e: React.ChangeEvent<HTMLInputElement>) {
+  function handleSearchChange(e: ChangeEvent<HTMLInputElement>) {
     const value = e.currentTarget.value
     setDraftSearch(value)
 
@@ -84,7 +130,7 @@ export function Header({ title, subtitle, onMenuClick }: HeaderProps) {
     }
   }
 
-  function handleSearchKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+  function handleSearchKeyDown(e: ReactKeyboardEvent<HTMLInputElement>) {
     if (e.key === 'Enter') {
       e.preventDefault()
 
@@ -98,24 +144,32 @@ export function Header({ title, subtitle, onMenuClick }: HeaderProps) {
     }
   }
 
-  function handleNativeSearchClear(e: React.FormEvent<HTMLInputElement>) {
+  function handleSearchBlur() {
+    setIsSearchFocused(false)
+    setDraftSearch(isSearchablePage ? urlSearch : '')
+  }
+
+  function handleNativeSearchClear(e: FormEvent<HTMLInputElement>) {
     const value = e.currentTarget.value
     if (value === '') {
       clearSearchParam()
     }
   }
 
-  function handleSearchBlur() {
-    setIsSearchFocused(false)
-    setDraftSearch(isSearchablePage ? urlSearch : '')
+  async function handleSignOut() {
+    setSigningOut(true)
+    await signOut()
+    setSigningOut(false)
+    setMenuOpen(false)
   }
 
   return (
-    <header className="sticky top-0 z-20 flex h-16 items-center justify-between border-b border-slate-200 bg-white/80 px-6 backdrop-blur-md">
+    <header className="sticky top-0 z-30 flex h-16 items-center justify-between border-b border-slate-200 bg-white/80 px-6 backdrop-blur-md">
       <div className="flex items-center gap-4">
         <button
+          type="button"
           onClick={onMenuClick}
-          className="rounded-lg p-2 text-slate-500 hover:bg-slate-100 lg:hidden"
+          className="rounded-lg p-2 text-slate-500 hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-alza-blue-500/40 lg:hidden"
           aria-label="Open menu"
         >
           <Menu className="h-5 w-5" />
@@ -127,10 +181,29 @@ export function Header({ title, subtitle, onMenuClick }: HeaderProps) {
       </div>
 
       <div className="flex items-center gap-3">
+        {agency?.agencyName && (
+          <div className="hidden items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5 md:flex">
+            {agency.logoUrl ? (
+              <img
+                src={agency.logoUrl}
+                alt=""
+                className="h-7 w-7 rounded object-contain bg-white"
+              />
+            ) : (
+              <div className="flex h-7 w-7 items-center justify-center rounded bg-white text-[10px] font-semibold text-slate-500">
+                AG
+              </div>
+            )}
+            <div className="min-w-0">
+              <p className="truncate text-xs font-semibold text-slate-800">{agency.agencyName}</p>
+              <p className="text-[10px] text-slate-500">Workspace</p>
+            </div>
+          </div>
+        )}
+
         <div className="relative hidden sm:block">
           <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-          <input
-            type="search"
+          <SearchInput
             value={draftSearch}
             onChange={handleSearchChange}
             onSearch={handleNativeSearchClear}
@@ -142,19 +215,47 @@ export function Header({ title, subtitle, onMenuClick }: HeaderProps) {
           />
         </div>
 
-        <button className="relative rounded-lg p-2 text-slate-500 hover:bg-slate-100 transition-colors">
-          <Bell className="h-5 w-5" />
-          <span className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-alza-teal-500 ring-2 ring-white" />
-        </button>
+        <NotificationBell />
 
-        <div className="flex items-center gap-3 border-l border-slate-200 pl-3">
-          <div className="hidden text-right sm:block">
-            <p className="text-sm font-medium text-slate-900">Admin User</p>
-            <p className="text-xs text-slate-500">Agency Manager</p>
-          </div>
-          <div className="flex h-9 w-9 items-center justify-center rounded-full gradient-alza text-sm font-semibold text-white shadow-sm">
-            AU
-          </div>
+        <div className="relative border-l border-slate-200 pl-3" ref={menuRef}>
+          <button
+            type="button"
+            onClick={() => setMenuOpen((open) => !open)}
+            className="flex items-center gap-3 rounded-lg px-1 py-1 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-alza-blue-500/40"
+            aria-haspopup="menu"
+            aria-expanded={menuOpen}
+            aria-label="User menu"
+          >
+            <div className="hidden text-right sm:block">
+              <p className="text-sm font-medium text-slate-900">{displayName}</p>
+              <p className="text-xs text-slate-500">{displayRole}</p>
+            </div>
+            <div className="flex h-9 w-9 items-center justify-center rounded-full gradient-alza text-sm font-semibold text-white shadow-sm">
+              {initials}
+            </div>
+          </button>
+
+          {menuOpen && (
+            <div
+              role="menu"
+              className="absolute right-0 z-50 mt-2 w-48 rounded-xl border border-slate-200 bg-white p-1 shadow-lg"
+            >
+              <div className="border-b border-slate-100 px-3 py-2 sm:hidden">
+                <p className="text-sm font-medium text-slate-900">{displayName}</p>
+                <p className="text-xs text-slate-500">{displayRole}</p>
+              </div>
+              <button
+                type="button"
+                role="menuitem"
+                disabled={signingOut}
+                onClick={() => void handleSignOut()}
+                className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+              >
+                <LogOut className="h-4 w-4" />
+                {signingOut ? 'Signing out…' : 'Sign Out'}
+              </button>
+            </div>
+          )}
         </div>
       </div>
     </header>
