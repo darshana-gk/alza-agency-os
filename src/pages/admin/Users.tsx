@@ -371,7 +371,7 @@ export function UsersPage() {
   async function loadProducerLinkForUser(user: ManagedUser) {
     setDefaultSplitValue('')
     setLinkedProducerId('')
-    setProducerLinkHint(null)
+    setProducerLinkHint('Loading producer matches…')
     const email = user.email === '—' ? '' : user.email.trim().toLowerCase()
     const name = user.fullName === '—' ? '' : user.fullName.trim()
     const { data: linked } = await supabase
@@ -802,8 +802,8 @@ export function UsersPage() {
 
       {selected && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
-          <div className="w-full max-w-md rounded-xl border border-slate-200 bg-white p-6 shadow-xl">
-            <div className="mb-4 flex items-start justify-between gap-3">
+          <div className="flex max-h-[90vh] w-full max-w-md flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl">
+            <div className="flex shrink-0 items-start justify-between gap-3 border-b border-slate-100 px-6 py-4">
               <div>
                 <h2 className="text-lg font-semibold text-slate-900">Edit user</h2>
                 <p className="text-sm text-slate-500">{selected.email}</p>
@@ -816,7 +816,7 @@ export function UsersPage() {
                 <X className="h-5 w-5" />
               </button>
             </div>
-            <form onSubmit={handleSave} className="space-y-4">
+            <form onSubmit={handleSave} className="space-y-4 overflow-y-auto px-6 py-4">
               <div>
                 <label className="mb-1 block text-xs font-medium text-slate-600">Full name</label>
                 <input
@@ -868,13 +868,29 @@ export function UsersPage() {
                   <span className="font-medium capitalize">{primaryAppRole(rolesValue) ?? roleValue}</span>
                 </p>
               </div>
-              {rolesValue.includes('producer') && (
-                <>
+              {rolesValue.includes('producer') ? (
+                <div
+                  data-testid="linked-producer-panel"
+                  className="space-y-3 rounded-lg border border-amber-200 bg-amber-50/60 p-3"
+                >
                   <div>
-                    <label className="mb-1 block text-xs font-medium text-slate-600">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-amber-900">
+                      Producer directory
+                    </p>
+                    <p className="mt-0.5 text-[11px] text-amber-800/80">
+                      Links this login to <span className="font-medium">users.producer_id</span>. Prefer an
+                      existing producer row — never create a duplicate when email already matches.
+                    </p>
+                  </div>
+                  <div>
+                    <label
+                      htmlFor="edit-linked-producer"
+                      className="mb-1 block text-xs font-medium text-slate-700"
+                    >
                       Linked Producer
                     </label>
                     <select
+                      id="edit-linked-producer"
                       value={linkedProducerId}
                       onChange={(e) => {
                         const id = e.target.value
@@ -904,15 +920,21 @@ export function UsersPage() {
                         </option>
                       ))}
                     </select>
-                    {producerLinkHint && (
-                      <p className="mt-1 text-[11px] text-slate-500">{producerLinkHint}</p>
+                    {producerLinkHint ? (
+                      <p className="mt-1 text-[11px] text-slate-600">{producerLinkHint}</p>
+                    ) : (
+                      <p className="mt-1 text-[11px] text-slate-500">Loading producer matches…</p>
                     )}
                   </div>
                   <div>
-                    <label className="mb-1 block text-xs font-medium text-slate-600">
+                    <label
+                      htmlFor="edit-default-split"
+                      className="mb-1 block text-xs font-medium text-slate-700"
+                    >
                       Default Producer Split %
                     </label>
                     <input
+                      id="edit-default-split"
                       type="number"
                       min={0}
                       max={100}
@@ -923,11 +945,12 @@ export function UsersPage() {
                       className={inputClassName}
                     />
                     <p className="mt-1 text-[11px] text-slate-500">
-                      Stored on the linked producer directory row. Used when assigning this producer on policies/transactions.
+                      Stored on the linked producer directory row. Used when assigning this producer on
+                      policies/transactions.
                     </p>
                   </div>
-                </>
-              )}
+                </div>
+              ) : null}
               <div>
                 <label className="mb-1 block text-xs font-medium text-slate-600">Status</label>
                 <select
@@ -968,8 +991,8 @@ export function UsersPage() {
 
       {addOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
-          <div className="w-full max-w-md rounded-xl border border-slate-200 bg-white p-6 shadow-xl">
-            <div className="mb-4 flex items-start justify-between gap-3">
+          <div className="flex max-h-[90vh] w-full max-w-md flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl">
+            <div className="flex shrink-0 items-start justify-between gap-3 border-b border-slate-100 px-6 py-4">
               <div>
                 <h2 className="text-lg font-semibold text-slate-900">Add User</h2>
                 <p className="text-sm text-slate-500">
@@ -984,7 +1007,7 @@ export function UsersPage() {
                 <X className="h-5 w-5" />
               </button>
             </div>
-            <form onSubmit={handleInvite} className="space-y-4">
+            <form onSubmit={handleInvite} className="space-y-4 overflow-y-auto px-6 py-4">
               <div>
                 <label className="mb-1 block text-xs font-medium text-slate-600">Full name</label>
                 <input
@@ -1038,6 +1061,7 @@ export function UsersPage() {
                             role: (primaryAppRole(next) ?? role) as AppRole,
                           }))
                           if (role === 'producer' && e.target.checked) {
+                            setAddProducerHint('Loading producer matches…')
                             void hydrateProducerLinkFields({
                               fullName: addForm.fullName,
                               email: addForm.email,
@@ -1055,13 +1079,29 @@ export function UsersPage() {
                   ))}
                 </div>
               </div>
-              {addForm.roles.includes('producer') && (
-                <>
+              {addForm.roles.includes('producer') ? (
+                <div
+                  data-testid="linked-producer-panel-add"
+                  className="space-y-3 rounded-lg border border-amber-200 bg-amber-50/60 p-3"
+                >
                   <div>
-                    <label className="mb-1 block text-xs font-medium text-slate-600">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-amber-900">
+                      Producer directory
+                    </p>
+                    <p className="mt-0.5 text-[11px] text-amber-800/80">
+                      Links this login to <span className="font-medium">users.producer_id</span>. Prefer an
+                      existing producer row — never create a duplicate when email already matches.
+                    </p>
+                  </div>
+                  <div>
+                    <label
+                      htmlFor="add-linked-producer"
+                      className="mb-1 block text-xs font-medium text-slate-700"
+                    >
                       Linked Producer
                     </label>
                     <select
+                      id="add-linked-producer"
                       value={addForm.linkedProducerId}
                       onChange={(e) => {
                         const id = e.target.value
@@ -1104,15 +1144,21 @@ export function UsersPage() {
                         </option>
                       ))}
                     </select>
-                    {addProducerHint && (
-                      <p className="mt-1 text-[11px] text-slate-500">{addProducerHint}</p>
+                    {addProducerHint ? (
+                      <p className="mt-1 text-[11px] text-slate-600">{addProducerHint}</p>
+                    ) : (
+                      <p className="mt-1 text-[11px] text-slate-500">Loading producer matches…</p>
                     )}
                   </div>
                   <div>
-                    <label className="mb-1 block text-xs font-medium text-slate-600">
+                    <label
+                      htmlFor="add-default-split"
+                      className="mb-1 block text-xs font-medium text-slate-700"
+                    >
                       Default Producer Split %
                     </label>
                     <input
+                      id="add-default-split"
                       type="number"
                       min={0}
                       max={100}
@@ -1123,8 +1169,8 @@ export function UsersPage() {
                       className={inputClassName}
                     />
                   </div>
-                </>
-              )}
+                </div>
+              ) : null}
               <div>
                 <label className="mb-1 block text-xs font-medium text-slate-600">Status</label>
                 <select
