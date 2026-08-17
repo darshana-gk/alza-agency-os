@@ -299,14 +299,16 @@ export function formatBatchStatusLabel(status: string | null | undefined): strin
   return formatLabel(normalized)
 }
 
-/** Required payment methods when confirming a producer payment batch as Paid. */
+/**
+ * Payment methods for Confirm Producer Paid.
+ * Must match producer_payment_batches.payment_method CHECK:
+ * NULL | ach | check | wire | other
+ * (Intersection with transactions.payment_method CHECK also allows these four.)
+ */
 export const PRODUCER_PAYMENT_METHODS = [
-  { value: 'ach_bank_transfer', label: 'ACH / Bank Transfer' },
+  { value: 'ach', label: 'ACH / Bank Transfer' },
   { value: 'check', label: 'Check' },
-  { value: 'zelle', label: 'Zelle' },
-  { value: 'venmo', label: 'Venmo' },
-  { value: 'paypal', label: 'PayPal' },
-  { value: 'cash', label: 'Cash' },
+  { value: 'wire', label: 'Wire' },
   { value: 'other', label: 'Other' },
 ] as const
 
@@ -317,12 +319,18 @@ export function formatProducerPaymentMethodLabel(value: string | null | undefine
   if (!raw || raw === '—') return '—'
   const match = PRODUCER_PAYMENT_METHODS.find((m) => m.value === raw)
   if (match) return match.label
-  // Legacy stored values (do not rewrite historical rows).
+  // Legacy / rejected UI values (display only; do not rewrite historical rows).
   const legacy: Record<string, string> = {
     ach: 'ACH / Bank Transfer',
+    ach_bank_transfer: 'ACH / Bank Transfer',
     wire: 'Wire',
     check: 'Check',
     other: 'Other',
+    zelle: 'Zelle',
+    venmo: 'Venmo',
+    paypal: 'PayPal',
+    cash: 'Cash',
+    manual: 'Manual',
   }
   const key = raw.toLowerCase()
   if (legacy[key]) return legacy[key]
@@ -351,6 +359,23 @@ export function canConfirmProducerPaid(batch: {
 /** Live recovery statuses (CHECK: open | applied | voided). Never use pending. */
 export const RECOVERY_STATUSES = ['open', 'applied', 'voided'] as const
 export type RecoveryStatus = (typeof RECOVERY_STATUSES)[number]
+
+export type RecoverySettlementMethod = 'next_payout' | 'direct_payment'
+
+/** True when recovery auto-applies against future producer payout batches. */
+export function isPayoutAppliedSettlement(method: string | null | undefined): boolean {
+  // NULL / empty / unknown → next_payout (legacy rows + safe default)
+  return (method ?? '').trim().toLowerCase() !== 'direct_payment'
+}
+
+export function isDirectPaymentSettlement(method: string | null | undefined): boolean {
+  return (method ?? '').trim().toLowerCase() === 'direct_payment'
+}
+
+export function formatRecoverySettlementLabel(method: string | null | undefined): string {
+  if (isDirectPaymentSettlement(method)) return 'Direct payment'
+  return 'Next payout'
+}
 
 export function normalizeRecoveryStatus(value: string | null | undefined): RecoveryStatus | string {
   const v = (value ?? '').trim().toLowerCase()
@@ -381,16 +406,28 @@ export function formatRecoveryOutcomeLabel(row: {
   return 'Open'
 }
 
-/** Producer-level open recovery balance (sum remaining_amount). */
+/**
+ * Producer-level open recovery balance (sum remaining_amount).
+ * Default scope: next_payout only (amounts that reduce future payouts).
+ * Pass settlement: 'direct_payment' | 'all' for other KPIs.
+ */
 export function sumOpenRecoveryRemaining(
-  rows: Array<{ producer?: string | null; status?: string | null; remaining_amount?: number | string | null }>,
+  rows: Array<{
+    producer?: string | null
+    status?: string | null
+    remaining_amount?: number | string | null
+    settlement_method?: string | null
+  }>,
   producer: string,
+  settlement: 'next_payout' | 'direct_payment' | 'all' = 'next_payout',
 ): number {
   const key = producer.trim()
   let sum = 0
   for (const row of rows) {
     if ((row.producer ?? '').trim() !== key) continue
     if (normalizeRecoveryStatus(row.status) !== 'open') continue
+    if (settlement === 'next_payout' && !isPayoutAppliedSettlement(row.settlement_method)) continue
+    if (settlement === 'direct_payment' && !isDirectPaymentSettlement(row.settlement_method)) continue
     sum += toNumber(row.remaining_amount)
   }
   return Math.max(0, sum)

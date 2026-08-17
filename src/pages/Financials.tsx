@@ -24,7 +24,10 @@ import {
   formatLabel,
   formatPercent,
   formatProducerPaymentMethodLabel,
+  formatRecoverySettlementLabel,
   formatRecoveryStatusLabel,
+  isDirectPaymentSettlement,
+  isPayoutAppliedSettlement,
   isReadyForPayout,
   isValidProducerPaymentMethod,
   netAfterRecoveries,
@@ -92,6 +95,7 @@ interface RecoveryRow {
   transaction_id: string | null
   producer: string | null
   receipt_id: string | null
+  settlement_method: string | null
   transactions:
     | (TransactionEmbed & { client_id?: string | null; policy_id?: string | null })
     | (TransactionEmbed & { client_id?: string | null; policy_id?: string | null })[]
@@ -171,6 +175,7 @@ interface Recovery {
   appliedAmount: number
   remainingAmount: number
   status: string
+  settlementMethod: string
   notes: string
   transactionNumber: string
   receiptLabel: string
@@ -205,6 +210,7 @@ interface RecoveryAmountRow {
   applied_amount: number | string | null
   remaining_amount: number | string | null
   status: string | null
+  settlement_method: string | null
 }
 
 const ALL = 'all'
@@ -262,6 +268,9 @@ function mapRecovery(row: RecoveryRow): Recovery {
     appliedAmount,
     remainingAmount,
     status: normalizeRecoveryStatus(row.status),
+    settlementMethod: isDirectPaymentSettlement(row.settlement_method)
+      ? 'direct_payment'
+      : 'next_payout',
     notes: row.notes?.trim() || '—',
     transactionNumber: txn?.transaction_number?.trim() || '—',
     receiptLabel: receiptBits.length > 0 ? receiptBits.join(' · ') : row.receipt_id ? 'Linked receipt' : '—',
@@ -387,6 +396,8 @@ export function Financials() {
   const [recoveryTxnId, setRecoveryTxnId] = useState('')
   const [recoveryAmount, setRecoveryAmount] = useState('')
   const [recoveryNotes, setRecoveryNotes] = useState('')
+  const [voidRecoveryId, setVoidRecoveryId] = useState<string | null>(null)
+  const [voidRecoveryLabel, setVoidRecoveryLabel] = useState('')
 
   const [confirmTxn, setConfirmTxn] = useState<CommissionTransaction | null>(null)
   const [receivedAmount, setReceivedAmount] = useState('')
@@ -438,7 +449,7 @@ export function Financials() {
           .select(
             `
             id, created_at, notes, status, amount, applied_amount, remaining_amount,
-            recovery_number, transaction_id, producer, receipt_id,
+            recovery_number, transaction_id, producer, receipt_id, settlement_method,
             transactions ( transaction_number, client_id, policy_id ),
             agency_commission_receipts ( id, client_id, policy_id, client_name, policy_number )
           `,
@@ -447,7 +458,7 @@ export function Financials() {
         fetchCommissionTransactions(),
         supabase
           .from('producer_commission_recoveries')
-          .select('producer, amount, applied_amount, remaining_amount, status'),
+          .select('producer, amount, applied_amount, remaining_amount, status, settlement_method'),
       ])
 
     if (receiptsResult.error) {
@@ -512,6 +523,24 @@ export function Financials() {
       const producer = (row.producer ?? '').trim()
       if (!producer) continue
       if (normalizeRecoveryStatus(row.status) !== 'open') continue
+      if (!isPayoutAppliedSettlement(row.settlement_method)) continue
+      const remaining =
+        row.remaining_amount == null
+          ? Math.max(0, toNumber(row.amount) - toNumber(row.applied_amount))
+          : toNumber(row.remaining_amount)
+      if (remaining <= 0) continue
+      map.set(producer, (map.get(producer) ?? 0) + remaining)
+    }
+    return map
+  }, [recoveryAmounts])
+
+  const openDirectRecoveryByProducer = useMemo(() => {
+    const map = new Map<string, number>()
+    for (const row of recoveryAmounts) {
+      const producer = (row.producer ?? '').trim()
+      if (!producer) continue
+      if (normalizeRecoveryStatus(row.status) !== 'open') continue
+      if (!isDirectPaymentSettlement(row.settlement_method)) continue
       const remaining =
         row.remaining_amount == null
           ? Math.max(0, toNumber(row.amount) - toNumber(row.applied_amount))
@@ -550,7 +579,10 @@ export function Financials() {
       .reduce((sum, tx) => sum + (tx.paidAmount ?? tx.producerCommissionAmount), 0)
     const agencyNet = transactions.reduce((sum, tx) => sum + tx.agencyNetCommission, 0)
     const recoveriesOpen = recoveries
-      .filter((row) => row.status === 'open')
+      .filter((row) => row.status === 'open' && isPayoutAppliedSettlement(row.settlementMethod))
+      .reduce((sum, row) => sum + row.remainingAmount, 0)
+    const directRecoveriesOpen = recoveries
+      .filter((row) => row.status === 'open' && isDirectPaymentSettlement(row.settlementMethod))
       .reduce((sum, row) => sum + row.remainingAmount, 0)
 
     return {
@@ -562,6 +594,7 @@ export function Financials() {
       producerPaid,
       agencyNet,
       recoveriesOpen,
+      directRecoveriesOpen,
     }
   }, [transactions, recoveries, openRecoveryByProducer])
 
@@ -595,6 +628,7 @@ export function Financials() {
         items: typeof readyItems
         gross: number
         openRecoveries: number
+        openDirectRecoveries: number
         netProposed: number
       }
     >()
@@ -610,16 +644,18 @@ export function Financials() {
           items: [item],
           gross: item.tx.producerCommissionAmount,
           openRecoveries: 0,
+          openDirectRecoveries: 0,
           netProposed: 0,
         })
       }
     }
     for (const [producer, group] of groups.entries()) {
       group.openRecoveries = openRecoveryByProducer.get(producer) ?? 0
+      group.openDirectRecoveries = openDirectRecoveryByProducer.get(producer) ?? 0
       group.netProposed = netAfterRecoveries(group.gross, group.openRecoveries)
     }
     return [...groups.entries()].sort(([a], [b]) => a.localeCompare(b))
-  }, [readyItems, openRecoveryByProducer])
+  }, [readyItems, openRecoveryByProducer, openDirectRecoveryByProducer])
 
   const selectedReady = useMemo(
     () => readyItems.filter((item) => selectedReadyIds.includes(item.tx.id)),
@@ -628,16 +664,24 @@ export function Financials() {
 
   const selectedBatchPreview = useMemo(() => {
     if (selectedReady.length === 0) {
-      return { producer: '', gross: 0, openRecoveries: 0, recoveryApplied: 0, net: 0 }
+      return {
+        producer: '',
+        gross: 0,
+        openRecoveries: 0,
+        openDirectRecoveries: 0,
+        recoveryApplied: 0,
+        net: 0,
+      }
     }
     const producers = [...new Set(selectedReady.map((item) => item.tx.producer.trim()))]
     const producer = producers.length === 1 ? producers[0] : ''
     const gross = selectedReady.reduce((sum, item) => sum + item.tx.producerCommissionAmount, 0)
     const openRecoveries = producer ? (openRecoveryByProducer.get(producer) ?? 0) : 0
+    const openDirectRecoveries = producer ? (openDirectRecoveryByProducer.get(producer) ?? 0) : 0
     const recoveryApplied = Math.min(openRecoveries, gross)
     const net = netAfterRecoveries(gross, openRecoveries)
-    return { producer, gross, openRecoveries, recoveryApplied, net }
-  }, [selectedReady, openRecoveryByProducer])
+    return { producer, gross, openRecoveries, openDirectRecoveries, recoveryApplied, net }
+  }, [selectedReady, openRecoveryByProducer, openDirectRecoveryByProducer])
 
   const selectedProducers = useMemo(
     () => [...new Set(selectedReady.map((item) => item.tx.producer))],
@@ -953,14 +997,15 @@ export function Financials() {
     await loadAll()
   }
 
-  async function handleVoidRecovery(recoveryId: string) {
+  async function handleVoidRecoveryConfirm() {
+    if (!voidRecoveryId) return
     if (!canPay) {
       setActionError('You do not have permission to void recoveries.')
       return
     }
     setSaving(true)
     setActionError(null)
-    const result = await voidProducerRecovery(recoveryId)
+    const result = await voidProducerRecovery(voidRecoveryId)
     setSaving(false)
     if (result.error) {
       setActionError(
@@ -968,7 +1013,9 @@ export function Financials() {
       )
       return
     }
-    setActionSuccess('Recovery voided.')
+    setVoidRecoveryId(null)
+    setVoidRecoveryLabel('')
+    setActionSuccess('Recovery voided. The original transaction was not changed.')
     await loadAll()
   }
 
@@ -1003,7 +1050,7 @@ export function Financials() {
         <KpiCard
           label="Producer Commission Payable"
           value={formatCurrency(kpis.producerPayable)}
-          hint={`Gross ${formatCurrency(kpis.producerPayableGross)} − open recoveries ${formatCurrency(kpis.producerPayableOpenRecoveries)} (never below $0)`}
+          hint={`Gross ${formatCurrency(kpis.producerPayableGross)} − next-payout recoveries ${formatCurrency(kpis.producerPayableOpenRecoveries)} (never below $0)`}
           icon={Wallet}
           tone="amber"
           onClick={() => {
@@ -1050,7 +1097,11 @@ export function Financials() {
         <KpiCard
           label="Open Producer Recoveries"
           value={formatCurrency(kpis.recoveriesOpen)}
-          hint="Sum of open remaining_amount (producer-level carry-forward)"
+          hint={
+            kpis.directRecoveriesOpen > 0
+              ? `Next-payout carry-forward only. Direct payment outstanding: ${formatCurrency(kpis.directRecoveriesOpen)} (does not reduce payouts)`
+              : 'Next-payout carry-forward only (excludes Direct Payment)'
+          }
           icon={RotateCcw}
           tone="orange"
           onClick={() => setTab('recoveries')}
@@ -1316,7 +1367,7 @@ export function Financials() {
                           </span>
                         </p>
                         <p>
-                          <span className="text-slate-500">Open Recoveries</span>{' '}
+                          <span className="text-slate-500">Open Recoveries (next payout)</span>{' '}
                           <span
                             className={`font-semibold tabular-nums ${group.openRecoveries > 0 ? 'text-orange-700' : 'text-slate-900'}`}
                           >
@@ -1330,6 +1381,15 @@ export function Financials() {
                           </span>
                         </p>
                       </div>
+                      {group.openDirectRecoveries > 0 && (
+                        <p className="mt-1.5 text-xs text-slate-600">
+                          Direct payment outstanding:{' '}
+                          <span className="font-semibold tabular-nums text-slate-800">
+                            {formatCurrency(group.openDirectRecoveries)}
+                          </span>{' '}
+                          (not deducted from this payout)
+                        </p>
+                      )}
                     </div>
                     {canPay ? (
                       <button
@@ -1675,6 +1735,7 @@ export function Financials() {
                   <th className="px-6 py-3 text-right text-xs font-semibold uppercase tracking-wider text-slate-500">Applied</th>
                   <th className="px-6 py-3 text-right text-xs font-semibold uppercase tracking-wider text-slate-500">Remaining</th>
                   <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">Status</th>
+                  <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">Settlement</th>
                   <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">Transaction</th>
                   <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">Receipt</th>
                   <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">Notes</th>
@@ -1683,9 +1744,9 @@ export function Financials() {
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {loading ? (
-                  <EmptyOrLoading colSpan={11} loading label="Loading commission recoveries..." />
+                  <EmptyOrLoading colSpan={12} loading label="Loading commission recoveries..." />
                 ) : filteredRecoveries.length === 0 ? (
-                  <EmptyOrLoading colSpan={11} title="No commission recoveries recorded yet." subtitle="Record recoveries explicitly from Financials or a transaction detail panel." />
+                  <EmptyOrLoading colSpan={12} title="No commission recoveries recorded yet." subtitle="Record recoveries explicitly from Financials or a transaction detail panel." />
                 ) : (
                   filteredRecoveries.map((row) => (
                     <tr key={row.id} className="hover:bg-alza-blue-50/60">
@@ -1720,6 +1781,9 @@ export function Financials() {
                           {formatRecoveryStatusLabel(row.status)}
                         </span>
                       </td>
+                      <td className="whitespace-nowrap px-6 py-4 text-sm text-slate-700">
+                        {formatRecoverySettlementLabel(row.settlementMethod)}
+                      </td>
                       <td className="whitespace-nowrap px-6 py-4 text-sm">
                         <RecordLink
                           to={row.transactionId ? `/transactions/${row.transactionId}` : undefined}
@@ -1743,10 +1807,17 @@ export function Financials() {
                           <button
                             type="button"
                             disabled={saving}
-                            onClick={() => handleVoidRecovery(row.id)}
+                            onClick={() => {
+                              setVoidRecoveryId(row.id)
+                              setVoidRecoveryLabel(
+                                row.recoveryNumber?.trim() ||
+                                  formatCurrency(row.amount) ||
+                                  'this recovery',
+                              )
+                            }}
                             className="text-sm font-medium text-slate-600 hover:text-red-700"
                           >
-                            Void
+                            Void Recovery
                           </button>
                         ) : (
                           <span className="text-sm text-slate-400">—</span>
@@ -1896,14 +1967,21 @@ export function Financials() {
         <Modal title="Create Payment Batch" onClose={() => !saving && setCreateBatchOpen(false)}>
           <form onSubmit={handleCreateBatch} className="space-y-4">
             <p className="text-sm text-slate-600">
-              Creates the batch atomically with open recoveries applied oldest-first. Recoveries are consumed at create — Confirm Paid will not deduct again.
+              Creates the batch atomically with open <span className="font-medium">Next payout</span> recoveries
+              applied oldest-first. Direct Payment recoveries are excluded. Recoveries are consumed at create —
+              Confirm Paid will not deduct again.
             </p>
             <div className="rounded-lg bg-slate-50 px-3 py-2 text-sm">
               <p><span className="text-slate-500">Producer:</span> <span className="font-medium text-slate-900">{selectedBatchPreview.producer || selectedProducers.join(', ') || '—'}</span></p>
               <p className="mt-1"><span className="text-slate-500">Transactions:</span> <span className="font-medium text-slate-900">{selectedReady.length}</span></p>
               <p className="mt-1"><span className="text-slate-500">Gross:</span> <span className="font-medium text-slate-900">{formatCurrency(selectedBatchPreview.gross)}</span></p>
-              <p className="mt-1"><span className="text-slate-500">Recovery applied:</span> <span className="font-medium text-orange-700">{formatCurrency(selectedBatchPreview.recoveryApplied)}</span></p>
+              <p className="mt-1"><span className="text-slate-500">Next-payout recovery applied:</span> <span className="font-medium text-orange-700">{formatCurrency(selectedBatchPreview.recoveryApplied)}</span></p>
               <p className="mt-1"><span className="text-slate-500">Net payment:</span> <span className="font-medium text-slate-900">{formatCurrency(selectedBatchPreview.net)}</span></p>
+              {selectedBatchPreview.openDirectRecoveries > 0 && (
+                <p className="mt-1 text-xs text-slate-600">
+                  Direct payment outstanding {formatCurrency(selectedBatchPreview.openDirectRecoveries)} remains open and is not deducted here.
+                </p>
+              )}
               {selectedBatchPreview.net === 0 && selectedBatchPreview.gross > 0 && (
                 <p className="mt-2 text-xs text-slate-600">Net is $0 because recoveries fully offset this payout. A zero-net draft batch is allowed; do not fake a $0.01 payment.</p>
               )}
@@ -2129,6 +2207,48 @@ export function Financials() {
               </button>
             </div>
           </form>
+        </Modal>
+      )}
+
+      {voidRecoveryId && (
+        <Modal
+          title="Void Recovery"
+          onClose={() => {
+            if (saving) return
+            setVoidRecoveryId(null)
+            setVoidRecoveryLabel('')
+          }}
+        >
+          <div className="space-y-4">
+            <p className="text-sm text-slate-600">
+              Void recovery <span className="font-medium text-slate-900">{voidRecoveryLabel}</span>?
+            </p>
+            <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-sm text-amber-900">
+              This voids only the recovery / chargeback record. The original transaction will not be
+              changed.
+            </p>
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                disabled={saving}
+                onClick={() => {
+                  setVoidRecoveryId(null)
+                  setVoidRecoveryLabel('')
+                }}
+                className="rounded-lg border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={saving}
+                onClick={() => void handleVoidRecoveryConfirm()}
+                className="rounded-lg bg-red-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50"
+              >
+                {saving ? 'Voiding…' : 'Void Recovery'}
+              </button>
+            </div>
+          </div>
         </Modal>
       )}
     </div>

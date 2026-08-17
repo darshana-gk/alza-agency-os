@@ -26,6 +26,7 @@ import {
   formatDate,
   formatTypeLabel,
   isCorrectionRequired,
+  isPayoutAppliedSettlement,
   isReadyForPayout,
   type CommissionTransaction,
 } from '../lib/commission'
@@ -121,10 +122,10 @@ export function Dashboard() {
     const [txRes, recoveriesRes, policiesRes, notificationsRes] = await Promise.all([
       fetchCommissionTransactions(),
       producerLocked
-        ? Promise.resolve({ data: [] as { id: string; amount: number | null; remaining_amount: number | null; status: string | null; voided_at: string | null }[], error: null })
+        ? Promise.resolve({ data: [] as { id: string; amount: number | null; remaining_amount: number | null; status: string | null; voided_at: string | null; settlement_method: string | null }[], error: null })
         : supabase
             .from('producer_commission_recoveries')
-            .select('id, amount, remaining_amount, status, voided_at'),
+            .select('id, amount, remaining_amount, status, voided_at, settlement_method'),
       supabase
         .from('policies')
         .select('id, expiration_date, producer')
@@ -179,6 +180,8 @@ export function Dashboard() {
         const status = String(r.status ?? '').toLowerCase()
         if (r.voided_at) return false
         if (status === 'voided' || status === 'applied') return false
+        // Carry-forward KPI: next_payout only (Direct Payment does not reduce future payouts)
+        if (!isPayoutAppliedSettlement(r.settlement_method)) return false
         if (hasRemaining) {
           const remaining = Number(r.remaining_amount ?? 0)
           return remaining > 0 || status === 'open' || status === 'pending'
@@ -347,7 +350,7 @@ export function Dashboard() {
             tone="orange"
             hint={
               openRecoveries.usesRemaining
-                ? `${openRecoveries.count} open · remaining_amount`
+                ? `${openRecoveries.count} open next-payout · remaining_amount (excludes Direct Payment)`
                 : `${openRecoveries.count} recorded/open · not production-consumed`
             }
           />

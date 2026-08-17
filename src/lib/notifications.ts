@@ -98,6 +98,7 @@ interface RecoveryRow {
   created_at: string | null
   producer: string | null
   transaction_id: string | null
+  settlement_method: string | null
 }
 
 function firstEmbed<T>(value: T | T[] | null | undefined): T | null {
@@ -268,7 +269,7 @@ export async function fetchOperationalNotifications(params: {
       ? supabase
           .from('producer_commission_recoveries')
           .select(
-            'id, amount, remaining_amount, status, voided_at, created_at, producer, transaction_id',
+            'id, amount, remaining_amount, status, voided_at, created_at, producer, transaction_id, settlement_method',
           )
           .is('voided_at', null)
           .order('created_at', { ascending: false })
@@ -548,14 +549,20 @@ export async function fetchOperationalNotifications(params: {
     if (!isOpenRecovery(row, usesRemaining)) continue
     if (!roleAllowsKind(roleInput, 'open_recovery')) continue
     const amount = usesRemaining ? Number(row.remaining_amount ?? 0) : Number(row.amount ?? 0)
+    const isDirect =
+      String(row.settlement_method ?? '')
+        .trim()
+        .toLowerCase() === 'direct_payment'
     items.push(
       withReadState(
         {
           id: `open_recovery:${row.id}`,
           kind: 'open_recovery',
           category: 'recoveries',
-          title: 'Open producer recovery',
-          context: `${display(row.producer)} · ${formatCurrency(amount)}`,
+          title: isDirect ? 'Open Direct Payment recovery' : 'Open next-payout recovery',
+          context: `${display(row.producer)} · ${formatCurrency(amount)}${
+            isDirect ? ' · settle separately (not deducted from payouts)' : ''
+          }`,
           dateLabel: (row.created_at || '').slice(0, 10) || null,
           href: row.transaction_id
             ? `/transactions/${row.transaction_id}`
