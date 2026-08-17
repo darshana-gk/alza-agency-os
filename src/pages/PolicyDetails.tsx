@@ -11,9 +11,7 @@ import {
   withFinancialsReturn,
 } from '../lib/financialsNav'
 import {
-  derivePolicyCommission,
   POLICY_STATUSES,
-  policyHasLockedFinancialHistory,
   updatePolicy,
   type PolicyStatusValue,
 } from '../lib/directory'
@@ -158,7 +156,6 @@ export function PolicyDetails() {
   const [editOpen, setEditOpen] = useState(false)
   const [addTxnOpen, setAddTxnOpen] = useState(false)
   const [actionSuccess, setActionSuccess] = useState<string | null>(null)
-  const [financialsLocked, setFinancialsLocked] = useState(true)
   const [saving, setSaving] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
   const [form, setForm] = useState({
@@ -172,7 +169,6 @@ export function PolicyDetails() {
     expirationDate: '',
     status: 'pending' as PolicyStatus,
     notes: '',
-    premium: '',
     commissionType: 'percentage' as CommissionType,
     agencyCommissionPercentage: '',
     agencyCommissionAmount: '',
@@ -288,9 +284,6 @@ export function PolicyDetails() {
 
     setPolicy(mapped)
 
-    const lock = await policyHasLockedFinancialHistory(id)
-    setFinancialsLocked(Boolean(lock.locked))
-
     const { data: txData, error: txError } = await fetchCommissionTransactionsByPolicy(id)
     if (txError) {
       setTransactions([])
@@ -315,29 +308,29 @@ export function PolicyDetails() {
     return `/transactions?${params.toString()}`
   }, [policy])
 
-  const editDerived = useMemo(() => {
-    const premium = Number(form.premium)
-    const splitPct = Number(form.producerSplitPercentage)
-    const brokerFee = Number(form.brokerFee)
-    const commissionType = normalizeCommissionType(form.commissionType)
-    if (!Number.isFinite(premium) || premium < 0 || !Number.isFinite(splitPct) || splitPct < 0) return null
-    if (!Number.isFinite(brokerFee)) return null
-    if (commissionType === 'percentage') {
-      const agencyPct = Number(form.agencyCommissionPercentage)
-      if (!Number.isFinite(agencyPct) || agencyPct < 0) return null
-      return derivePolicyCommission(premium, agencyPct, splitPct, brokerFee, 'percentage', null)
+  const financialTotals = useMemo(() => {
+    let currentPolicyPremium = 0
+    let totalBrokerFees = 0
+    let totalAgencyCommission = 0
+    let totalProducerCommission = 0
+    let totalAgencyNet = 0
+    for (const tx of transactions) {
+      currentPolicyPremium += tx.amount
+      totalBrokerFees += tx.brokerFee
+      totalAgencyCommission += tx.agencyCommissionAmount
+      totalProducerCommission += tx.producerCommissionAmount
+      totalAgencyNet += tx.agencyNetCommission
     }
-    const flat = Number(form.agencyCommissionAmount)
-    if (!Number.isFinite(flat)) return null
-    return derivePolicyCommission(premium, null, splitPct, brokerFee, 'flat', flat)
-  }, [
-    form.premium,
-    form.commissionType,
-    form.agencyCommissionPercentage,
-    form.agencyCommissionAmount,
-    form.brokerFee,
-    form.producerSplitPercentage,
-  ])
+    const totalCommissionPool = totalAgencyCommission + totalBrokerFees
+    return {
+      currentPolicyPremium,
+      totalBrokerFees,
+      totalAgencyCommission,
+      totalCommissionPool,
+      totalProducerCommission,
+      totalAgencyNet,
+    }
+  }, [transactions])
 
   function openEdit() {
     if (!policy || !canEdit) return
@@ -352,7 +345,6 @@ export function PolicyDetails() {
       expirationDate: policy.expirationDate,
       status: policy.status,
       notes: policy.notes,
-      premium: String(policy.premium),
       commissionType: policy.commissionType,
       agencyCommissionPercentage:
         policy.agencyCommissionPercentage === null ? '' : String(policy.agencyCommissionPercentage),
@@ -383,8 +375,7 @@ export function PolicyDetails() {
       expirationDate: form.expirationDate,
       status: form.status,
       notes: form.notes,
-      unlockFinancials: !financialsLocked,
-      premium: Number(form.premium),
+      unlockFinancials: true,
       commissionType,
       agencyCommissionPercentage:
         commissionType === 'percentage' ? Number(form.agencyCommissionPercentage) : null,
@@ -541,7 +532,10 @@ export function PolicyDetails() {
           <InfoField label="Status" value={policyStatusLabels[policy.status]} />
           <InfoField label="Producer" value={policy.producer} />
           <InfoField label="CSR" value={policy.csr} />
-          <InfoField label="Premium" value={formatCurrency(policy.premium)} />
+          <InfoField
+            label="Current Policy Premium"
+            value={formatCurrency(financialTotals.currentPolicyPremium)}
+          />
           <InfoField label="Client #" value={policy.clientNumber} />
         </div>
         {policy.notes && (
@@ -565,19 +559,50 @@ export function PolicyDetails() {
       </div>
 
       <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
+        <h2 className="mb-1 text-lg font-semibold text-slate-900">Financial Totals</h2>
+        <p className="mb-5 text-xs text-slate-500">
+          Totals are the SUM of related non-archived transactions (positive and negative amounts included).
+        </p>
+        <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+          <InfoField
+            label="Current Policy Premium"
+            value={formatCurrency(financialTotals.currentPolicyPremium)}
+          />
+          <InfoField label="Total Broker Fees" value={formatCurrency(financialTotals.totalBrokerFees)} />
+          <InfoField
+            label="Total Agency Commission"
+            value={formatCurrency(financialTotals.totalAgencyCommission)}
+          />
+          <InfoField
+            label="Total Commission Pool"
+            value={formatCurrency(financialTotals.totalCommissionPool)}
+          />
+          <InfoField
+            label="Total Producer Commission"
+            value={formatCurrency(financialTotals.totalProducerCommission)}
+          />
+          <InfoField
+            label="Agency Net Commission"
+            value={formatCurrency(financialTotals.totalAgencyNet)}
+          />
+        </div>
+      </div>
+
+      <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
         <h2 className="mb-5 text-lg font-semibold text-slate-900">Commission Setup</h2>
         <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
           <InfoField label="Commission Basis" value={formatCommissionTypeLabel(policy.commissionType)} />
-          {policy.commissionType === 'percentage' && (
+          {policy.commissionType === 'percentage' ? (
             <InfoField label="Agency Commission %" value={formatPercent(policy.agencyCommissionPercentage)} />
+          ) : (
+            <InfoField
+              label="Default Agency Commission Amount"
+              value={formatCurrency(policy.agencyCommissionAmount)}
+            />
           )}
-          <InfoField label="Agency Commission Amount" value={formatCurrency(policy.agencyCommissionAmount)} />
-          <InfoField label="Broker Fee" value={formatCurrency(policy.brokerFee)} />
-          <InfoField label="Commission Pool" value={formatCurrency(policy.commissionPool)} />
+          <InfoField label="Default Broker Fee" value={formatCurrency(policy.brokerFee)} />
           <InfoField label="Producer" value={policy.producer} />
           <InfoField label="Producer Split %" value={formatPercent(policy.producerSplitPercentage)} />
-          <InfoField label="Producer Commission" value={formatCurrency(policy.producerCommissionAmount)} />
-          <InfoField label="Agency Net Commission" value={formatCurrency(policy.agencyNetCommission)} />
           <InfoField label="Override split" value={policy.overrideSplit ? 'Yes' : 'No'} />
         </div>
       </div>
@@ -737,17 +762,11 @@ export function PolicyDetails() {
               </div>
 
               <div className="rounded-lg border border-slate-200 bg-slate-50/70 p-4">
-                <p className="mb-2 text-sm font-semibold text-slate-900">Commission / premium</p>
-                {financialsLocked ? (
-                  <p className="mb-3 text-sm text-amber-800">
-                    Premium and commission fields are locked because this policy has linked transactions that are confirmed, batched, or paid. Historical transaction money is not recalculated.
-                  </p>
-                ) : null}
+                <p className="mb-2 text-sm font-semibold text-slate-900">Commission Defaults</p>
+                <p className="mb-3 text-sm text-slate-600">
+                  Changing defaults does not recalculate historical transactions. Default Broker Fee is inherited by new transactions.
+                </p>
                 <div className="grid gap-3 sm:grid-cols-2">
-                  <label className="block">
-                    <span className="mb-1.5 block text-xs font-medium text-slate-500">Premium</span>
-                    <input disabled={financialsLocked} type="number" min="0" step="0.01" value={form.premium} onChange={(e) => setForm((p) => ({ ...p, premium: e.target.value }))} className={`${inputClassName} ${financialsLocked ? 'bg-slate-100' : ''}`} />
-                  </label>
                   <div className="block">
                     <span className="mb-1.5 block text-xs font-medium text-slate-500">Commission Basis</span>
                     <div className="flex flex-wrap gap-2">
@@ -755,9 +774,8 @@ export function PolicyDetails() {
                         <button
                           key={type}
                           type="button"
-                          disabled={financialsLocked}
                           onClick={() => setForm((p) => ({ ...p, commissionType: type }))}
-                          className={`rounded-lg border px-3 py-1.5 text-sm font-medium disabled:opacity-50 ${
+                          className={`rounded-lg border px-3 py-1.5 text-sm font-medium ${
                             form.commissionType === type
                               ? 'border-alza-blue-300 bg-alza-blue-50 text-alza-blue-800'
                               : 'border-slate-200 bg-white text-slate-700'
@@ -771,34 +789,25 @@ export function PolicyDetails() {
                   {form.commissionType === 'percentage' ? (
                     <label className="block">
                       <span className="mb-1.5 block text-xs font-medium text-slate-500">Agency Commission %</span>
-                      <input disabled={financialsLocked} type="number" min="0" step="0.01" value={form.agencyCommissionPercentage} onChange={(e) => setForm((p) => ({ ...p, agencyCommissionPercentage: e.target.value }))} className={`${inputClassName} ${financialsLocked ? 'bg-slate-100' : ''}`} />
+                      <input type="number" min="0" step="0.01" value={form.agencyCommissionPercentage} onChange={(e) => setForm((p) => ({ ...p, agencyCommissionPercentage: e.target.value }))} className={inputClassName} />
                     </label>
                   ) : (
                     <label className="block">
-                      <span className="mb-1.5 block text-xs font-medium text-slate-500">Agency Commission Amount</span>
-                      <input disabled={financialsLocked} type="number" step="0.01" value={form.agencyCommissionAmount} onChange={(e) => setForm((p) => ({ ...p, agencyCommissionAmount: e.target.value }))} className={`${inputClassName} ${financialsLocked ? 'bg-slate-100' : ''}`} />
+                      <span className="mb-1.5 block text-xs font-medium text-slate-500">Default Agency Commission Amount</span>
+                      <input type="number" step="0.01" value={form.agencyCommissionAmount} onChange={(e) => setForm((p) => ({ ...p, agencyCommissionAmount: e.target.value }))} className={inputClassName} />
                     </label>
                   )}
                   <label className="block">
-                    <span className="mb-1.5 block text-xs font-medium text-slate-500">Broker Fee</span>
-                    <input disabled={financialsLocked} type="number" step="0.01" value={form.brokerFee} onChange={(e) => setForm((p) => ({ ...p, brokerFee: e.target.value }))} className={`${inputClassName} ${financialsLocked ? 'bg-slate-100' : ''}`} />
+                    <span className="mb-1.5 block text-xs font-medium text-slate-500">Default Broker Fee</span>
+                    <input type="number" step="0.01" value={form.brokerFee} onChange={(e) => setForm((p) => ({ ...p, brokerFee: e.target.value }))} className={inputClassName} />
                   </label>
                   <label className="block">
                     <span className="mb-1.5 block text-xs font-medium text-slate-500">Producer Split %</span>
-                    <input disabled={financialsLocked} type="number" min="0" step="0.01" value={form.producerSplitPercentage} onChange={(e) => setForm((p) => ({ ...p, producerSplitPercentage: e.target.value }))} className={`${inputClassName} ${financialsLocked ? 'bg-slate-100' : ''}`} />
+                    <input type="number" min="0" step="0.01" value={form.producerSplitPercentage} onChange={(e) => setForm((p) => ({ ...p, producerSplitPercentage: e.target.value }))} className={inputClassName} />
                   </label>
                 </div>
-                {!financialsLocked && editDerived && (
-                  <div className="mt-3 grid gap-1.5 text-sm text-slate-700 sm:grid-cols-2">
-                    <p>Agency Commission: <span className="font-semibold">{formatCurrency(editDerived.agencyCommissionAmount)}</span></p>
-                    <p>Broker Fee: <span className="font-semibold">{formatCurrency(editDerived.brokerFee)}</span></p>
-                    <p>Commission Pool: <span className="font-semibold">{formatCurrency(editDerived.commissionPool)}</span></p>
-                    <p>Producer Share: <span className="font-semibold">{formatCurrency(editDerived.producerCommissionAmount)}</span></p>
-                    <p>Agency Net: <span className="font-semibold">{formatCurrency(editDerived.agencyNetCommission)}</span></p>
-                  </div>
-                )}
-                <label className={`mt-3 flex items-center gap-2 text-sm ${financialsLocked ? 'text-slate-400' : 'text-slate-700'}`}>
-                  <input disabled={financialsLocked} type="checkbox" checked={form.overrideSplit} onChange={(e) => setForm((p) => ({ ...p, overrideSplit: e.target.checked }))} />
+                <label className="mt-3 flex items-center gap-2 text-sm text-slate-700">
+                  <input type="checkbox" checked={form.overrideSplit} onChange={(e) => setForm((p) => ({ ...p, overrideSplit: e.target.checked }))} />
                   Override split
                 </label>
               </div>

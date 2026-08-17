@@ -147,7 +147,7 @@ export function AgencySettingsPage() {
       ) : (
         <form onSubmit={handleSave} className="space-y-6 rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
-            <div className="flex h-20 w-20 items-center justify-center overflow-hidden rounded-xl border border-slate-200 bg-slate-50">
+            <div className="flex h-24 w-24 items-center justify-center overflow-hidden rounded-xl border border-slate-200 bg-slate-50">
               {agency?.logoUrl ? (
                 <img src={agency.logoUrl} alt="" className="h-full w-full object-contain" />
               ) : (

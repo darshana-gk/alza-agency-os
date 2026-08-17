@@ -13,6 +13,7 @@ import {
 import { AddPolicyModal } from '../components/policies/AddPolicyModal'
 import { SearchInput } from '../components/ui/SearchInput'
 import { useAuth } from '../lib/auth'
+import { fetchPolicyTransactionSummaries } from '../lib/commission'
 import {
   canManagePolicies,
   isProducerBookScoped,
@@ -65,11 +66,6 @@ function normalizeStatus(value: string | null): PolicyStatus {
     return v
   }
   return 'pending'
-}
-
-function toNumber(value: unknown): number {
-  const n = typeof value === 'number' ? value : Number(value)
-  return Number.isFinite(n) ? n : 0
 }
 
 function formatCurrency(amount: number): string {
@@ -155,7 +151,7 @@ export function PolicyFiles() {
       return
     }
 
-    const mapped = (data ?? []).map((row) => {
+    const mappedBase = (data ?? []).map((row) => {
       const client = Array.isArray(row.clients) ? row.clients[0] : row.clients
       return {
         id: String(row.id),
@@ -169,10 +165,24 @@ export function PolicyFiles() {
         expirationDate: String(row.expiration_date ?? ''),
         producer: String(row.producer ?? '—'),
         csr: String(row.csr ?? '—'),
-        premium: toNumber(row.premium),
+        // Placeholder until transaction summaries apply (transactions are SoT).
+        premium: 0,
         status: normalizeStatus(row.status as string | null),
       }
     })
+
+    const summaryRes = await fetchPolicyTransactionSummaries(mappedBase.map((p) => p.id))
+    if (summaryRes.error) {
+      setPolicies([])
+      setFetchError(summaryRes.error.message)
+      setLoading(false)
+      return
+    }
+
+    const mapped = mappedBase.map((policy) => ({
+      ...policy,
+      premium: summaryRes.data[policy.id]?.totalPremium ?? 0,
+    }))
 
     if (isProducerBookScoped(roleInput)) {
       const names = [...new Set(mapped.map((p) => p.producer).filter((p) => p && p !== '—'))]
@@ -364,7 +374,7 @@ export function PolicyFiles() {
         <Kpi label="Total Policies" value={String(summary.total)} icon={FileText} tone="blue" />
         <Kpi label="Active Policies" value={String(summary.active)} icon={ShieldCheck} tone="emerald" />
         <Kpi label="Renewals Due in 90 Days" value={String(summary.renewalsDue)} icon={CalendarClock} tone="amber" />
-        <Kpi label="Total Written Premium" value={formatCurrency(summary.totalPremium)} icon={DollarSign} tone="teal" />
+        <Kpi label="Current Policy Premium" value={formatCurrency(summary.totalPremium)} icon={DollarSign} tone="teal" />
       </div>
 
       <div className="grid gap-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:grid-cols-2 xl:grid-cols-4">
@@ -445,7 +455,7 @@ export function PolicyFiles() {
           <table className="min-w-full">
             <thead>
               <tr className="border-b border-slate-200 bg-slate-50/80">
-                {['Client', 'Policy Number', 'Type', 'Carrier / MGA', 'Effective', 'Expiration', 'Producer', 'CSR', 'Premium', 'Status'].map((col) => (
+                {['Client', 'Policy Number', 'Type', 'Carrier / MGA', 'Effective', 'Expiration', 'Producer', 'CSR', 'Current Policy Premium', 'Status'].map((col) => (
                   <th key={col} className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">{col}</th>
                 ))}
               </tr>

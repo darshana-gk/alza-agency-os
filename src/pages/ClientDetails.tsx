@@ -686,7 +686,7 @@ export function ClientDetails() {
                   'Carrier / MGA',
                   'Effective Date',
                   'Expiration Date',
-                  'Total Premium',
+                  'Current Policy Premium',
                   'Status',
                   'Transactions',
                 ].map((col) => (

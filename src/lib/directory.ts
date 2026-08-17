@@ -402,15 +402,15 @@ export interface CreatePolicyInput {
   csr: string
   effectiveDate: string
   expirationDate: string
-  premium: number
   status: PolicyStatusValue
   notes?: string
   commissionType: CommissionType
   agencyCommissionPercentage: number | null
   agencyCommissionAmount: number | null
-  brokerFee: number
   producerSplitPercentage: number
   overrideSplit?: boolean
+  /** Optional default broker fee inherited by new transactions (defaults to 0). */
+  brokerFee?: number
 }
 
 export async function createPolicy(input: CreatePolicyInput) {
@@ -423,9 +423,6 @@ export async function createPolicy(input: CreatePolicyInput) {
   }
   if (!input.policyNumber.trim()) {
     return err('Policy number is required.', 'policies', 'validate')
-  }
-  if (!Number.isFinite(input.premium) || input.premium < 0) {
-    return err('Enter a valid premium amount.', 'policies', 'validate')
   }
 
   const commissionType = normalizeCommissionType(input.commissionType)
@@ -444,8 +441,9 @@ export async function createPolicy(input: CreatePolicyInput) {
     return err('Enter a valid flat agency commission amount.', 'policies', 'validate')
   }
 
-  if (!Number.isFinite(input.brokerFee)) {
-    return err('Enter a valid broker fee (0, positive, or negative).', 'policies', 'validate')
+  const brokerFee = input.brokerFee === undefined ? 0 : Number(input.brokerFee)
+  if (!Number.isFinite(brokerFee)) {
+    return err('Enter a valid default broker fee (0, positive, or negative).', 'policies', 'validate')
   }
   if (!Number.isFinite(input.producerSplitPercentage) || input.producerSplitPercentage < 0) {
     return err('Producer split % must be zero or greater.', 'policies', 'validate')
@@ -473,15 +471,8 @@ export async function createPolicy(input: CreatePolicyInput) {
     )
   }
 
-  const derived = derivePolicyCommission(
-    input.premium,
-    input.agencyCommissionPercentage,
-    input.producerSplitPercentage,
-    input.brokerFee,
-    commissionType,
-    input.agencyCommissionAmount,
-  )
-
+  // Money totals live on transactions. Policy stores defaults only — do not invent ledger
+  // amounts from a policy premium (premium is no longer collected on create).
   const payload = {
     client_id: clientId,
     policy_number: policyNumber,
@@ -492,16 +483,18 @@ export async function createPolicy(input: CreatePolicyInput) {
     csr: input.csr.trim() || null,
     effective_date: input.effectiveDate.trim() || null,
     expiration_date: input.expirationDate.trim() || null,
-    premium: input.premium,
+    premium: 0,
     status: input.status,
     notes: input.notes?.trim() || null,
-    commission_type: derived.commissionType,
-    agency_commission_percentage: derived.agencyCommissionPercentage,
-    agency_commission_amount: derived.agencyCommissionAmount,
-    broker_fee: derived.brokerFee,
-    producer_split_percentage: derived.producerSplitPercentage,
-    producer_commission_amount: derived.producerCommissionAmount,
-    agency_net_commission: derived.agencyNetCommission,
+    commission_type: commissionType,
+    agency_commission_percentage:
+      commissionType === 'percentage' ? input.agencyCommissionPercentage : null,
+    agency_commission_amount:
+      commissionType === 'flat' ? roundMoney(Number(input.agencyCommissionAmount)) : 0,
+    broker_fee: roundMoney(brokerFee),
+    producer_split_percentage: roundMoney(input.producerSplitPercentage),
+    producer_commission_amount: 0,
+    agency_net_commission: 0,
     override_split: Boolean(input.overrideSplit),
   }
 
@@ -526,9 +519,12 @@ export interface UpdatePolicyInput {
   expirationDate: string
   status: PolicyStatusValue
   notes: string
-  /** Only applied when financial fields are unlocked. */
+  /**
+   * When true, update commission *defaults* (rates / default broker fee / split).
+   * Does not rewrite historical transaction snapshots and does not treat policy premium
+   * as a ledger total.
+   */
   unlockFinancials: boolean
-  premium?: number
   commissionType?: CommissionType
   agencyCommissionPercentage?: number | null
   agencyCommissionAmount?: number | null
@@ -606,11 +602,6 @@ export async function updatePolicy(input: UpdatePolicyInput) {
     }
   }
 
-  const lockCheck = await policyHasLockedFinancialHistory(input.policyId)
-  if (lockCheck.error) {
-    return err(lockCheck.error.message, 'transactions', 'lock_check', lockCheck.error)
-  }
-
   const payload: Record<string, unknown> = {
     policy_number: policyNumber,
     policy_type: input.policyType.trim() || null,
@@ -624,49 +615,40 @@ export async function updatePolicy(input: UpdatePolicyInput) {
     notes: input.notes.trim() || null,
   }
 
-  if (input.unlockFinancials && !lockCheck.locked) {
-    const premium = Number(input.premium)
+  if (input.unlockFinancials) {
     const commissionType = normalizeCommissionType(input.commissionType)
     const brokerFee = Number(input.brokerFee)
     const splitPct = Number(input.producerSplitPercentage)
-    if (!Number.isFinite(premium) || premium < 0) {
-      return err('Enter a valid premium amount.', 'policies', 'validate')
-    }
     if (commissionType === 'percentage') {
       const agencyPct = Number(input.agencyCommissionPercentage)
       if (!Number.isFinite(agencyPct) || agencyPct < 0) {
         return err('Agency commission % must be zero or greater.', 'policies', 'validate')
       }
+      payload.agency_commission_percentage = agencyPct
+      // Flat amount column is unused for percentage defaults; keep 0 (not a txn ledger total).
+      payload.agency_commission_amount = 0
     } else if (
       input.agencyCommissionAmount === null ||
       input.agencyCommissionAmount === undefined ||
       !Number.isFinite(Number(input.agencyCommissionAmount))
     ) {
       return err('Enter a valid flat agency commission amount.', 'policies', 'validate')
+    } else {
+      payload.agency_commission_percentage = null
+      payload.agency_commission_amount = roundMoney(Number(input.agencyCommissionAmount))
     }
     if (!Number.isFinite(brokerFee)) {
-      return err('Enter a valid broker fee.', 'policies', 'validate')
+      return err('Enter a valid default broker fee.', 'policies', 'validate')
     }
     if (!Number.isFinite(splitPct) || splitPct < 0) {
       return err('Producer split % must be zero or greater.', 'policies', 'validate')
     }
-    const derived = derivePolicyCommission(
-      premium,
-      commissionType === 'percentage' ? Number(input.agencyCommissionPercentage) : null,
-      splitPct,
-      brokerFee,
-      commissionType,
-      commissionType === 'flat' ? Number(input.agencyCommissionAmount) : null,
-    )
-    payload.premium = premium
-    payload.commission_type = derived.commissionType
-    payload.agency_commission_percentage = derived.agencyCommissionPercentage
-    payload.agency_commission_amount = derived.agencyCommissionAmount
-    payload.broker_fee = derived.brokerFee
-    payload.producer_split_percentage = derived.producerSplitPercentage
-    payload.producer_commission_amount = derived.producerCommissionAmount
-    payload.agency_net_commission = derived.agencyNetCommission
+    payload.commission_type = commissionType
+    payload.broker_fee = roundMoney(brokerFee)
+    payload.producer_split_percentage = roundMoney(splitPct)
     payload.override_split = Boolean(input.overrideSplit)
+    // Do not rewrite policies.premium / producer_commission_amount / agency_net_commission —
+    // those legacy columns are not the source of truth (transactions are).
   }
 
   const { data, error } = await supabase

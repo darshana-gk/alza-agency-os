@@ -4,15 +4,12 @@ import { X } from 'lucide-react'
 import { DirectoryNameSelect } from '../directory/DirectoryNameSelect'
 import {
   createPolicy,
-  derivePolicyCommission,
   POLICY_STATUSES,
   type PolicyStatusValue,
 } from '../../lib/directory'
 import { fetchProducerDefaultSplit } from '../../lib/producerSplit'
 import {
   formatCommissionTypeLabel,
-  formatCurrency,
-  formatPercent,
   normalizeCommissionType,
   type CommissionType,
 } from '../../lib/commission'
@@ -48,13 +45,11 @@ const emptyForm = {
   csr: '',
   effectiveDate: '',
   expirationDate: '',
-  premium: '',
   status: 'pending' as PolicyStatusValue,
   notes: '',
   commissionType: 'percentage' as CommissionType,
   agencyCommissionPercentage: '15',
   agencyCommissionAmount: '',
-  brokerFee: '0',
   producerSplitPercentage: '60',
   overrideSplit: false,
 }
@@ -111,39 +106,11 @@ export function AddPolicyModal({
     return clients.find((c) => c.id === form.clientId)?.name ?? ''
   }, [clients, form.clientId, lockedClientLabel])
 
-  const derived = useMemo(() => {
-    const premium = Number(form.premium)
-    const splitPct = Number(form.producerSplitPercentage)
-    const brokerFee = Number(form.brokerFee)
-    const commissionType = normalizeCommissionType(form.commissionType)
-    if (!Number.isFinite(premium) || premium < 0 || !Number.isFinite(splitPct) || splitPct < 0) {
-      return null
-    }
-    if (!Number.isFinite(brokerFee)) return null
-    if (commissionType === 'percentage') {
-      const agencyPct = Number(form.agencyCommissionPercentage)
-      if (!Number.isFinite(agencyPct) || agencyPct < 0) return null
-      return derivePolicyCommission(premium, agencyPct, splitPct, brokerFee, 'percentage', null)
-    }
-    const flat = Number(form.agencyCommissionAmount)
-    if (!Number.isFinite(flat)) return null
-    return derivePolicyCommission(premium, null, splitPct, brokerFee, 'flat', flat)
-  }, [
-    form.premium,
-    form.commissionType,
-    form.agencyCommissionPercentage,
-    form.agencyCommissionAmount,
-    form.brokerFee,
-    form.producerSplitPercentage,
-  ])
-
   if (!open) return null
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault()
-    const premium = Number(form.premium)
     const splitPct = Number(form.producerSplitPercentage)
-    const brokerFee = Number(form.brokerFee)
     const commissionType = normalizeCommissionType(form.commissionType)
     if (!form.clientId.trim()) {
       setError('Select a client.')
@@ -153,16 +120,8 @@ export function AddPolicyModal({
       setError('Policy number is required.')
       return
     }
-    if (!Number.isFinite(premium) || premium < 0) {
-      setError('Enter a valid premium.')
-      return
-    }
     if (!Number.isFinite(splitPct) || splitPct < 0) {
       setError('Producer split % must be zero or greater.')
-      return
-    }
-    if (!Number.isFinite(brokerFee)) {
-      setError('Enter a valid broker fee.')
       return
     }
 
@@ -196,13 +155,11 @@ export function AddPolicyModal({
       csr: form.csr,
       effectiveDate: form.effectiveDate,
       expirationDate: form.expirationDate,
-      premium,
       status: form.status,
       notes: form.notes,
       commissionType,
       agencyCommissionPercentage,
       agencyCommissionAmount,
-      brokerFee,
       producerSplitPercentage: splitPct,
       overrideSplit: form.overrideSplit,
     })
@@ -224,7 +181,10 @@ export function AddPolicyModal({
         <div className="mb-4 flex items-start justify-between gap-3">
           <div>
             <h3 className="text-lg font-semibold text-slate-900">Add Policy</h3>
-            <p className="mt-1 text-sm text-slate-500">Creates a live row in public.policies linked by client_id.</p>
+            <p className="mt-1 text-sm text-slate-500">
+              Creates a policy with commission defaults. Current Policy Premium and commission totals come
+              from transactions after they are booked.
+            </p>
           </div>
           <button type="button" disabled={saving} onClick={onClose} className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600">
             <X className="h-5 w-5" />
@@ -303,11 +263,7 @@ export function AddPolicyModal({
               <span className="mb-1.5 block text-xs font-medium text-slate-500">Expiration date</span>
               <input type="date" value={form.expirationDate} onChange={(e) => setForm((p) => ({ ...p, expirationDate: e.target.value }))} className={inputClassName} />
             </label>
-            <label className="block">
-              <span className="mb-1.5 block text-xs font-medium text-slate-500">Premium</span>
-              <input required type="number" min="0" step="0.01" value={form.premium} onChange={(e) => setForm((p) => ({ ...p, premium: e.target.value }))} className={inputClassName} />
-            </label>
-            <label className="block">
+            <label className="block sm:col-span-2">
               <span className="mb-1.5 block text-xs font-medium text-slate-500">Status</span>
               <select value={form.status} onChange={(e) => setForm((p) => ({ ...p, status: e.target.value as PolicyStatusValue }))} className={selectClassName}>
                 {POLICY_STATUSES.map((status) => (
@@ -318,7 +274,11 @@ export function AddPolicyModal({
           </div>
 
           <div className="rounded-lg border border-slate-200 bg-slate-50/70 p-4">
-            <p className="mb-3 text-sm font-semibold text-slate-900">Commission Setup</p>
+            <p className="mb-1 text-sm font-semibold text-slate-900">Commission Defaults</p>
+            <p className="mb-3 text-xs text-slate-500">
+              Inherited by new transactions only. Historical transaction snapshots stay unchanged if these
+              defaults are edited later.
+            </p>
             <div className="mb-3">
               <span className="mb-1.5 block text-xs font-medium text-slate-500">Commission Basis</span>
               <div className="flex flex-wrap gap-2">
@@ -351,23 +311,9 @@ export function AddPolicyModal({
                 </label>
               )}
               <label className="block">
-                <span className="mb-1.5 block text-xs font-medium text-slate-500">Broker Fee</span>
-                <input type="number" step="0.01" value={form.brokerFee} onChange={(e) => setForm((p) => ({ ...p, brokerFee: e.target.value }))} className={inputClassName} />
-              </label>
-              <label className="block">
                 <span className="mb-1.5 block text-xs font-medium text-slate-500">Producer Split %</span>
                 <input type="number" min="0" step="0.01" value={form.producerSplitPercentage} onChange={(e) => setForm((p) => ({ ...p, producerSplitPercentage: e.target.value }))} className={inputClassName} />
               </label>
-            </div>
-            <div className="mt-3 grid gap-1.5 text-sm text-slate-700 sm:grid-cols-2">
-              <p>Agency Commission <span className="float-right font-semibold tabular-nums">{derived ? formatCurrency(derived.agencyCommissionAmount) : '—'}</span></p>
-              <p>Broker Fee <span className="float-right font-semibold tabular-nums">{derived ? formatCurrency(derived.brokerFee) : '—'}</span></p>
-              <p>Commission Pool <span className="float-right font-semibold tabular-nums">{derived ? formatCurrency(derived.commissionPool) : '—'}</span></p>
-              <p>
-                Producer Share ({derived ? formatPercent(derived.producerSplitPercentage) : '—'}){' '}
-                <span className="float-right font-semibold tabular-nums">{derived ? formatCurrency(derived.producerCommissionAmount) : '—'}</span>
-              </p>
-              <p className="sm:col-span-2">Agency Net <span className="float-right font-semibold tabular-nums">{derived ? formatCurrency(derived.agencyNetCommission) : '—'}</span></p>
             </div>
             <label className="mt-3 flex items-center gap-2 text-sm text-slate-700">
               <input type="checkbox" checked={form.overrideSplit} onChange={(e) => setForm((p) => ({ ...p, overrideSplit: e.target.checked }))} />
