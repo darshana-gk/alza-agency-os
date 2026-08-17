@@ -184,13 +184,15 @@ export function Header({ title, subtitle, onMenuClick }: HeaderProps) {
         {agency?.agencyName && (
           <div className="hidden items-center gap-2.5 rounded-lg border border-slate-200 bg-slate-50 px-2 py-1 md:flex">
             {agency.logoUrl ? (
-              <img
-                src={agency.logoUrl}
-                alt=""
-                className="h-10 w-10 shrink-0 rounded object-contain bg-white"
-              />
+              <div className="h-12 w-12 shrink-0 overflow-hidden rounded bg-white">
+                <img
+                  src={agency.logoUrl}
+                  alt=""
+                  className="h-full w-full scale-125 object-contain"
+                />
+              </div>
             ) : (
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded bg-white text-[10px] font-semibold text-slate-500">
+              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded bg-white text-[10px] font-semibold text-slate-500">
                 AG
               </div>
             )}
