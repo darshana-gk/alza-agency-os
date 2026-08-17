@@ -182,15 +182,15 @@ export function Header({ title, subtitle, onMenuClick }: HeaderProps) {
 
       <div className="flex items-center gap-3">
         {agency?.agencyName && (
-          <div className="hidden items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5 md:flex">
+          <div className="hidden items-center gap-2.5 rounded-lg border border-slate-200 bg-slate-50 px-2 py-1 md:flex">
             {agency.logoUrl ? (
               <img
                 src={agency.logoUrl}
                 alt=""
-                className="h-7 w-7 rounded object-contain bg-white"
+                className="h-10 w-10 shrink-0 rounded object-contain bg-white"
               />
             ) : (
-              <div className="flex h-7 w-7 items-center justify-center rounded bg-white text-[10px] font-semibold text-slate-500">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded bg-white text-[10px] font-semibold text-slate-500">
                 AG
               </div>
             )}
