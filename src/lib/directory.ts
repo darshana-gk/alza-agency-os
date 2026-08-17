@@ -93,7 +93,10 @@ export async function fetchActiveProducerNames() {
 
 /**
  * Ensure a producers-directory row exists and is linked when Producer role is enabled.
- * When Producer role is removed, deactivate the linked row (historical TEXT assignments remain).
+ * When Producer role is removed:
+ * - does NOT delete the producer master record
+ * - sets linked producer status to inactive (drops from active assignment dropdowns)
+ * - keeps users.producer_id for stable historical linkage
  * Never creates a second row for the same person (match by producer_id, then email, then name).
  */
 export async function syncProducerDirectoryForUser(input: {
@@ -103,6 +106,12 @@ export async function syncProducerDirectoryForUser(input: {
   hasProducerRole: boolean
   userStatus: 'active' | 'inactive'
   defaultSplitPercentage?: number | null
+  /**
+   * Explicit producers.id from the Users Linked Producer selector.
+   * When omitted/empty, auto-resolve by existing producer_id → email → name, then create.
+   * Email auto-match always runs before create to prevent silent duplicates.
+   */
+  preferredProducerId?: string | null
 }): Promise<{ producerId: string | null; created: boolean; error: string | null }> {
   const authz = await rejectUnlessRole(isAdminDirectoryRole)
   if (!authz.ok) {
@@ -179,9 +188,36 @@ export async function syncProducerDirectoryForUser(input: {
     return { producerId: linkedId, created: false, error: null }
   }
 
-  // Producer role enabled — create or reactivate + link.
+  // Producer role enabled — prefer explicit selector, then safe auto-match, then create.
   let created = false
-  producerId = await findExistingProducer()
+  const preferred = (input.preferredProducerId ?? '').trim()
+
+  if (preferred) {
+    const { data: preferredRow, error: preferredErr } = await supabase
+      .from('producers')
+      .select('id')
+      .eq('id', preferred)
+      .is('archived_at', null)
+      .maybeSingle()
+    if (preferredErr) {
+      return { producerId: null, created: false, error: preferredErr.message }
+    }
+    if (!preferredRow?.id) {
+      return {
+        producerId: null,
+        created: false,
+        error: 'Selected Linked Producer was not found (or is archived).',
+      }
+    }
+    producerId = String(preferredRow.id)
+  } else {
+    producerId = await findExistingProducer()
+  }
+
+  // Never create a duplicate when an email/name/existing link already matches.
+  if (!producerId) {
+    producerId = await findExistingProducer()
+  }
 
   const splitPayload =
     input.defaultSplitPercentage === undefined
@@ -240,6 +276,75 @@ export async function syncProducerDirectoryForUser(input: {
   }
 
   return { producerId, created, error: null }
+}
+
+export type ProducerLinkOption = {
+  id: string
+  producerName: string
+  email: string
+  status: string
+  defaultSplitPercentage: number | null
+}
+
+/** Non-archived producers for Users → Linked Producer selector. */
+export async function fetchProducerLinkOptions(): Promise<{
+  data: ProducerLinkOption[]
+  error: string | null
+}> {
+  const { data, error } = await supabase
+    .from('producers')
+    .select('id, producer_name, email, status, default_split_percentage')
+    .is('archived_at', null)
+    .order('producer_name', { ascending: true })
+
+  if (error) {
+    return { data: [], error: error.message }
+  }
+
+  return {
+    data: (data ?? []).map((row) => ({
+      id: String(row.id),
+      producerName: String(row.producer_name ?? '').trim() || '—',
+      email: String(row.email ?? '').trim(),
+      status: String(row.status ?? '').trim().toLowerCase() || 'active',
+      defaultSplitPercentage:
+        row.default_split_percentage === null || row.default_split_percentage === undefined
+          ? null
+          : Number(row.default_split_percentage),
+    })),
+    error: null,
+  }
+}
+
+/**
+ * Pick the safest Linked Producer default: existing users.producer_id → email → exact name.
+ */
+export function suggestProducerLinkId(params: {
+  options: ProducerLinkOption[]
+  existingProducerId: string | null | undefined
+  email: string
+  fullName: string
+}): { producerId: string | null; reason: 'linked' | 'email' | 'name' | null } {
+  const existing = (params.existingProducerId ?? '').trim()
+  if (existing && params.options.some((o) => o.id === existing)) {
+    return { producerId: existing, reason: 'linked' }
+  }
+
+  const email = params.email.trim().toLowerCase()
+  if (email) {
+    const byEmail = params.options.find((o) => o.email.trim().toLowerCase() === email)
+    if (byEmail) return { producerId: byEmail.id, reason: 'email' }
+  }
+
+  const name = params.fullName.trim().toLowerCase()
+  if (name) {
+    const byName = params.options.filter(
+      (o) => o.producerName.trim().toLowerCase() === name,
+    )
+    if (byName.length === 1) return { producerId: byName[0].id, reason: 'name' }
+  }
+
+  return { producerId: null, reason: null }
 }
 
 /** Active, non-archived CSR names for TEXT dropdowns (directory + CSR-role users). */

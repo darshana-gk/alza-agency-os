@@ -12,7 +12,7 @@ import {
   toAppRoles,
   type AppRole,
 } from '../../lib/permissions'
-import { syncProducerDirectoryForUser } from '../../lib/directory'
+import { syncProducerDirectoryForUser, fetchProducerLinkOptions, suggestProducerLinkId, type ProducerLinkOption } from '../../lib/directory'
 import { supabase } from '../../lib/supabase'
 
 type UserStatus = 'active' | 'inactive'
@@ -180,6 +180,9 @@ export function UsersPage() {
   const [rolesValue, setRolesValue] = useState<AppRole[]>(['viewer'])
   const [statusValue, setStatusValue] = useState<UserStatus>('active')
   const [defaultSplitValue, setDefaultSplitValue] = useState('')
+  const [linkedProducerId, setLinkedProducerId] = useState('')
+  const [producerLinkOptions, setProducerLinkOptions] = useState<ProducerLinkOption[]>([])
+  const [producerLinkHint, setProducerLinkHint] = useState<string | null>(null)
   const [addOpen, setAddOpen] = useState(false)
   const [addForm, setAddForm] = useState({
     fullName: '',
@@ -188,7 +191,10 @@ export function UsersPage() {
     roles: ['viewer'] as AppRole[],
     status: 'active' as UserStatus,
     defaultSplit: '',
+    linkedProducerId: '',
   })
+  const [addProducerOptions, setAddProducerOptions] = useState<ProducerLinkOption[]>([])
+  const [addProducerHint, setAddProducerHint] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [resendingId, setResendingId] = useState<string | null>(null)
   const [formError, setFormError] = useState<string | null>(null)
@@ -302,9 +308,70 @@ export function UsersPage() {
     return [...APP_ROLES]
   }, [actorRole])
 
-  async function loadDefaultSplitForUser(user: ManagedUser) {
+  async function hydrateProducerLinkFields(params: {
+    fullName: string
+    email: string
+    existingProducerId?: string | null
+    forAdd?: boolean
+  }) {
+    const { data, error } = await fetchProducerLinkOptions()
+    if (error) {
+      if (params.forAdd) {
+        setAddProducerOptions([])
+        setAddProducerHint(`Could not load producers: ${error}`)
+      } else {
+        setProducerLinkOptions([])
+        setProducerLinkHint(`Could not load producers: ${error}`)
+      }
+      return
+    }
+
+    const suggestion = suggestProducerLinkId({
+      options: data,
+      existingProducerId: params.existingProducerId,
+      email: params.email,
+      fullName: params.fullName,
+    })
+
+    const selectedId = suggestion.producerId ?? ''
+    const selectedOption = data.find((o) => o.id === selectedId) ?? null
+    const hint =
+      suggestion.reason === 'linked'
+        ? 'Using existing users.producer_id link.'
+        : suggestion.reason === 'email'
+          ? 'Auto-matched existing producer by login email.'
+          : suggestion.reason === 'name'
+            ? 'Suggested unique producer name match — confirm Linked Producer before saving.'
+            : data.length > 0
+              ? 'No safe auto-match. Select an existing producer or create a new directory row on save.'
+              : 'No producer directory rows yet — a new row will be created on save.'
+
+    if (params.forAdd) {
+      setAddProducerOptions(data)
+      setAddProducerHint(hint)
+      setAddForm((f) => ({
+        ...f,
+        linkedProducerId: selectedId,
+        defaultSplit:
+          selectedOption?.defaultSplitPercentage != null
+            ? String(selectedOption.defaultSplitPercentage)
+            : f.defaultSplit,
+      }))
+      return
+    }
+
+    setProducerLinkOptions(data)
+    setProducerLinkHint(hint)
+    setLinkedProducerId(selectedId)
+    if (selectedOption?.defaultSplitPercentage != null) {
+      setDefaultSplitValue(String(selectedOption.defaultSplitPercentage))
+    }
+  }
+
+  async function loadProducerLinkForUser(user: ManagedUser) {
     setDefaultSplitValue('')
-    if (!user.roles.includes('producer') && normalizeAppRole(user.role) !== 'producer') return
+    setLinkedProducerId('')
+    setProducerLinkHint(null)
     const email = user.email === '—' ? '' : user.email.trim().toLowerCase()
     const name = user.fullName === '—' ? '' : user.fullName.trim()
     const { data: linked } = await supabase
@@ -312,51 +379,12 @@ export function UsersPage() {
       .select('producer_id')
       .eq('id', user.id)
       .maybeSingle()
-    let producerId = (linked?.producer_id as string | null) ?? null
-    if (!producerId && email) {
-      const { data } = await supabase
-        .from('producers')
-        .select('id, default_split_percentage')
-        .is('archived_at', null)
-        .ilike('email', email)
-        .limit(1)
-        .maybeSingle()
-      if (data?.id) {
-        producerId = String(data.id)
-        if (data.default_split_percentage != null) {
-          setDefaultSplitValue(String(data.default_split_percentage))
-          return
-        }
-      }
-    }
-    if (!producerId && name) {
-      const { data } = await supabase
-        .from('producers')
-        .select('id, default_split_percentage, producer_name')
-        .is('archived_at', null)
-        .ilike('producer_name', name)
-        .limit(5)
-      const match = (data ?? []).find(
-        (r) => String(r.producer_name ?? '').trim().toLowerCase() === name.toLowerCase(),
-      )
-      if (match) {
-        producerId = String(match.id)
-        if (match.default_split_percentage != null) {
-          setDefaultSplitValue(String(match.default_split_percentage))
-          return
-        }
-      }
-    }
-    if (producerId) {
-      const { data } = await supabase
-        .from('producers')
-        .select('default_split_percentage')
-        .eq('id', producerId)
-        .maybeSingle()
-      if (data?.default_split_percentage != null) {
-        setDefaultSplitValue(String(data.default_split_percentage))
-      }
-    }
+    const existingProducerId = (linked?.producer_id as string | null) ?? null
+    await hydrateProducerLinkFields({
+      fullName: name,
+      email,
+      existingProducerId,
+    })
   }
 
   function openEdit(user: ManagedUser) {
@@ -371,7 +399,13 @@ export function UsersPage() {
     setFormError(null)
     setSuccess(null)
     setActionError(null)
-    void loadDefaultSplitForUser(user)
+    setDefaultSplitValue('')
+    setLinkedProducerId('')
+    setProducerLinkHint(null)
+    setProducerLinkOptions([])
+    if (roles.includes('producer') || normalizeAppRole(user.role) === 'producer') {
+      void loadProducerLinkForUser(user)
+    }
   }
 
   function openAdd() {
@@ -383,7 +417,10 @@ export function UsersPage() {
       roles: ['viewer'],
       status: 'active',
       defaultSplit: '',
+      linkedProducerId: '',
     })
+    setAddProducerOptions([])
+    setAddProducerHint(null)
     setFormError(null)
     setSuccess(null)
     setActionError(null)
@@ -520,6 +557,7 @@ export function UsersPage() {
       hasProducerRole: hasProducer,
       userStatus: statusValue,
       defaultSplitPercentage: hasProducer ? split ?? null : undefined,
+      preferredProducerId: hasProducer ? linkedProducerId || null : undefined,
     })
     setSaving(false)
     if (sync.error) {
@@ -528,10 +566,14 @@ export function UsersPage() {
       return
     }
 
+    const hadProducer =
+      selected.roles.includes('producer') || normalizeAppRole(selected.role) === 'producer'
     setSuccess(
       hasProducer
-        ? `Updated ${nextName}.${sync.created ? ' Producer directory row created and linked.' : ' Producer directory linked.'}`
-        : `Updated ${nextName}.`,
+        ? `Updated ${nextName}.${sync.created ? ' Producer directory row created and linked.' : ' Producer directory linked via producer_id.'}`
+        : hadProducer
+          ? `Updated ${nextName}. Producer role removed — producer master record kept; users.producer_id retained; linked producer set inactive.`
+          : `Updated ${nextName}.`,
     )
     setSelected(null)
     await loadRows()
@@ -596,6 +638,7 @@ export function UsersPage() {
         hasProducerRole: hasProducer,
         userStatus: addForm.status,
         defaultSplitPercentage: hasProducer ? split ?? null : undefined,
+        preferredProducerId: hasProducer ? addForm.linkedProducerId || null : undefined,
       })
       if (sync.error) {
         setSaving(false)
@@ -802,6 +845,18 @@ export function UsersPage() {
                           const next = toggleRole(rolesValue, role, e.target.checked)
                           setRolesValue(next)
                           setRoleValue((primaryAppRole(next) ?? role) as AppRole)
+                          if (role === 'producer' && e.target.checked && selected) {
+                            void loadProducerLinkForUser({
+                              ...selected,
+                              fullName: fullNameValue || selected.fullName,
+                              roles: next,
+                            })
+                          }
+                          if (role === 'producer' && !e.target.checked) {
+                            setLinkedProducerId('')
+                            setProducerLinkHint(null)
+                            setDefaultSplitValue('')
+                          }
                         }}
                       />
                       {role}
@@ -814,24 +869,64 @@ export function UsersPage() {
                 </p>
               </div>
               {rolesValue.includes('producer') && (
-                <div>
-                  <label className="mb-1 block text-xs font-medium text-slate-600">
-                    Default Producer Split %
-                  </label>
-                  <input
-                    type="number"
-                    min={0}
-                    max={100}
-                    step="0.01"
-                    value={defaultSplitValue}
-                    onChange={(e) => setDefaultSplitValue(e.target.value)}
-                    placeholder="Optional"
-                    className={inputClassName}
-                  />
-                  <p className="mt-1 text-[11px] text-slate-500">
-                    Stored on the linked producer directory row. Used when assigning this producer on policies/transactions.
-                  </p>
-                </div>
+                <>
+                  <div>
+                    <label className="mb-1 block text-xs font-medium text-slate-600">
+                      Linked Producer
+                    </label>
+                    <select
+                      value={linkedProducerId}
+                      onChange={(e) => {
+                        const id = e.target.value
+                        setLinkedProducerId(id)
+                        const opt = producerLinkOptions.find((o) => o.id === id)
+                        if (opt?.defaultSplitPercentage != null) {
+                          setDefaultSplitValue(String(opt.defaultSplitPercentage))
+                        }
+                        setProducerLinkHint(
+                          id
+                            ? 'Explicit producer_id link will be saved on this user.'
+                            : 'No existing producer selected — a new directory row will be created only if email/name do not already match.',
+                        )
+                      }}
+                      className={selectClassName}
+                    >
+                      <option value="">
+                        {producerLinkOptions.length
+                          ? 'Create new producer directory row (if no email match)'
+                          : 'Create new producer directory row on save'}
+                      </option>
+                      {producerLinkOptions.map((opt) => (
+                        <option key={opt.id} value={opt.id}>
+                          {opt.producerName}
+                          {opt.email ? ` · ${opt.email}` : ''}
+                          {opt.status !== 'active' ? ` (${opt.status})` : ''}
+                        </option>
+                      ))}
+                    </select>
+                    {producerLinkHint && (
+                      <p className="mt-1 text-[11px] text-slate-500">{producerLinkHint}</p>
+                    )}
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-xs font-medium text-slate-600">
+                      Default Producer Split %
+                    </label>
+                    <input
+                      type="number"
+                      min={0}
+                      max={100}
+                      step="0.01"
+                      value={defaultSplitValue}
+                      onChange={(e) => setDefaultSplitValue(e.target.value)}
+                      placeholder="Optional"
+                      className={inputClassName}
+                    />
+                    <p className="mt-1 text-[11px] text-slate-500">
+                      Stored on the linked producer directory row. Used when assigning this producer on policies/transactions.
+                    </p>
+                  </div>
+                </>
               )}
               <div>
                 <label className="mb-1 block text-xs font-medium text-slate-600">Status</label>
@@ -896,6 +991,15 @@ export function UsersPage() {
                   required
                   value={addForm.fullName}
                   onChange={(e) => setAddForm((f) => ({ ...f, fullName: e.target.value }))}
+                  onBlur={() => {
+                    if (addForm.roles.includes('producer')) {
+                      void hydrateProducerLinkFields({
+                        fullName: addForm.fullName,
+                        email: addForm.email,
+                        forAdd: true,
+                      })
+                    }
+                  }}
                   className={inputClassName}
                 />
               </div>
@@ -906,6 +1010,15 @@ export function UsersPage() {
                   type="email"
                   value={addForm.email}
                   onChange={(e) => setAddForm((f) => ({ ...f, email: e.target.value }))}
+                  onBlur={() => {
+                    if (addForm.roles.includes('producer')) {
+                      void hydrateProducerLinkFields({
+                        fullName: addForm.fullName,
+                        email: addForm.email,
+                        forAdd: true,
+                      })
+                    }
+                  }}
                   className={inputClassName}
                 />
               </div>
@@ -924,6 +1037,17 @@ export function UsersPage() {
                             roles: next,
                             role: (primaryAppRole(next) ?? role) as AppRole,
                           }))
+                          if (role === 'producer' && e.target.checked) {
+                            void hydrateProducerLinkFields({
+                              fullName: addForm.fullName,
+                              email: addForm.email,
+                              forAdd: true,
+                            })
+                          }
+                          if (role === 'producer' && !e.target.checked) {
+                            setAddProducerHint(null)
+                            setAddForm((f) => ({ ...f, linkedProducerId: '', defaultSplit: '' }))
+                          }
                         }}
                       />
                       {role}
@@ -932,21 +1056,74 @@ export function UsersPage() {
                 </div>
               </div>
               {addForm.roles.includes('producer') && (
-                <div>
-                  <label className="mb-1 block text-xs font-medium text-slate-600">
-                    Default Producer Split %
-                  </label>
-                  <input
-                    type="number"
-                    min={0}
-                    max={100}
-                    step="0.01"
-                    value={addForm.defaultSplit}
-                    onChange={(e) => setAddForm((f) => ({ ...f, defaultSplit: e.target.value }))}
-                    placeholder="Optional"
-                    className={inputClassName}
-                  />
-                </div>
+                <>
+                  <div>
+                    <label className="mb-1 block text-xs font-medium text-slate-600">
+                      Linked Producer
+                    </label>
+                    <select
+                      value={addForm.linkedProducerId}
+                      onChange={(e) => {
+                        const id = e.target.value
+                        const opt = addProducerOptions.find((o) => o.id === id)
+                        setAddForm((f) => ({
+                          ...f,
+                          linkedProducerId: id,
+                          defaultSplit:
+                            opt?.defaultSplitPercentage != null
+                              ? String(opt.defaultSplitPercentage)
+                              : f.defaultSplit,
+                        }))
+                        setAddProducerHint(
+                          id
+                            ? 'Explicit producer_id link will be saved on invite.'
+                            : 'No existing producer selected — a new directory row will be created only if email/name do not already match.',
+                        )
+                      }}
+                      onFocus={() => {
+                        if (addProducerOptions.length === 0) {
+                          void hydrateProducerLinkFields({
+                            fullName: addForm.fullName,
+                            email: addForm.email,
+                            forAdd: true,
+                          })
+                        }
+                      }}
+                      className={selectClassName}
+                    >
+                      <option value="">
+                        {addProducerOptions.length
+                          ? 'Create new producer directory row (if no email match)'
+                          : 'Create new producer directory row on save'}
+                      </option>
+                      {addProducerOptions.map((opt) => (
+                        <option key={opt.id} value={opt.id}>
+                          {opt.producerName}
+                          {opt.email ? ` · ${opt.email}` : ''}
+                          {opt.status !== 'active' ? ` (${opt.status})` : ''}
+                        </option>
+                      ))}
+                    </select>
+                    {addProducerHint && (
+                      <p className="mt-1 text-[11px] text-slate-500">{addProducerHint}</p>
+                    )}
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-xs font-medium text-slate-600">
+                      Default Producer Split %
+                    </label>
+                    <input
+                      type="number"
+                      min={0}
+                      max={100}
+                      step="0.01"
+                      value={addForm.defaultSplit}
+                      onChange={(e) => setAddForm((f) => ({ ...f, defaultSplit: e.target.value }))}
+                      placeholder="Optional"
+                      className={inputClassName}
+                    />
+                  </div>
+                </>
               )}
               <div>
                 <label className="mb-1 block text-xs font-medium text-slate-600">Status</label>
