@@ -45,6 +45,7 @@ import {
   formatProducerSplitSourceLabel,
   formatRecoveryOutcomeLabel,
   formatReviewStatusLabel,
+  formatTransactionRecoverySettledLabel,
   formatTypeLabel,
   getTransactionWorkflowStatus,
   getTransactionWorkflowTimeline,
@@ -62,7 +63,10 @@ import {
   reviewStatusStyles,
   returnTransactionForCorrection,
   submitTransactionForReview,
+  availableRecoveryAmount,
+  sumCreatedRecoveryAmounts,
   todayIsoDate,
+  transactionRecoveryObligation,
   typeStyles,
   TRANSACTION_TYPES_FOR_CREATE,
   updateTransactionMetadata,
@@ -193,6 +197,7 @@ export function Transactions() {
   const [selectedId, setSelectedId] = useState<string | null>(routeTxnId ?? null)
   const [recoveries, setRecoveries] = useState<RecoverySummary[]>([])
   const [recoveriesLoading, setRecoveriesLoading] = useState(false)
+  const [recoveryCreatedByTxn, setRecoveryCreatedByTxn] = useState<Map<string, number>>(new Map())
 
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [readyOpen, setReadyOpen] = useState(false)
@@ -289,6 +294,43 @@ export function Transactions() {
   useEffect(() => {
     loadTransactions()
   }, [loadTransactions])
+
+  // Recovery totals for negative producer-commission rows (list secondary indicator).
+  useEffect(() => {
+    const negativeIds = transactions
+      .filter((tx) => tx.producerCommissionAmount < 0)
+      .map((tx) => tx.id)
+    if (negativeIds.length === 0) {
+      setRecoveryCreatedByTxn(new Map())
+      return
+    }
+
+    let cancelled = false
+    async function loadRecoveryTotals() {
+      const { data, error } = await supabase
+        .from('producer_commission_recoveries')
+        .select('transaction_id, amount, status, voided_at')
+        .in('transaction_id', negativeIds)
+      if (cancelled) return
+      if (error) {
+        setRecoveryCreatedByTxn(new Map())
+        return
+      }
+      const map = new Map<string, number>()
+      for (const row of data ?? []) {
+        const tid = row.transaction_id ? String(row.transaction_id) : ''
+        if (!tid) continue
+        if (row.voided_at) continue
+        if (String(row.status ?? '').toLowerCase() === 'voided') continue
+        map.set(tid, (map.get(tid) ?? 0) + Number(row.amount ?? 0))
+      }
+      setRecoveryCreatedByTxn(map)
+    }
+    void loadRecoveryTotals()
+    return () => {
+      cancelled = true
+    }
+  }, [transactions])
 
   // Deep link: /transactions/:id opens the matching drawer by UUID.
   useEffect(() => {
@@ -774,7 +816,12 @@ export function Transactions() {
   }) {
     setActionError(null)
     setActionSuccess(null)
-    setRecoveryAmount(opts?.amount ?? '')
+    const available =
+      selected != null ? availableRecoveryAmount(selected.producerCommissionAmount, recoveries) : 0
+    const defaultAmount =
+      opts?.amount ??
+      (selected && selected.producerCommissionAmount < 0 && available > 0 ? String(available) : '')
+    setRecoveryAmount(defaultAmount)
     setRecoveryNotes(opts?.notes ?? '')
     setRecoverySettlementMethod(opts?.settlementMethod ?? 'next_payout')
     setRecoveryAssistOpen(Boolean(opts?.fromAssist))
@@ -802,6 +849,15 @@ export function Transactions() {
     }
     if (!recoveryNotes.trim()) {
       setActionError('Reason / notes are required.')
+      return
+    }
+    const available = availableRecoveryAmount(selected.producerCommissionAmount, recoveries)
+    if (selected.producerCommissionAmount < 0 && amount > available + 0.009) {
+      setActionError(
+        available <= 0
+          ? 'This transaction is fully recovered. No additional recovery can be recorded.'
+          : `Recovery amount exceeds available recoverable amount (${formatCurrency(available)}).`,
+      )
       return
     }
     setSaving(true)
@@ -840,6 +896,11 @@ export function Transactions() {
       .order('created_at', { ascending: false })
     const mapped = mapRecoveryRows(data as Array<Record<string, unknown>>)
     setRecoveries(mapped)
+    setRecoveryCreatedByTxn((prev) => {
+      const next = new Map(prev)
+      next.set(selected.id, sumCreatedRecoveryAmounts(mapped))
+      return next
+    })
     await loadTransactions()
     if (wasDirect && createdId) {
       const created = mapped.find((row) => row.id === createdId)
@@ -1188,12 +1249,25 @@ export function Transactions() {
           row.remainingAmount > 0,
       ),
   )
+  const selectedRecoveryObligation = selected
+    ? transactionRecoveryObligation(selected.producerCommissionAmount)
+    : 0
+  const selectedRecoveryCreated = selected ? sumCreatedRecoveryAmounts(recoveries) : 0
+  const selectedRecoveryAvailable = selected
+    ? availableRecoveryAmount(selected.producerCommissionAmount, recoveries)
+    : 0
+  const selectedRecoverySettledLabel = selected
+    ? formatTransactionRecoverySettledLabel(selected.producerCommissionAmount, recoveries)
+    : null
+  const selectedFullyRecovered =
+    selectedRecoveryObligation > 0 && selectedRecoveryAvailable <= 0 && selectedRecoveryCreated > 0
   const showRecoveryAssist = Boolean(
     canRecovery &&
       selected &&
       selected.type === 'return_premium' &&
       selected.producerCommissionAmount < 0 &&
-      !hasOpenRecoveryForProducer,
+      !hasOpenRecoveryForProducer &&
+      selectedRecoveryAvailable > 0,
   )
   const correctionRequired = Boolean(selected && isCorrectionRequired(selected))
   const ownerOverrideLabel = reviewGate.ownerOverride ? 'Owner Override' : null
@@ -1467,6 +1541,9 @@ export function Transactions() {
               ) : (
                 paginatedTransactions.map((tx) => {
                   const workflow = getTransactionWorkflowStatus(tx)
+                  const obligation = transactionRecoveryObligation(tx.producerCommissionAmount)
+                  const created = recoveryCreatedByTxn.get(tx.id) ?? 0
+                  const fullyRecovered = obligation > 0 && created + 0.009 >= obligation
                   return (
                   <tr
                     key={tx.id}
@@ -1533,6 +1610,11 @@ export function Transactions() {
                         <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ring-inset ${workflowStatusStyles[workflow]}`}>
                           {workflow}
                         </span>
+                        {fullyRecovered && (
+                          <span className="inline-flex items-center rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-medium text-emerald-800 ring-1 ring-inset ring-emerald-600/20">
+                            Recovered / Settled
+                          </span>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -1634,16 +1716,19 @@ export function Transactions() {
                 <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-3 text-sm text-amber-950">
                   <p className="font-semibold">
                     Producer commission recovery required:{' '}
-                    {formatCurrency(Math.abs(selected.producerCommissionAmount))}
+                    {formatCurrency(selectedRecoveryAvailable)}
                   </p>
                   <p className="mt-1 text-xs text-amber-900/80">
                     Return premium created a negative producer commission. Create a recovery/chargeback to settle it.
+                    {selectedRecoveryCreated > 0
+                      ? ` Already recovered ${formatCurrency(selectedRecoveryCreated)} of ${formatCurrency(selectedRecoveryObligation)}.`
+                      : ''}
                   </p>
                   <button
                     type="button"
                     onClick={() =>
                       openRecoveryModal({
-                        amount: String(Math.abs(selected.producerCommissionAmount)),
+                        amount: String(selectedRecoveryAvailable),
                         notes: 'Return Premium Commission Recovery',
                         settlementMethod: 'next_payout',
                         fromAssist: true,
@@ -1654,6 +1739,27 @@ export function Transactions() {
                     <RotateCcw className="h-3.5 w-3.5" />
                     Create Recovery / Chargeback
                   </button>
+                </div>
+              )}
+
+              {selectedRecoverySettledLabel && (
+                <div
+                  className={`rounded-lg border px-3 py-3 text-sm ${
+                    selectedFullyRecovered
+                      ? 'border-emerald-200 bg-emerald-50 text-emerald-900'
+                      : 'border-amber-200 bg-amber-50 text-amber-950'
+                  }`}
+                >
+                  <p className="font-semibold">{selectedRecoverySettledLabel}</p>
+                  {selectedFullyRecovered ? (
+                    <p className="mt-1 text-xs opacity-80">
+                      Negative producer commission for this transaction is fully recovered. Approval status is separate.
+                    </p>
+                  ) : (
+                    <p className="mt-1 text-xs opacity-80">
+                      Available to recover: {formatCurrency(selectedRecoveryAvailable)}
+                    </p>
+                  )}
                 </div>
               )}
 
@@ -2115,7 +2221,14 @@ export function Transactions() {
                     Edit Transaction
                   </button>
                 )}
-                {canRecovery && !selected.voidedAt && (
+                {canRecovery && !selected.voidedAt && selectedFullyRecovered && (
+                  <p className="rounded-lg border border-emerald-100 bg-emerald-50/60 px-3 py-2 text-center text-xs font-medium text-emerald-800">
+                    Fully recovered
+                  </p>
+                )}
+                {canRecovery &&
+                  !selected.voidedAt &&
+                  !(selected.producerCommissionAmount < 0 && selectedRecoveryAvailable <= 0) && (
                   <button
                     type="button"
                     onClick={() => openRecoveryModal()}
@@ -2258,10 +2371,30 @@ export function Transactions() {
                 ['Transaction', selected.transactionNumber],
                 ['Producer', selected.producer],
                 ['Linked receipt', selected.agencyCommissionReceiptId ? 'Yes' : 'None'],
+                ...(selected.producerCommissionAmount < 0
+                  ? ([
+                      ['Recovery obligation', formatCurrency(selectedRecoveryObligation)],
+                      ['Already recovered', formatCurrency(selectedRecoveryCreated)],
+                      ['Available to recover', formatCurrency(selectedRecoveryAvailable)],
+                    ] as Array<[string, string]>)
+                  : []),
               ]}
             />
             <Field label="Recovery amount">
-              <input required type="number" step="0.01" min="0.01" value={recoveryAmount} onChange={(e) => setRecoveryAmount(e.target.value)} className={inputClassName} />
+              <input
+                required
+                type="number"
+                step="0.01"
+                min="0.01"
+                max={
+                  selected.producerCommissionAmount < 0 && selectedRecoveryAvailable > 0
+                    ? selectedRecoveryAvailable
+                    : undefined
+                }
+                value={recoveryAmount}
+                onChange={(e) => setRecoveryAmount(e.target.value)}
+                className={inputClassName}
+              />
             </Field>
             <Field label="Settlement method">
               <select

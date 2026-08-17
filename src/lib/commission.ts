@@ -432,6 +432,69 @@ export function netAfterRecoveries(gross: number, openRecoveries: number): numbe
   return Math.max(0, toNumber(gross) - Math.max(0, toNumber(openRecoveries)))
 }
 
+/** Absolute negative producer commission that can be recovered for a transaction. */
+export function transactionRecoveryObligation(producerCommissionAmount: number): number {
+  const amount = toNumber(producerCommissionAmount)
+  return amount < 0 ? Math.abs(amount) : 0
+}
+
+/** Sum of non-voided recovery amounts already created against a transaction. */
+export function sumCreatedRecoveryAmounts(
+  recoveries: Array<{
+    amount?: number | string | null
+    status?: string | null
+    voidedAt?: string | null
+    voided_at?: string | null
+  }>,
+): number {
+  let sum = 0
+  for (const row of recoveries) {
+    if (row.voidedAt || row.voided_at) continue
+    if (normalizeRecoveryStatus(row.status) === 'voided') continue
+    sum += toNumber(row.amount)
+  }
+  return Math.max(0, Math.round(sum * 100) / 100)
+}
+
+/**
+ * Remaining amount that may still be recorded as a new recovery for a negative
+ * producer-commission transaction. Positive-commission transactions are uncapped here
+ * (existing open-duplicate / business rules still apply).
+ */
+export function availableRecoveryAmount(
+  producerCommissionAmount: number,
+  recoveries: Array<{
+    amount?: number | string | null
+    status?: string | null
+    voidedAt?: string | null
+    voided_at?: string | null
+  }>,
+): number {
+  const obligation = transactionRecoveryObligation(producerCommissionAmount)
+  if (obligation <= 0) return 0
+  const created = sumCreatedRecoveryAmounts(recoveries)
+  return Math.max(0, Math.round((obligation - created) * 100) / 100)
+}
+
+export function formatTransactionRecoverySettledLabel(
+  producerCommissionAmount: number,
+  recoveries: Array<{
+    amount?: number | string | null
+    status?: string | null
+    voidedAt?: string | null
+    voided_at?: string | null
+  }>,
+): string | null {
+  const obligation = transactionRecoveryObligation(producerCommissionAmount)
+  if (obligation <= 0) return null
+  const created = sumCreatedRecoveryAmounts(recoveries)
+  if (created <= 0) return null
+  if (created + 0.009 >= obligation) {
+    return `Recovered / Settled — ${formatCurrency(obligation)} of ${formatCurrency(obligation)}`
+  }
+  return `Partially recovered — ${formatCurrency(created)} of ${formatCurrency(obligation)}`
+}
+
 async function currentAppUserId(): Promise<string | null> {
   const { data: authData } = await supabase.auth.getUser()
   const authUserId = authData.user?.id
@@ -3165,6 +3228,65 @@ export async function createProducerRecovery(input: CreateRecoveryInput) {
         table: 'producer_commission_recoveries',
         operation: 'duplicate_guard',
       },
+    }
+  }
+
+  // Cap recoveries on negative producer-commission transactions.
+  const { data: txnRow, error: txnFetchError } = await supabase
+    .from('transactions')
+    .select('id, producer_commission_amount')
+    .eq('id', input.transactionId)
+    .maybeSingle()
+
+  if (txnFetchError || !txnRow) {
+    return {
+      error: {
+        message: txnFetchError?.message ?? 'Transaction not found for recovery.',
+        table: 'transactions',
+        operation: 'recovery_cap_fetch',
+        details: txnFetchError,
+      },
+    }
+  }
+
+  const obligation = transactionRecoveryObligation(toNumber(txnRow.producer_commission_amount))
+  if (obligation > 0) {
+    const { data: existingRecoveries, error: existingError } = await supabase
+      .from('producer_commission_recoveries')
+      .select('amount, status, voided_at')
+      .eq('transaction_id', input.transactionId)
+
+    if (existingError) {
+      return {
+        error: {
+          message: existingError.message,
+          table: 'producer_commission_recoveries',
+          operation: 'recovery_cap_fetch',
+          details: existingError,
+        },
+      }
+    }
+
+    const available = availableRecoveryAmount(
+      toNumber(txnRow.producer_commission_amount),
+      (existingRecoveries ?? []) as Array<{
+        amount?: number | string | null
+        status?: string | null
+        voided_at?: string | null
+      }>,
+    )
+
+    if (!(amount > 0) || amount > available + 0.009) {
+      return {
+        error: {
+          message:
+            available <= 0
+              ? `This transaction is fully recovered (${formatCurrency(obligation)}). No additional recovery can be recorded.`
+              : `Recovery amount (${formatCurrency(amount)}) exceeds available recoverable amount (${formatCurrency(available)}).`,
+          table: 'producer_commission_recoveries',
+          operation: 'recovery_cap',
+        },
+      }
     }
   }
 
