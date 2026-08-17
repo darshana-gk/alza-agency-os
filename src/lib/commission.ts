@@ -301,14 +301,16 @@ export function formatBatchStatusLabel(status: string | null | undefined): strin
 
 /**
  * Payment methods for Confirm Producer Paid.
- * Must match producer_payment_batches.payment_method CHECK:
- * NULL | ach | check | wire | other
- * (Intersection with transactions.payment_method CHECK also allows these four.)
+ * Stored values must match producer_payment_batches.payment_method CHECK.
  */
 export const PRODUCER_PAYMENT_METHODS = [
   { value: 'ach', label: 'ACH / Bank Transfer' },
   { value: 'check', label: 'Check' },
   { value: 'wire', label: 'Wire' },
+  { value: 'zelle', label: 'Zelle' },
+  { value: 'venmo', label: 'Venmo' },
+  { value: 'paypal', label: 'PayPal' },
+  { value: 'cash', label: 'Cash' },
   { value: 'other', label: 'Other' },
 ] as const
 
@@ -319,17 +321,9 @@ export function formatProducerPaymentMethodLabel(value: string | null | undefine
   if (!raw || raw === '—') return '—'
   const match = PRODUCER_PAYMENT_METHODS.find((m) => m.value === raw)
   if (match) return match.label
-  // Legacy / rejected UI values (display only; do not rewrite historical rows).
+  // Legacy stored values (display only; do not rewrite historical rows).
   const legacy: Record<string, string> = {
-    ach: 'ACH / Bank Transfer',
     ach_bank_transfer: 'ACH / Bank Transfer',
-    wire: 'Wire',
-    check: 'Check',
-    other: 'Other',
-    zelle: 'Zelle',
-    venmo: 'Venmo',
-    paypal: 'PayPal',
-    cash: 'Cash',
     manual: 'Manual',
   }
   const key = raw.toLowerCase()
