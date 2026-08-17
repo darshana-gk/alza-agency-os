@@ -286,7 +286,9 @@ export function Clients() {
 
     if (isProducerBookScoped(roleInput)) {
       const names = [...new Set(mapped.map((c) => c.producer).filter(Boolean))]
-      const scope = resolveProducerBookName(roleInput, profile?.fullName, names)
+      const scope = resolveProducerBookName(roleInput, profile?.fullName, names, {
+        linkedProducerName: profile?.linkedProducerName,
+      })
       setProducerScopeLimitation(scope.limitation)
       const scoped = scope.lockedName
         ? mapped.filter((c) => producerKeysMatch(c.producer, scope.lockedName))
@@ -299,7 +301,7 @@ export function Clients() {
       cachedClients = mapped
     }
     setLoading(false)
-  }, [roleInput, profile?.fullName])
+  }, [roleInput, profile?.fullName, profile?.linkedProducerName])
 
   useEffect(() => {
     loadClients()

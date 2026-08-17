@@ -176,7 +176,9 @@ export function PolicyFiles() {
 
     if (isProducerBookScoped(roleInput)) {
       const names = [...new Set(mapped.map((p) => p.producer).filter((p) => p && p !== '—'))]
-      const scope = resolveProducerBookName(roleInput, profile?.fullName, names)
+      const scope = resolveProducerBookName(roleInput, profile?.fullName, names, {
+        linkedProducerName: profile?.linkedProducerName,
+      })
       setProducerScopeLimitation(scope.limitation)
       setPolicies(
         scope.lockedName
@@ -188,7 +190,7 @@ export function PolicyFiles() {
       setPolicies(mapped)
     }
     setLoading(false)
-  }, [roleInput, profile?.fullName])
+  }, [roleInput, profile?.fullName, profile?.linkedProducerName])
 
   useEffect(() => {
     void loadPolicies()

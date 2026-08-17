@@ -135,34 +135,61 @@ export function isProducerBookScoped(role: RoleInput): boolean {
 
 /**
  * Resolve this user's producer identity for producer-specific widgets
- * (My Book / My Commission / own payout summaries).
- * Available whenever Producer role is present — including CSR+Producer.
- * Never fuzzy-match. Never fall back to all data.
+ * (My Book / My Commission / own payout summaries) and for Producer-only book locks.
+ *
+ * Prefer `users.producer_id` → `producers.producer_name` when available.
+ * Display-name matching is a fallback only — never the primary security boundary
+ * when a linked producer directory row exists.
+ *
+ * Limitation messages apply ONLY when `isProducerBookScoped` is true
+ * (Producer-only). CSR+Producer / Owner+Producer / Admin+Producer never get
+ * empty-book warnings from this helper — they keep agency-wide operational reads.
  */
 export function resolveProducerBookName(
   role: RoleInput,
   fullName: string | null | undefined,
   knownProducerNames: string[],
+  options?: { linkedProducerName?: string | null },
 ): { lockedName: string | null; limitation: string | null } {
   if (!toAppRoles(role).includes('producer')) {
     return { lockedName: null, limitation: null }
   }
-  const name = (fullName ?? '').trim()
-  if (!name) {
+
+  const bookScoped = isProducerBookScoped(role)
+  const linked = (options?.linkedProducerName ?? '').trim()
+  const displayName = (fullName ?? '').trim()
+
+  let lockedName: string | null = null
+  if (linked) {
+    // Prefer exact TEXT spelling from the loaded dataset when present.
+    lockedName = knownProducerNames.find((p) => producerKeysMatch(p, linked)) ?? linked
+  } else if (displayName) {
+    lockedName = knownProducerNames.find((p) => producerKeysMatch(p, displayName)) ?? null
+  }
+
+  // Agency-ops multi-role (incl. CSR+Producer): keep optional own-book identity, never warn.
+  if (!bookScoped) {
+    return { lockedName, limitation: null }
+  }
+
+  if (lockedName) {
+    return { lockedName, limitation: null }
+  }
+
+  if (!linked && !displayName) {
     return {
       lockedName: null,
       limitation:
-        'Producer role has no usable full name to match against producer TEXT fields. Showing empty scoped results.',
+        'Producer role has no linked producer directory row and no usable full name. Showing empty scoped results.',
     }
   }
-  const match = knownProducerNames.find((p) => producerKeysMatch(p, name))
-  if (!match) {
-    return {
-      lockedName: null,
-      limitation: `Producer login “${name}” does not exactly match any producer TEXT value. No producer_id FK exists yet — showing empty results rather than all data.`,
-    }
+
+  return {
+    lockedName: null,
+    limitation: linked
+      ? `Linked producer “${linked}” could not be applied to producer TEXT fields. Showing empty scoped results.`
+      : `Producer login “${displayName}” does not match a linked producer directory row or producer TEXT value. Showing empty scoped results.`,
   }
-  return { lockedName: match, limitation: null }
 }
 
 export function roleOf(profile: AppUserProfile | null | undefined): AppRole | null {

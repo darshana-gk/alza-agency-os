@@ -136,6 +136,7 @@ export function Dashboard() {
         fullName: profile?.fullName,
         email: profile?.email,
         profileId: profile?.id,
+        linkedProducerName: profile?.linkedProducerName,
       }),
     ])
 
@@ -149,7 +150,9 @@ export function Dashboard() {
           ...scopedPolicies.map((p) => String(p.producer ?? '').trim()).filter(Boolean),
         ]),
       ]
-      const scope = resolveProducerBookName(roleInput, profile?.fullName, known)
+      const scope = resolveProducerBookName(roleInput, profile?.fullName, known, {
+        linkedProducerName: profile?.linkedProducerName,
+      })
       setProducerScopeLimitation(scope.limitation)
       if (!scope.lockedName) {
         scopedTx = []
@@ -203,7 +206,7 @@ export function Dashboard() {
       setProducerScopeLimitation(notificationsRes.producerLimitation)
     }
     setLoading(false)
-  }, [producerLocked, profile?.fullName, profile?.id, roleInput])
+  }, [producerLocked, profile?.fullName, profile?.linkedProducerName, profile?.id, roleInput])
 
   useEffect(() => {
     void load()

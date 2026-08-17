@@ -65,6 +65,7 @@ export function NotificationsPage() {
       fullName: profile?.fullName,
       email: profile?.email,
       profileId: profile?.id,
+      linkedProducerName: profile?.linkedProducerName,
     })
     setItems(result.items)
     setProducerLimitation(result.producerLimitation)

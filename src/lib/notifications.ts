@@ -243,6 +243,7 @@ export async function fetchOperationalNotifications(params: {
   fullName: string | null | undefined
   email?: string | null
   profileId?: string | null
+  linkedProducerName?: string | null
 }): Promise<NotificationsResult> {
   const roleInput = params.role
   const roles = toAppRoles(roleInput)
@@ -311,7 +312,9 @@ export async function fetchOperationalNotifications(params: {
         ...policies.map((p) => String(p.producer ?? '').trim()).filter(Boolean),
       ]),
     ]
-    const scope = resolveProducerBookName(roleInput, params.fullName, known)
+    const scope = resolveProducerBookName(roleInput, params.fullName, known, {
+      linkedProducerName: params.linkedProducerName,
+    })
     ownProducerName = scope.lockedName
     if (producerLocked) {
       producerLimitation = scope.limitation

@@ -144,8 +144,11 @@ export function Reports() {
 
   const producerLocked = isProducerBookScoped(roleInput)
   const producerScope = useMemo(
-    () => resolveProducerBookName(roleInput, profile?.fullName, allProducerNames),
-    [roleInput, profile?.fullName, allProducerNames],
+    () =>
+      resolveProducerBookName(roleInput, profile?.fullName, allProducerNames, {
+        linkedProducerName: profile?.linkedProducerName,
+      }),
+    [roleInput, profile?.fullName, profile?.linkedProducerName, allProducerNames],
   )
 
   // Role lock wins over URL ?producer= — producers never inherit another producer's filter.
@@ -546,7 +549,7 @@ export function Reports() {
         </p>
       </div>
 
-      {producerScope.limitation && (
+      {producerLocked && producerScope.limitation && (
         <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
           {producerScope.limitation}
         </div>

@@ -26,6 +26,10 @@ export interface AppUserProfile {
   roles: AppRole[]
   status: string
   archivedAt: string | null
+  /** Stable FK to public.producers when linked. */
+  producerId: string | null
+  /** Canonical producers.producer_name via producer_id (preferred for book locks). */
+  linkedProducerName: string | null
 }
 
 type AuthStatus = 'loading' | 'unauthenticated' | 'authenticated' | 'access_denied'
@@ -51,6 +55,15 @@ interface UserRow {
   role: string | null
   status: string | null
   archived_at: string | null
+  producer_id?: string | null
+  producers?: { producer_name: string | null } | { producer_name: string | null }[] | null
+}
+
+function linkedProducerNameFromRow(row: UserRow): string | null {
+  const join = row.producers
+  const name = Array.isArray(join) ? join[0]?.producer_name : join?.producer_name
+  const trimmed = (name ?? '').trim()
+  return trimmed || null
 }
 
 function mapProfile(row: UserRow, roles: AppRole[]): AppUserProfile {
@@ -67,6 +80,8 @@ function mapProfile(row: UserRow, roles: AppRole[]): AppUserProfile {
     roles: normalizedRoles,
     status: (row.status ?? '').trim().toLowerCase(),
     archivedAt: row.archived_at,
+    producerId: (row.producer_id ?? '').trim() || null,
+    linkedProducerName: linkedProducerNameFromRow(row),
   }
 }
 
@@ -76,14 +91,16 @@ async function loadLinkedProfile(authUserId: string): Promise<{
 }> {
   const { data, error } = await supabase
     .from('users')
-    .select('id, auth_user_id, full_name, email, role, status, archived_at, invite_status')
+    .select(
+      'id, auth_user_id, full_name, email, role, status, archived_at, invite_status, producer_id, producers(producer_name)',
+    )
     .eq('auth_user_id', authUserId)
     .maybeSingle()
 
   let row = data as (UserRow & { invite_status?: string | null }) | null
   let loadError = error
 
-  if (error && error.message.includes('invite_status')) {
+  if (error && (error.message.includes('invite_status') || error.message.includes('producer_id') || error.message.includes('producers'))) {
     const fallback = await supabase
       .from('users')
       .select('id, auth_user_id, full_name, email, role, status, archived_at')
