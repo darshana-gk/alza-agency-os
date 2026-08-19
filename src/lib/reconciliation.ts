@@ -25,7 +25,9 @@ export {
   normalizePolicyNumber,
   parseMoney,
   partyNamesMatch,
+  resolveStatementPartyText,
   roundMoney,
+  statementPartyMatchesTransaction,
 } from './reconciliationMatching'
 
 export const RECONCILIATION_STANDARD_FIELDS = [

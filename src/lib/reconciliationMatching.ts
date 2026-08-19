@@ -31,6 +31,63 @@ export function partyNamesMatch(
   return Boolean(a) && Boolean(b) && a === b
 }
 
+function nonemptyParty(value: string | null | undefined): string | null {
+  const trimmed = String(value ?? '').trim()
+  return trimmed || null
+}
+
+/**
+ * Snapshot names on the statement win. Master-directory names fill in only when
+ * the text field is empty but a carrier_id / mga_id was stored.
+ * Keep in sync with run-reconciliation-matching resolveStatementPartyText.
+ */
+export function resolveStatementPartyText(input: {
+  carrier?: string | null
+  mga?: string | null
+  carrierId?: string | null
+  mgaId?: string | null
+  directoryCarriers?: Record<string, string | null | undefined>
+  directoryMgas?: Record<string, string | null | undefined>
+}): { carrier: string | null; mga: string | null } {
+  const carrier =
+    nonemptyParty(input.carrier) ??
+    nonemptyParty(input.carrierId ? input.directoryCarriers?.[input.carrierId] : null)
+  const mga =
+    nonemptyParty(input.mga) ??
+    nonemptyParty(input.mgaId ? input.directoryMgas?.[input.mgaId] : null)
+  return { carrier, mga }
+}
+
+/**
+ * Statement vs transaction carrier/MGA names.
+ * Both statement parties present → OR (MGA-paid statements may use a different
+ * underlying carrier). Carrier-only statements still require a carrier match.
+ * Keep in sync with run-reconciliation-matching carrierMgaMatch.
+ */
+export function statementPartyMatchesTransaction(input: {
+  statementCarrier: string | null | undefined
+  statementMga: string | null | undefined
+  rowCarrierName?: string | null | undefined
+  rowMgaName?: string | null | undefined
+  transactionCarrier: string | null | undefined
+  transactionMga: string | null | undefined
+}): boolean {
+  const stmtCarrier = nonemptyParty(input.statementCarrier) ?? nonemptyParty(input.rowCarrierName)
+  const stmtMga = nonemptyParty(input.statementMga) ?? nonemptyParty(input.rowMgaName)
+  const carrierOk = stmtCarrier
+    ? partyNamesMatch(stmtCarrier, input.transactionCarrier) ||
+      partyNamesMatch(stmtCarrier, input.transactionMga)
+    : false
+  const mgaOk = stmtMga
+    ? partyNamesMatch(stmtMga, input.transactionMga) ||
+      partyNamesMatch(stmtMga, input.transactionCarrier)
+    : false
+  if (stmtCarrier && stmtMga) return carrierOk || mgaOk
+  if (stmtCarrier) return carrierOk
+  if (stmtMga) return mgaOk
+  return true
+}
+
 /** Round half-up to 2 decimal places. */
 export function roundMoney(value: number): number {
   if (!Number.isFinite(value)) return 0
@@ -178,6 +235,86 @@ export function runSignedVarianceScenarioChecks(): Array<{
       name: c.name,
       passed,
       detail: `got ${result.discrepancyType} variance=${result.variance}`,
+    }
+  })
+}
+
+/** Deterministic party-match checks for CNA+ISC / VALLEY FORGE+ISC and related cases. */
+export function runPartyMatchScenarioChecks(): Array<{
+  id: string
+  name: string
+  passed: boolean
+  detail: string
+}> {
+  const txn = { transactionCarrier: 'VALLEY FORGE', transactionMga: 'ISC' }
+  const cases: Array<{
+    id: string
+    name: string
+    want: boolean
+    statementCarrier: string | null
+    statementMga: string | null
+    carrierId?: string | null
+    mgaId?: string | null
+    directoryCarriers?: Record<string, string>
+    directoryMgas?: Record<string, string>
+  }> = [
+    {
+      id: 'party-1',
+      name: 'CNA + ISC statement matches VALLEY FORGE + ISC transaction via MGA',
+      want: true,
+      statementCarrier: 'cna',
+      statementMga: 'ISC',
+    },
+    {
+      id: 'party-2',
+      name: 'Direct CNA statement without MGA does not match VALLEY FORGE + ISC',
+      want: false,
+      statementCarrier: 'cna',
+      statementMga: null,
+    },
+    {
+      id: 'party-3',
+      name: 'ISC-only statement matches VALLEY FORGE + ISC',
+      want: true,
+      statementCarrier: null,
+      statementMga: 'ISC',
+    },
+    {
+      id: 'party-4',
+      name: 'CNA + btis statement does not match VALLEY FORGE + ISC',
+      want: false,
+      statementCarrier: 'cna',
+      statementMga: 'btis',
+    },
+    {
+      id: 'party-5',
+      name: 'MGA id without stored name still matches after directory resolve',
+      want: true,
+      statementCarrier: 'cna',
+      statementMga: null,
+      mgaId: 'mga-isc',
+      directoryMgas: { 'mga-isc': 'ISC' },
+    },
+  ]
+  return cases.map((c) => {
+    const resolved = resolveStatementPartyText({
+      carrier: c.statementCarrier,
+      mga: c.statementMga,
+      carrierId: c.carrierId ?? null,
+      mgaId: c.mgaId ?? null,
+      directoryCarriers: c.directoryCarriers,
+      directoryMgas: c.directoryMgas,
+    })
+    const got = statementPartyMatchesTransaction({
+      statementCarrier: resolved.carrier,
+      statementMga: resolved.mga,
+      ...txn,
+    })
+    return {
+      id: c.id,
+      name: c.name,
+      passed: got === c.want,
+      detail: `got ${got} want ${c.want}`,
     }
   })
 }

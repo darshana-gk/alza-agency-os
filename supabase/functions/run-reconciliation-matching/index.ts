@@ -84,6 +84,41 @@ function namesMatch(a: string | null | undefined, b: string | null | undefined):
   return Boolean(left) && Boolean(right) && left === right
 }
 
+function nonemptyParty(value: string | null | undefined): string | null {
+  const trimmed = String(value ?? '').trim()
+  return trimmed || null
+}
+
+async function resolveStatementPartyText(
+  admin: ReturnType<typeof serviceClient>,
+  statement: {
+    carrier: string | null
+    mga: string | null
+    carrier_id: string | null
+    mga_id: string | null
+  },
+): Promise<{ carrier: string | null; mga: string | null }> {
+  let carrier = nonemptyParty(statement.carrier)
+  let mga = nonemptyParty(statement.mga)
+  if (!carrier && statement.carrier_id) {
+    const { data } = await admin
+      .from('carriers')
+      .select('carrier_name')
+      .eq('id', statement.carrier_id)
+      .maybeSingle()
+    carrier = nonemptyParty((data?.carrier_name as string | null) ?? null)
+  }
+  if (!mga && statement.mga_id) {
+    const { data } = await admin
+      .from('mgas')
+      .select('mga_name')
+      .eq('id', statement.mga_id)
+      .maybeSingle()
+    mga = nonemptyParty((data?.mga_name as string | null) ?? null)
+  }
+  return { carrier, mga }
+}
+
 function roundMoney(value: number): number {
   if (!Number.isFinite(value)) return 0
   return Math.round((value + Number.EPSILON) * 100) / 100
@@ -151,8 +186,8 @@ function carrierMgaMatch(
   txn: CandidateTxn,
   row: StatementRow,
 ): boolean {
-  const stmtCarrier = statement.carrier || row.carrier_name
-  const stmtMga = statement.mga || row.mga_name
+  const stmtCarrier = nonemptyParty(statement.carrier) ?? nonemptyParty(row.carrier_name)
+  const stmtMga = nonemptyParty(statement.mga) ?? nonemptyParty(row.mga_name)
   const carrierOk = stmtCarrier ? namesMatch(stmtCarrier, txn.carrier) || namesMatch(stmtCarrier, txn.mga) : false
   const mgaOk = stmtMga ? namesMatch(stmtMga, txn.mga) || namesMatch(stmtMga, txn.carrier) : false
   if (stmtCarrier && stmtMga) return carrierOk || mgaOk
@@ -348,10 +383,12 @@ Deno.serve(async (req) => {
   }
 
   const tolerance = Number(statement.rounding_tolerance ?? 0.01) || 0.01
-  const stmtMeta = {
+  const stmtMeta = await resolveStatementPartyText(admin, {
     carrier: (statement.carrier as string | null) ?? null,
     mga: (statement.mga as string | null) ?? null,
-  }
+    carrier_id: (statement.carrier_id as string | null) ?? null,
+    mga_id: (statement.mga_id as string | null) ?? null,
+  })
 
   async function applyRow(
     row: StatementRow,
