@@ -10,6 +10,10 @@ const pageTitles: Record<string, { title: string; subtitle?: string }> = {
   '/policy-files': { title: 'Policy Files', subtitle: 'Browse and manage policy documents' },
   '/transactions': { title: 'Transactions', subtitle: 'Premium and commission activity · client → policy → transaction' },
   '/financials': { title: 'Financials', subtitle: 'Revenue, payables, and accounting' },
+  '/reconciliation': {
+    title: 'Reconciliation',
+    subtitle: 'Import carrier/MGA statements and confirm agency commission receipts',
+  },
   '/reports': { title: 'Reports', subtitle: 'Producer revenue from stored transaction commissions' },
   '/activity': {
     title: 'Activity History',

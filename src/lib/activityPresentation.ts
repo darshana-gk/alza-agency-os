@@ -170,6 +170,28 @@ export function formatActivityActionLabel(action: string): string {
       return 'Direct recovery payment'
     case 'recovery_void':
       return 'Recovery voided'
+    case 'reconciliation_import':
+      return 'Statement imported'
+    case 'reconciliation_mapping_saved':
+      return 'Column mapping saved'
+    case 'reconciliation_matching_started':
+      return 'Matching started'
+    case 'reconciliation_matching_completed':
+      return 'Matching completed'
+    case 'reconciliation_manual_match':
+      return 'Manual match'
+    case 'reconciliation_manual_unmatch':
+      return 'Match removed'
+    case 'reconciliation_exception_resolved':
+      return 'Exception resolved'
+    case 'reconciliation_receipts_confirmed':
+      return 'Reconciliation receipts confirmed'
+    case 'reconciliation_receipts_failed':
+      return 'Reconciliation receipt confirmation failed'
+    case 'reconciliation_completed':
+      return 'Statement completed'
+    case 'reconciliation_cancelled':
+      return 'Statement cancelled'
     default:
       return action.replace(/_/g, ' ')
   }
@@ -195,6 +217,8 @@ export function formatActivityEntityLabel(entityType: string): string {
       return 'User'
     case 'agency':
       return 'Agency'
+    case 'reconciliation':
+      return 'Reconciliation'
     default:
       return entityType.replace(/_/g, ' ') || '—'
   }

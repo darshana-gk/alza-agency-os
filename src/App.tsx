@@ -8,6 +8,7 @@ import { PolicyFiles } from '@/pages/PolicyFiles'
 import { PolicyDetails } from '@/pages/PolicyDetails'
 import { Transactions } from '@/pages/Transactions'
 import { Financials } from '@/pages/Financials'
+import { Reconciliation } from '@/pages/Reconciliation'
 import { Reports } from '@/pages/Reports'
 import { NotificationsPage } from '@/pages/Notifications'
 import { ActivityHistoryPage } from '@/pages/ActivityHistory'
@@ -111,6 +112,14 @@ function AuthenticatedApp() {
           element={
             <Guard path="/financials">
               <Financials />
+            </Guard>
+          }
+        />
+        <Route
+          path="reconciliation"
+          element={
+            <Guard path="/reconciliation">
+              <Reconciliation />
             </Guard>
           }
         />

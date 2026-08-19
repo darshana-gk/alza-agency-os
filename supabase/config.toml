@@ -7,6 +7,12 @@ verify_jwt = true
 [functions.notify-transaction-review]
 verify_jwt = true
 
+[functions.run-reconciliation-matching]
+verify_jwt = true
+
+[functions.confirm-reconciliation-receipts]
+verify_jwt = true
+
 [functions.create-razorpay-subscription]
 verify_jwt = true
 

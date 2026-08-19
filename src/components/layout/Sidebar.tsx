@@ -5,6 +5,7 @@ import {
   FileText,
   ArrowLeftRight,
   DollarSign,
+  Scale,
   BarChart3,
   History,
   UserCog,
@@ -78,6 +79,7 @@ export function Sidebar() {
     if (nav.policyFiles) items.push({ label: 'Policy Files', path: '/policy-files', icon: FileText })
     if (nav.transactions) items.push({ label: 'Transactions', path: '/transactions', icon: ArrowLeftRight })
     if (nav.financials) items.push({ label: 'Financials', path: '/financials', icon: DollarSign })
+    if (nav.reconciliation) items.push({ label: 'Reconciliation', path: '/reconciliation', icon: Scale })
     if (nav.reports) items.push({ label: 'Reports', path: '/reports', icon: BarChart3 })
     if (nav.activityHistory) items.push({ label: 'Activity History', path: '/activity', icon: History })
     return { items }

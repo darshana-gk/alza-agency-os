@@ -1,0 +1,184 @@
+/** Pure matching helpers shared by the UI. The Edge Function uses equivalent logic. */
+
+export type DiscrepancyType =
+  | 'exact_match'
+  | 'underpaid'
+  | 'overpaid'
+  | 'missing_from_statement'
+  | 'unmatched_row'
+  | 'zero_amount'
+
+export function normalizePolicyNumber(value: string | null | undefined): string {
+  return String(value ?? '')
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, '')
+}
+
+export function normalizePartyName(value: string | null | undefined): string {
+  return String(value ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+}
+
+export function partyNamesMatch(
+  left: string | null | undefined,
+  right: string | null | undefined,
+): boolean {
+  const a = normalizePartyName(left)
+  const b = normalizePartyName(right)
+  return Boolean(a) && Boolean(b) && a === b
+}
+
+/** Round half-up to 2 decimal places. */
+export function roundMoney(value: number): number {
+  if (!Number.isFinite(value)) return 0
+  return Math.round((value + Number.EPSILON) * 100) / 100
+}
+
+export function parseMoney(value: unknown): number | null {
+  if (value == null || value === '') return null
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? roundMoney(value) : null
+  }
+  if (value instanceof Date) return null
+  const raw = String(value).trim()
+  if (!raw) return null
+  const parenNeg = /^\(.*\)$/.test(raw)
+  const cleaned = raw.replace(/[$,\s]/g, '').replace(/[()]/g, '')
+  const n = Number(cleaned)
+  if (!Number.isFinite(n)) return null
+  return roundMoney(parenNeg ? -Math.abs(n) : n)
+}
+
+export function classifySignedVariance(params: {
+  commissionAmount: number | null
+  expectedCommission: number | null
+  roundingTolerance: number
+}): { discrepancyType: DiscrepancyType | null; variance: number | null } {
+  const { commissionAmount, expectedCommission, roundingTolerance } = params
+  if (commissionAmount == null || expectedCommission == null) {
+    return { discrepancyType: null, variance: null }
+  }
+  const actual = roundMoney(commissionAmount)
+  const expected = roundMoney(expectedCommission)
+  const tolerance = Math.max(0, roundingTolerance)
+  const variance = roundMoney(actual - expected)
+  if (actual === 0 && expected !== 0) {
+    return { discrepancyType: 'zero_amount', variance }
+  }
+  if (Math.abs(variance) <= tolerance) {
+    return { discrepancyType: 'exact_match', variance }
+  }
+  if (variance < -tolerance) {
+    return { discrepancyType: 'underpaid', variance }
+  }
+  return { discrepancyType: 'overpaid', variance }
+}
+
+export function varianceRequiresReview(
+  type: DiscrepancyType | string | null | undefined,
+): boolean {
+  return type === 'underpaid' || type === 'overpaid' || type === 'zero_amount'
+}
+
+/** Map matching-engine confidence onto agency_commission_receipts.match_confidence. */
+export function mapReconciliationConfidenceToReceipt(
+  value: string | null | undefined,
+): 'exact_invoice' | 'strong' | 'weak' | 'none' {
+  const raw = String(value ?? '').trim().toLowerCase()
+  if (raw === 'exact_invoice') return 'exact_invoice'
+  if (raw === 'high' || raw === 'strong') return 'strong'
+  if (raw === 'medium' || raw === 'low' || raw === 'weak') return 'weak'
+  return 'none'
+}
+
+const TYPE_ALIASES: Record<string, string> = {
+  new_policy_premium: 'new_policy_premium',
+  newbusiness: 'new_policy_premium',
+  'new business': 'new_policy_premium',
+  nb: 'new_policy_premium',
+  new: 'new_policy_premium',
+  renewal_premium: 'renewal_premium',
+  renewal: 'renewal_premium',
+  endorsement_premium: 'endorsement_premium',
+  endorsement: 'endorsement_premium',
+  endo: 'endorsement_premium',
+  audit_premium: 'audit_premium',
+  audit: 'audit_premium',
+  cancellation_premium: 'cancellation_premium',
+  cancellation: 'cancellation_premium',
+  cancel: 'cancellation_premium',
+  return_premium: 'cancellation_premium',
+  return: 'cancellation_premium',
+}
+
+export function mapStatementTransactionType(value: string | null | undefined): string | null {
+  const raw = String(value ?? '').trim()
+  if (!raw) return null
+  const key = raw.toLowerCase().replace(/[_-]+/g, ' ').replace(/\s+/g, ' ')
+  const compact = key.replace(/\s+/g, '')
+  return TYPE_ALIASES[key] ?? TYPE_ALIASES[compact] ?? TYPE_ALIASES[raw.toLowerCase()] ?? null
+}
+
+export function typesCompatible(
+  statementType: string | null | undefined,
+  transactionType: string | null | undefined,
+): boolean {
+  const mapped = mapStatementTransactionType(statementType)
+  const txn = String(transactionType ?? '').trim()
+  if (!mapped || !txn) return false
+  return mapped === txn
+}
+
+export function expectedCommissionOf(txn: {
+  expected_amount?: number | string | null
+  agency_commission_amount?: number | string | null
+}): number {
+  const primary = parseMoney(txn.expected_amount)
+  if (primary != null) return primary
+  return parseMoney(txn.agency_commission_amount) ?? 0
+}
+
+/** Deterministic classification checks for signed-amount scenarios 10–14 (no database). */
+export function runSignedVarianceScenarioChecks(): Array<{
+  id: string
+  name: string
+  passed: boolean
+  detail: string
+}> {
+  const cases: Array<{
+    id: string
+    name: string
+    expected: number
+    actual: number
+    tolerance?: number
+    want: DiscrepancyType
+    wantVariance: number
+  }> = [
+    { id: '10', name: 'Cancellation exact match', expected: -350, actual: -350, want: 'exact_match', wantVariance: 0 },
+    { id: '11', name: 'Cancellation overpaid (carrier returned less)', expected: -200, actual: -170, want: 'overpaid', wantVariance: 30 },
+    { id: '12', name: 'Underpaid positive commission', expected: 500, actual: 475, want: 'underpaid', wantVariance: -25 },
+    { id: '13', name: 'Overpaid positive commission', expected: 500, actual: 515, want: 'overpaid', wantVariance: 15 },
+    { id: '14', name: 'Within rounding tolerance', expected: 500, actual: 499.995, tolerance: 0.01, want: 'exact_match', wantVariance: -0.01 },
+  ]
+  return cases.map((c) => {
+    const result = classifySignedVariance({
+      commissionAmount: c.actual,
+      expectedCommission: c.expected,
+      roundingTolerance: c.tolerance ?? 0.01,
+    })
+    const passed =
+      result.discrepancyType === c.want &&
+      result.variance != null &&
+      Math.abs(result.variance - c.wantVariance) <= 0.01
+    return {
+      id: c.id,
+      name: c.name,
+      passed,
+      detail: `got ${result.discrepancyType} variance=${result.variance}`,
+    }
+  })
+}
+

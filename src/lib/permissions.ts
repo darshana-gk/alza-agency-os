@@ -323,6 +323,16 @@ export function canAccessFinancials(role: RoleInput): boolean {
   return roles.includes('owner') || roles.includes('admin') || roles.includes('csr')
 }
 
+/** Carrier/MGA statement reconciliation — same visibility as Financials. */
+export function canAccessReconciliation(role: RoleInput): boolean {
+  return canAccessFinancials(role)
+}
+
+/** Tolerance, cancel completed statements, delete saved mappings. */
+export function canConfigureReconciliation(role: RoleInput): boolean {
+  return isAdminDirectoryRole(role)
+}
+
 export function canMutateFinancialPayments(role: RoleInput): boolean {
   return isAdminDirectoryRole(role)
 }
@@ -373,6 +383,9 @@ export function canAccessPath(role: RoleInput, pathname: string): boolean {
   if (path.startsWith('/financials')) {
     return canAccessFinancials(roles)
   }
+  if (path.startsWith('/reconciliation')) {
+    return canAccessReconciliation(roles)
+  }
   if (path.startsWith('/activity') || path.startsWith('/activity-history')) {
     return roles.includes('owner') || roles.includes('admin') || roles.includes('csr')
   }
@@ -402,6 +415,7 @@ export type NavVisibility = {
   policyFiles: boolean
   transactions: boolean
   financials: boolean
+  reconciliation: boolean
   reports: boolean
   activityHistory: boolean
   administration: boolean
@@ -424,6 +438,7 @@ export function getNavVisibility(role: RoleInput): NavVisibility {
     policyFiles: ops,
     transactions: ops,
     financials: canAccessFinancials(roles),
+    reconciliation: canAccessReconciliation(roles),
     reports: roles.length > 0,
     activityHistory: roles.includes('owner') || roles.includes('admin') || roles.includes('csr'),
     administration: admin,

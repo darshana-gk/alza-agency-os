@@ -159,6 +159,7 @@ export function ActivityHistoryPage() {
               'user',
               'agency',
               'producer',
+              'reconciliation',
             ].map((t) => (
               <option key={t} value={t}>
                 {t}
