@@ -25,6 +25,7 @@ export {
   normalizePolicyNumber,
   parseMoney,
   partyNamesMatch,
+  pickPolicyMatchWinner,
   resolveStatementPartyText,
   roundMoney,
   statementPartyMatchesTransaction,

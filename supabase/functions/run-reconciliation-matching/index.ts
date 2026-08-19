@@ -21,10 +21,12 @@ interface StatementRow {
   policy_number: string | null
   client_name: string | null
   commission_amount: number | string | null
+  premium_amount: number | string | null
   transaction_date: string | null
   transaction_type: string | null
   carrier_name: string | null
   mga_name: string | null
+  external_reference: string | null
   match_status: string
 }
 
@@ -35,6 +37,7 @@ interface CandidateTxn {
   transaction_date: string | null
   expected_amount: number | string | null
   agency_commission_amount: number | string | null
+  premium_amount: number | string | null
   carrier: string | null
   mga: string | null
   agency_commission_confirmed: boolean | null
@@ -55,6 +58,7 @@ const TYPE_ALIASES: Record<string, string> = {
   renewal: 'renewal_premium',
   endorsement_premium: 'endorsement_premium',
   endorsement: 'endorsement_premium',
+  endo: 'endorsement_premium',
   audit_premium: 'audit_premium',
   audit: 'audit_premium',
   cancellation_premium: 'cancellation_premium',
@@ -151,6 +155,17 @@ function expectedOf(txn: CandidateTxn): number {
   return toNum(txn.expected_amount) ?? toNum(txn.agency_commission_amount) ?? 0
 }
 
+function clientNameOf(txn: CandidateTxn): string | null {
+  return nonemptyParty(firstEmbed(txn.clients)?.business_name)
+}
+
+function normalizeRef(value: string | null | undefined): string {
+  return String(value ?? '')
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, '')
+}
+
 function addDays(iso: string, days: number): string {
   const d = new Date(`${iso}T00:00:00Z`)
   d.setUTCDate(d.getUTCDate() + days)
@@ -212,6 +227,12 @@ function scoreCandidate(row: StatementRow, txn: CandidateTxn): number {
   }
   const days = daysBetween(row.transaction_date, txn.transaction_date)
   if (days != null) score += Math.max(0, 20 - days)
+  const rowPremium = toNum(row.premium_amount)
+  const txnPremium = toNum(txn.premium_amount)
+  if (rowPremium != null && txnPremium != null) {
+    score += Math.max(0, 20 - Math.abs(rowPremium - txnPremium))
+  }
+  if (namesMatch(row.client_name, clientNameOf(txn))) score += 10
   return score
 }
 
@@ -246,14 +267,25 @@ function pickWinner(row: StatementRow, candidates: CandidateTxn[]): {
     best.diff <= 0.009 &&
     (second == null || second.diff - best.diff > 0.009) &&
     best.signOk
-  const uniqueType =
-    Boolean(mapType(row.transaction_type)) &&
-    candidates.filter((t) => t.transaction_type === mapType(row.transaction_type)).length === 1
-  const uniqueScore = second == null || best.score - second.score >= 15
+  const mappedType = mapType(row.transaction_type)
+  const typeOk = Boolean(mappedType) && mappedType === best.txn.transaction_type
+  const uniqueAmountAndType = uniqueAmount && typeOk
 
-  if (uniqueAmount || uniqueType || (uniqueScore && best.signOk && best.diff <= 1)) {
-    return { txn: best.txn, confidence: 'high' }
+  const ref = normalizeRef(row.external_reference)
+  const refHits = ref
+    ? candidates.filter((t) => normalizeRef(t.transaction_number) === ref)
+    : []
+  const uniqueRefWinner = refHits.length === 1 ? refHits[0] : null
+
+  if (uniqueRefWinner && uniqueAmountAndType && uniqueRefWinner.id !== best.txn.id) {
+    return {
+      txn: best.txn,
+      confidence: 'medium',
+      note: 'Multiple candidate transactions for this policy.',
+    }
   }
+  if (uniqueRefWinner) return { txn: uniqueRefWinner, confidence: 'high' }
+  if (uniqueAmountAndType) return { txn: best.txn, confidence: 'high' }
   return { txn: best.txn, confidence: 'medium', note: 'Multiple candidate transactions for this policy.' }
 }
 
@@ -331,7 +363,7 @@ Deno.serve(async (req) => {
   const { data: importRows, error: rowsError } = await admin
     .from('reconciliation_statement_rows')
     .select(
-      'id, row_index, policy_number, client_name, commission_amount, transaction_date, transaction_type, carrier_name, mga_name, match_status',
+      'id, row_index, policy_number, client_name, commission_amount, premium_amount, transaction_date, transaction_type, carrier_name, mga_name, external_reference, match_status',
     )
     .eq('statement_id', statementId)
     .eq('row_source', 'import')
@@ -347,7 +379,7 @@ Deno.serve(async (req) => {
     .select(
       `
       id, transaction_number, transaction_type, transaction_date, expected_amount,
-      agency_commission_amount, carrier, mga, agency_commission_confirmed,
+      agency_commission_amount, premium_amount, carrier, mga, agency_commission_confirmed,
       client_id, policy_id, producer,
       policies ( policy_number ),
       clients ( business_name )
@@ -569,10 +601,12 @@ Deno.serve(async (req) => {
         policy_number: null,
         client_name: null,
         commission_amount: null,
+        premium_amount: null,
         transaction_date: null,
         transaction_type: null,
         carrier_name: null,
         mga_name: null,
+        external_reference: null,
         match_status: 'pending',
       })) return false
       if (t.agency_commission_confirmed || receiptTxnIds.has(t.id) || matchedIds.has(t.id)) return false
