@@ -12,6 +12,7 @@ import {
   Building2,
   Truck,
   UserCircle,
+  CreditCard,
   ChevronDown,
   Zap,
   Settings,
@@ -91,6 +92,13 @@ export function Sidebar() {
     if (nav.users) items.push({ label: 'Users', path: '/admin/users', icon: UserCircle })
     if (nav.agencySettings) {
       items.push({ label: 'Agency Settings', path: '/admin/agency-settings', icon: Settings })
+    }
+    if (nav.subscriptionBilling) {
+      items.push({
+        label: 'Subscription & Billing',
+        path: '/admin/subscription-billing',
+        icon: CreditCard,
+      })
     }
     return { title: 'Administration', items }
   }, [nav])

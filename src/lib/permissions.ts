@@ -344,6 +344,11 @@ export function canManageAgencySettings(role: RoleInput): boolean {
   return isAdminDirectoryRole(role)
 }
 
+/** SaaS Razorpay subscription / billing (Owner/Admin). */
+export function canManageBilling(role: RoleInput): boolean {
+  return isAdminDirectoryRole(role)
+}
+
 export function canAccessAdminSection(role: RoleInput): boolean {
   return isAdminDirectoryRole(role)
 }
@@ -406,6 +411,7 @@ export type NavVisibility = {
   carriers: boolean
   users: boolean
   agencySettings: boolean
+  subscriptionBilling: boolean
 }
 
 export function getNavVisibility(role: RoleInput): NavVisibility {
@@ -427,6 +433,7 @@ export function getNavVisibility(role: RoleInput): NavVisibility {
     carriers: admin,
     users: admin,
     agencySettings: admin,
+    subscriptionBilling: admin,
   }
 }
 

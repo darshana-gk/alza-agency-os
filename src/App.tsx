@@ -17,6 +17,7 @@ import { MGAs } from '@/pages/admin/MGAs'
 import { Carriers } from '@/pages/admin/Carriers'
 import { UsersPage } from '@/pages/admin/Users'
 import { AgencySettingsPage } from '@/pages/admin/AgencySettings'
+import { SubscriptionBillingPage } from '@/pages/admin/SubscriptionBilling'
 import { TestSupabase } from '@/pages/TestSupabase'
 import { LoginPage } from '@/pages/Login'
 import { AccessDeniedPage } from '@/pages/AccessDenied'
@@ -182,6 +183,14 @@ function AuthenticatedApp() {
           element={
             <Guard path="/admin/agency-settings">
               <AgencySettingsPage />
+            </Guard>
+          }
+        />
+        <Route
+          path="admin/subscription-billing"
+          element={
+            <Guard path="/admin/subscription-billing">
+              <SubscriptionBillingPage />
             </Guard>
           }
         />
