@@ -1,5 +1,3 @@
-import ExcelJS from 'exceljs'
-import Papa from 'papaparse'
 import { recordActivity } from './activity'
 import { fetchAgencyProfile } from './agency'
 import { formatCurrency } from './commission'
@@ -9,6 +7,7 @@ import {
   loadCurrentAppRole,
   rejectUnlessRole,
 } from './permissions'
+import { parseStatementFile } from './reconciliationIntake'
 import { supabase } from './supabase'
 import {
   classifySignedVariance,
@@ -137,10 +136,18 @@ export interface ColumnMappingRecord {
   mapping: ColumnMapping
 }
 
-export interface ParsedStatementFile {
-  headers: string[]
-  rows: Record<string, unknown>[]
-}
+export {
+  detectStatementDelimiter,
+  hashUtf8Sha256,
+  normalizePastedStatementText,
+  parseDelimitedStatementText,
+  parseStatementFile,
+  pastedStatementFileName,
+  runStatementIntakeChecks,
+  type ParsedStatementFile,
+  type StatementDelimiter,
+} from './reconciliationIntake'
+
 
 export const DUPLICATE_FILE_MESSAGE = 'This exact file has already been imported'
 
@@ -297,20 +304,6 @@ export async function hashFileSha256(file: File): Promise<string> {
     .join('')
 }
 
-function cellToString(value: unknown): string {
-  if (value == null) return ''
-  if (value instanceof Date && !Number.isNaN(value.getTime())) {
-    return value.toISOString().slice(0, 10)
-  }
-  if (typeof value === 'object' && value && 'text' in value) {
-    return String((value as { text?: unknown }).text ?? '')
-  }
-  if (typeof value === 'object' && value && 'result' in value) {
-    return cellToString((value as { result?: unknown }).result)
-  }
-  return String(value)
-}
-
 function excelSerialToIso(n: number): string | null {
   if (!Number.isFinite(n) || n < 20000) return null
   const utc = Date.UTC(1899, 11, 30) + Math.round(n) * 86400000
@@ -344,63 +337,6 @@ export function parseIsoDate(value: unknown): string | null {
   const d = new Date(s)
   if (!Number.isNaN(d.getTime())) return d.toISOString().slice(0, 10)
   return null
-}
-
-export async function parseStatementFile(file: File): Promise<ParsedStatementFile> {
-  const name = file.name.toLowerCase()
-  if (name.endsWith('.csv') || file.type === 'text/csv' || file.type === 'text/plain') {
-    const text = await file.text()
-    const parsed = Papa.parse<Record<string, unknown>>(text, {
-      header: true,
-      skipEmptyLines: 'greedy',
-      transformHeader: (h) => h.replace(/^\uFEFF/, '').trim(),
-    })
-    if (parsed.errors.length && !parsed.data.length) {
-      throw new Error(parsed.errors[0]?.message || 'Unable to parse CSV.')
-    }
-    const headers = (parsed.meta.fields ?? []).map((h) => String(h).trim()).filter(Boolean)
-    const rows = parsed.data
-      .map((row) => {
-        const next: Record<string, unknown> = {}
-        for (const key of headers) next[key] = row[key]
-        return next
-      })
-      .filter((row) => Object.values(row).some((v) => String(v ?? '').trim() !== ''))
-    if (!headers.length) throw new Error('CSV has no header row.')
-    return { headers, rows }
-  }
-
-  if (name.endsWith('.xlsx') || name.endsWith('.xls')) {
-    const workbook = new ExcelJS.Workbook()
-    await workbook.xlsx.load(await file.arrayBuffer())
-    const sheet = workbook.worksheets[0]
-    if (!sheet) throw new Error('Workbook has no worksheets.')
-    const headerRow = sheet.getRow(1)
-    const headers: string[] = []
-    headerRow.eachCell({ includeEmpty: false }, (cell, col) => {
-      const label = cellToString(cell.value).replace(/^\uFEFF/, '').trim()
-      if (label) headers[col] = label
-    })
-    const compact = headers.filter(Boolean)
-    if (!compact.length) throw new Error('Spreadsheet has no header row.')
-    const rows: Record<string, unknown>[] = []
-    sheet.eachRow({ includeEmpty: false }, (row, rowNumber) => {
-      if (rowNumber === 1) return
-      const obj: Record<string, unknown> = {}
-      let any = false
-      compact.forEach((header) => {
-        const col = headers.indexOf(header)
-        const raw = col >= 0 ? row.getCell(col).value : null
-        const text = cellToString(raw)
-        obj[header] = raw instanceof Date ? raw : text
-        if (text.trim()) any = true
-      })
-      if (any) rows.push(obj)
-    })
-    return { headers: compact, rows }
-  }
-
-  throw new Error('Unsupported file type. Use CSV or XLSX.')
 }
 
 export function suggestColumnMapping(headers: string[]): ColumnMapping {
@@ -764,6 +700,7 @@ export async function importReconciliationStatement(input: {
   statementDate?: string | null
   roundingTolerance?: number
   detectMissing?: boolean
+  contentHash?: string
 }): Promise<{ data: ReconciliationStatement | null; error: string | null }> {
   const authz = await requireOps()
   if (!authz.ok) return { data: null, error: authz.message }
@@ -789,7 +726,7 @@ export async function importReconciliationStatement(input: {
   const mapped = applyColumnMapping(parsed.rows, input.mapping)
   if (!mapped.length) return { data: null, error: 'The file has no data rows.' }
 
-  const fileHash = await hashFileSha256(input.file)
+  const fileHash = input.contentHash ?? (await hashFileSha256(input.file))
   const role = await loadCurrentAppRole()
 
   const insertPayload = {

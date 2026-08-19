@@ -7,8 +7,12 @@ import {
   deleteColumnMapping,
   fetchColumnMappings,
   formatSignedCurrency,
+  hashUtf8Sha256,
   importReconciliationStatement,
+  normalizePastedStatementText,
+  parseDelimitedStatementText,
   parseStatementFile,
+  pastedStatementFileName,
   saveColumnMapping,
   suggestColumnMapping,
   type ColumnMapping,
@@ -18,6 +22,8 @@ import {
 
 const inputClass =
   'h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-900 placeholder:text-slate-400 focus:border-alza-blue-500 focus:outline-none focus:ring-2 focus:ring-alza-blue-500/20'
+const textareaClass =
+  'min-h-[220px] w-full rounded-lg border border-slate-200 bg-white px-3 py-2 font-mono text-sm text-slate-900 placeholder:text-slate-400 focus:border-alza-blue-500 focus:outline-none focus:ring-2 focus:ring-alza-blue-500/20'
 const selectClass =
   'h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-900 focus:border-alza-blue-500 focus:outline-none focus:ring-2 focus:ring-alza-blue-500/20'
 
@@ -38,6 +44,8 @@ export function ImportWizard(props: {
   const [periodEnd, setPeriodEnd] = useState('')
   const [statementDate, setStatementDate] = useState('')
   const [file, setFile] = useState<File | null>(null)
+  const [inputMode, setInputMode] = useState<'file' | 'paste'>('file')
+  const [pasteText, setPasteText] = useState('')
   const [parsed, setParsed] = useState<ParsedStatementFile | null>(null)
   const [mapping, setMapping] = useState<ColumnMapping>({})
   const [savedMappings, setSavedMappings] = useState<ColumnMappingRecord[]>([])
@@ -53,6 +61,8 @@ export function ImportWizard(props: {
     setMapping({})
     setError(null)
     setDetectMissing(false)
+    setInputMode('file')
+    setPasteText('')
     void (async () => {
       const [c, m] = await Promise.all([
         supabase.from('carriers').select('id, carrier_name').is('archived_at', null).order('carrier_name'),
@@ -82,44 +92,70 @@ export function ImportWizard(props: {
     [parsed, mapping],
   )
 
+  function applyParsed(result: ParsedStatementFile) {
+    setParsed(result)
+    setMapping(suggestColumnMapping(result.headers))
+  }
+
   async function handleFile(next: File | null) {
     setError(null)
     setFile(next)
     setParsed(null)
     if (!next) return
     try {
-      const result = await parseStatementFile(next)
-      setParsed(result)
-      setMapping(suggestColumnMapping(result.headers))
+      applyParsed(await parseStatementFile(next))
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unable to parse file.')
     }
   }
 
+  function switchMode(mode: 'file' | 'paste') {
+    setInputMode(mode)
+    setError(null)
+    setParsed(null)
+    setMapping({})
+    if (mode === 'file') setPasteText('')
+    else setFile(null)
+  }
+
   async function handleImport() {
-    if (!file) return
     setBusy(true)
     setError(null)
-    const result = await importReconciliationStatement({
-      file,
-      mapping,
-      carrier: carrierName,
-      mga: mgaName,
-      carrierId: carrierId || null,
-      mgaId: mgaId || null,
-      periodStart,
-      periodEnd,
-      statementDate: statementDate || periodEnd,
-      detectMissing,
-    })
-    setBusy(false)
-    if (result.error && !result.data) {
-      setError(result.error)
-      return
+    try {
+      let upload = file
+      let contentHash: string | undefined
+      if (inputMode === 'paste') {
+        const normalized = normalizePastedStatementText(pasteText)
+        upload = new File([normalized], pastedStatementFileName(), { type: 'text/plain' })
+        contentHash = await hashUtf8Sha256(normalized)
+      }
+      if (!upload) {
+        setError(inputMode === 'paste' ? 'Paste statement text before importing.' : 'Upload a file before importing.')
+        return
+      }
+      const result = await importReconciliationStatement({
+        file: upload,
+        mapping,
+        carrier: carrierName,
+        mga: mgaName,
+        carrierId: carrierId || null,
+        mgaId: mgaId || null,
+        periodStart,
+        periodEnd,
+        statementDate: statementDate || periodEnd,
+        detectMissing,
+        contentHash,
+      })
+      if (result.error && !result.data) {
+        setError(result.error)
+        return
+      }
+      if (result.data) props.onImported(result.data.id)
+      if (result.error) setError(result.error)
+      else props.onClose()
+    } finally {
+      setBusy(false)
     }
-    if (result.data) props.onImported(result.data.id)
-    if (result.error) setError(result.error)
-    else props.onClose()
   }
 
   if (!props.open) return null
@@ -130,7 +166,7 @@ export function ImportWizard(props: {
         <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
           <div>
             <h2 className="text-lg font-semibold text-slate-900">Import commission statement</h2>
-            <p className="text-sm text-slate-500">Step {step} of 4 · CSV or XLSX</p>
+            <p className="text-sm text-slate-500">Step {step} of 4 · CSV, XLSX, TXT, or paste</p>
           </div>
           <button type="button" onClick={props.onClose} className="rounded-lg p-1 text-slate-500 hover:bg-slate-100">
             <X className="h-5 w-5" />
@@ -189,16 +225,59 @@ export function ImportWizard(props: {
           )}
 
           {step === 2 && (
-            <label className="flex cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed border-slate-300 bg-slate-50 px-6 py-12 text-center hover:border-alza-blue-400">
-              <p className="text-sm font-medium text-slate-800">Drop a CSV or XLSX file, or click to browse</p>
-              <p className="mt-1 text-xs text-slate-500">{file ? file.name : 'No file selected'}</p>
-              <input
-                type="file"
-                accept=".csv,.xlsx,.xls,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                className="hidden"
-                onChange={(e) => void handleFile(e.target.files?.[0] ?? null)}
-              />
-            </label>
+            <div className="space-y-4">
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => switchMode('file')}
+                  className={`rounded-lg px-3 py-1.5 text-sm font-medium ${
+                    inputMode === 'file'
+                      ? 'bg-alza-blue-700 text-white'
+                      : 'border border-slate-200 text-slate-700 hover:bg-slate-50'
+                  }`}
+                >
+                  Upload file
+                </button>
+                <button
+                  type="button"
+                  onClick={() => switchMode('paste')}
+                  className={`rounded-lg px-3 py-1.5 text-sm font-medium ${
+                    inputMode === 'paste'
+                      ? 'bg-alza-blue-700 text-white'
+                      : 'border border-slate-200 text-slate-700 hover:bg-slate-50'
+                  }`}
+                >
+                  Paste text
+                </button>
+              </div>
+              {inputMode === 'file' ? (
+                <label className="flex cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed border-slate-300 bg-slate-50 px-6 py-12 text-center hover:border-alza-blue-400">
+                  <p className="text-sm font-medium text-slate-800">Drop a CSV, XLSX, or TXT file, or click to browse</p>
+                  <p className="mt-1 text-xs text-slate-500">{file ? file.name : 'No file selected'}</p>
+                  <input
+                    type="file"
+                    accept=".csv,.xlsx,.xls,.txt,text/csv,text/plain,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                    className="hidden"
+                    onChange={(e) => void handleFile(e.target.files?.[0] ?? null)}
+                  />
+                </label>
+              ) : (
+                <label className="block">
+                  <span className="mb-1 block text-xs font-medium text-slate-500">
+                    Paste a headered table (comma, tab, or semicolon delimited)
+                  </span>
+                  <textarea
+                    className={textareaClass}
+                    value={pasteText}
+                    onChange={(e) => {
+                      setPasteText(e.target.value)
+                      setParsed(null)
+                    }}
+                    placeholder={'Policy Number,Commission Amount,Type\nBALAN001,937.50,endorsement'}
+                  />
+                </label>
+              )}
+            </div>
           )}
 
           {step === 3 && parsed && (
@@ -311,9 +390,19 @@ export function ImportWizard(props: {
                   setError('Set the statement period.')
                   return
                 }
-                if (step === 2 && !parsed) {
-                  setError('Upload a CSV or XLSX file.')
-                  return
+                if (step === 2) {
+                  if (inputMode === 'file' && !parsed) {
+                    setError('Upload a CSV, XLSX, or TXT file.')
+                    return
+                  }
+                  if (inputMode === 'paste') {
+                    try {
+                      applyParsed(parseDelimitedStatementText(pasteText, 'paste'))
+                    } catch (err) {
+                      setError(err instanceof Error ? err.message : 'Unable to parse pasted text.')
+                      return
+                    }
+                  }
                 }
                 if (step === 3 && (!mapping.policy_number || !mapping.commission_amount)) {
                   setError('Map policy number and commission amount.')
