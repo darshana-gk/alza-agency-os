@@ -2948,6 +2948,30 @@ export async function confirmAgencyCommissionReceived(input: ConfirmReceiptInput
     .single()
 
   if (receiptError) {
+    const dupCode = (receiptError as { code?: string }).code
+    const dupMsg = String(receiptError.message ?? '').toLowerCase()
+    const isDuplicate =
+      dupCode === '23505' ||
+      dupMsg.includes('agency_commission_receipts_transaction_id') ||
+      dupMsg.includes('duplicate key')
+    if (isDuplicate) {
+      const { data: existingReceipt } = await supabase
+        .from('agency_commission_receipts')
+        .select('id')
+        .eq('transaction_id', transaction.id)
+        .maybeSingle()
+      const { data: currentTxn } = await supabase
+        .from('transactions')
+        .select('agency_commission_confirmed, agency_commission_receipt_id')
+        .eq('id', transaction.id)
+        .maybeSingle()
+      if (currentTxn?.agency_commission_confirmed || currentTxn?.agency_commission_receipt_id) {
+        return {
+          data: { receiptId: existingReceipt?.id ?? currentTxn.agency_commission_receipt_id, duplicate: true },
+          error: null,
+        }
+      }
+    }
     return {
       error: {
         message: receiptError.message,

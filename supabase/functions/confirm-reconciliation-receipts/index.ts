@@ -33,6 +33,31 @@ function varianceRequiresReview(type: unknown): boolean {
   return type === 'underpaid' || type === 'overpaid' || type === 'zero_amount'
 }
 
+function isDuplicateReceiptError(error: { code?: string; message?: string } | null | undefined): boolean {
+  if (!error) return false
+  if (error.code === '23505') return true
+  const msg = String(error.message ?? '').toLowerCase()
+  return msg.includes('agency_commission_receipts_transaction_id') || msg.includes('duplicate key')
+}
+
+async function markRowAlreadyProcessed(
+  admin: ReturnType<typeof serviceClient>,
+  rowId: string,
+  importedAt: string,
+  receiptId?: string | null,
+) {
+  await admin
+    .from('reconciliation_statement_rows')
+    .update({
+      match_status: 'skipped',
+      resolution_status: 'ignored',
+      resolution_notes: 'Receipt already confirmed for this transaction',
+      ...(receiptId ? { receipt_id: receiptId } : {}),
+      updated_at: importedAt,
+    })
+    .eq('id', rowId)
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders })
   if (req.method !== 'POST') return fail('method_not_allowed', 'POST required.', 405)
@@ -136,15 +161,7 @@ Deno.serve(async (req) => {
     }
 
     if (txn.agency_commission_confirmed || existingReceipt) {
-      await admin
-        .from('reconciliation_statement_rows')
-        .update({
-          match_status: 'skipped',
-          resolution_status: 'ignored',
-          resolution_notes: 'Receipt already confirmed for this transaction',
-          updated_at: importedAt,
-        })
-        .eq('id', row.id)
+      await markRowAlreadyProcessed(admin, row.id, importedAt, existingReceipt?.id ?? null)
       skipped += 1
       continue
     }
@@ -202,11 +219,21 @@ Deno.serve(async (req) => {
       .single()
 
     if (receiptError || !receipt) {
+      if (isDuplicateReceiptError(receiptError)) {
+        const { data: dupReceipt } = await admin
+          .from('agency_commission_receipts')
+          .select('id')
+          .eq('transaction_id', txnId)
+          .maybeSingle()
+        await markRowAlreadyProcessed(admin, row.id, importedAt, dupReceipt?.id ?? null)
+        skipped += 1
+        continue
+      }
       errors.push(`${row.id}: ${receiptError?.message || 'receipt insert failed'}`)
       continue
     }
 
-    const { error: updateError } = await admin
+    const { data: updatedTxn, error: updateError } = await admin
       .from('transactions')
       .update({
         amount_received: amountReceived,
@@ -217,9 +244,16 @@ Deno.serve(async (req) => {
       })
       .eq('id', txn.id)
       .eq('agency_commission_confirmed', false)
+      .select('id')
 
     if (updateError) {
       errors.push(`${row.id}: ${updateError.message}`)
+      continue
+    }
+
+    if (!updatedTxn?.length) {
+      await markRowAlreadyProcessed(admin, row.id, importedAt, receipt.id)
+      skipped += 1
       continue
     }
 

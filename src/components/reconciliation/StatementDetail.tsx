@@ -6,6 +6,7 @@ import {
   formatReconciliationMatchLabel,
   formatReconciliationStatus,
   formatSignedCurrency,
+  isPreviouslyConfirmedSkip,
   manualMatchRow,
   openExceptions,
   reconciliationMatchLabelClass,
@@ -91,7 +92,7 @@ export function StatementDetail(props: {
 
   return (
     <div className="space-y-4">
-      <ReconciliationSummaryCards statement={props.statement} />
+      <ReconciliationSummaryCards statement={props.statement} rows={props.rows} />
 
       {message && (
         <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
@@ -104,7 +105,7 @@ export function StatementDetail(props: {
             >
               {occupancy.confirmed
                 ? `This commission already has a confirmed receipt on ${occupancy.label}. Open that statement.`
-                : `This commission is already matched on ${occupancy.label}. Open that statement to unmatch it first.`}
+                : `This commission is already matched on ${occupancy.label} and is awaiting receipt confirmation.`}
             </button>
           )}
         </div>
@@ -271,6 +272,14 @@ export function StatementDetail(props: {
                     <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset ${reconciliationStatusClass(row.discrepancyType)}`}>
                       {formatReconciliationStatus(row.discrepancyType)}
                     </span>
+                    {row.matchStatus === 'skipped' &&
+                      isPreviouslyConfirmedSkip(row.resolutionNotes) &&
+                      row.discrepancyType &&
+                      ['underpaid', 'overpaid'].includes(row.discrepancyType) && (
+                        <p className="mt-1 max-w-xs text-xs text-amber-800">
+                          Amount on this statement differs from the confirmed receipt.
+                        </p>
+                      )}
                   </td>
                   <td className="px-3 py-2">
                     {row.matchedTransactionId ? (

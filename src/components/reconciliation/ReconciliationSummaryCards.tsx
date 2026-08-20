@@ -1,8 +1,13 @@
-import type { ReconciliationStatement } from '../../lib/reconciliation'
-import { formatReconciliationStatus, reconciliationStatusClass } from '../../lib/reconciliation'
+import type { ReconciliationStatement, ReconciliationStatementRow } from '../../lib/reconciliation'
+import {
+  computeStatementPresentationSummary,
+  formatReconciliationStatus,
+  reconciliationStatusClass,
+} from '../../lib/reconciliation'
 
 export function ReconciliationSummaryCards(props: {
   statement?: ReconciliationStatement | null
+  rows?: ReconciliationStatementRow[]
   totals?: {
     statements: number
     exceptions: number
@@ -11,22 +16,33 @@ export function ReconciliationSummaryCards(props: {
   }
 }) {
   const s = props.statement
-  const items = s
+  const presentation = props.rows?.length ? computeStatementPresentationSummary(props.rows) : null
+
+  const items = presentation
     ? [
-        { label: 'Imported rows', value: s.rowCount },
-        { label: 'Matched', value: s.matchedCount },
-        { label: 'Needs Review', value: s.exceptionCount },
-        { label: 'Unmatched', value: s.unmatchedCount },
-        { label: 'Missing', value: s.missingCount },
-        { label: 'Confirmed', value: s.confirmedCount },
-        { label: 'Skipped', value: s.skippedCount },
+        { label: 'Imported', value: presentation.imported },
+        { label: 'Already Processed', value: presentation.alreadyProcessed },
+        { label: 'Matched', value: presentation.matched },
+        { label: 'Needs Review', value: presentation.needsReview },
+        ...(presentation.confirmed > 0 ? [{ label: 'Confirmed', value: presentation.confirmed }] : []),
+        ...(presentation.missing > 0 ? [{ label: 'Missing', value: presentation.missing }] : []),
       ]
-    : [
-        { label: 'Statements', value: props.totals?.statements ?? 0 },
-        { label: 'Needs Review', value: props.totals?.exceptions ?? 0 },
-        { label: 'Unmatched', value: props.totals?.unmatched ?? 0 },
-        { label: 'Missing from statement', value: props.totals?.missing ?? 0 },
-      ]
+    : s
+      ? [
+          { label: 'Imported rows', value: s.rowCount },
+          { label: 'Matched', value: s.matchedCount },
+          { label: 'Needs Review', value: s.exceptionCount },
+          { label: 'Unmatched', value: s.unmatchedCount },
+          { label: 'Missing', value: s.missingCount },
+          { label: 'Confirmed', value: s.confirmedCount },
+          { label: 'Skipped', value: s.skippedCount },
+        ]
+      : [
+          { label: 'Statements', value: props.totals?.statements ?? 0 },
+          { label: 'Needs Review', value: props.totals?.exceptions ?? 0 },
+          { label: 'Unmatched', value: props.totals?.unmatched ?? 0 },
+          { label: 'Missing from statement', value: props.totals?.missing ?? 0 },
+        ]
 
   return (
     <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7">

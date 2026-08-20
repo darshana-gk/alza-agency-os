@@ -41,6 +41,7 @@ interface CandidateTxn {
   carrier: string | null
   mga: string | null
   agency_commission_confirmed: boolean | null
+  amount_received: number | string | null
   client_id: string | null
   policy_id: string | null
   producer: string | null
@@ -194,6 +195,48 @@ function classify(actual: number | null, expected: number | null, tolerance: num
 
 function varianceRequiresReview(type: DiscrepancyType | null): boolean {
   return type === 'underpaid' || type === 'overpaid' || type === 'zero_amount'
+}
+
+function moneyLabel(value: number): string {
+  return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(value)
+}
+
+function recordedCommissionOf(txn: CandidateTxn): number {
+  return toNum(txn.amount_received) ?? expectedOf(txn)
+}
+
+function buildAlreadyProcessedPatch(
+  paidTxn: CandidateTxn,
+  row: StatementRow,
+  tolerance: number,
+): Record<string, unknown> {
+  const actual = toNum(row.commission_amount)
+  const recorded = recordedCommissionOf(paidTxn)
+  const classified = classify(actual, recorded, tolerance)
+  const withinTolerance =
+    classified.discrepancyType === 'exact_match' ||
+    (classified.variance != null && Math.abs(classified.variance) <= tolerance)
+  let resolutionNotes = 'Receipt already confirmed for this transaction'
+  if (!withinTolerance && actual != null && classified.discrepancyType && classified.discrepancyType !== 'zero_amount') {
+    resolutionNotes = `${resolutionNotes}. Commission was already recorded at ${moneyLabel(recorded)}. This statement reports ${moneyLabel(actual)}.`
+  }
+  return {
+    match_status: 'skipped' satisfies MatchStatus,
+    match_confidence: 'none',
+    matched_transaction_id: paidTxn.id,
+    expected_commission: recorded,
+    variance: withinTolerance ? null : classified.variance,
+    discrepancy_type: withinTolerance ? null : classified.discrepancyType,
+    resolution_status: 'ignored',
+    resolution_notes: resolutionNotes,
+  }
+}
+
+function crossStatementOccupancyNote(statementLabel?: string | null): string {
+  if (statementLabel) {
+    return `Already matched on another statement (${statementLabel}) and awaiting receipt confirmation.`
+  }
+  return 'Already matched on another statement and awaiting receipt confirmation.'
 }
 
 function carrierMgaMatch(
@@ -380,6 +423,7 @@ Deno.serve(async (req) => {
       `
       id, transaction_number, transaction_type, transaction_date, expected_amount,
       agency_commission_amount, premium_amount, carrier, mga, agency_commission_confirmed,
+      amount_received,
       client_id, policy_id, producer,
       policies ( policy_number ),
       clients ( business_name )
@@ -412,6 +456,26 @@ Deno.serve(async (req) => {
     .in('match_status', ['auto_matched', 'manual_matched', 'confirmed', 'exception'])
   for (const row of alreadyMatched ?? []) {
     if (row.matched_transaction_id) usedTxnIds.add(String(row.matched_transaction_id))
+  }
+
+  const globalOccupiedTxnIds = new Set<string>()
+  const globalOccupiedStmtLabel = new Map<string, string>()
+  const { data: globalOccupiedRows } = await admin
+    .from('reconciliation_statement_rows')
+    .select('matched_transaction_id, reconciliation_statements ( file_name )')
+    .neq('statement_id', statementId)
+    .eq('row_source', 'import')
+    .not('matched_transaction_id', 'is', null)
+    .is('receipt_id', null)
+    .in('match_status', ['auto_matched', 'manual_matched'])
+  for (const occ of globalOccupiedRows ?? []) {
+    const txnId = String(occ.matched_transaction_id ?? '')
+    if (!txnId) continue
+    globalOccupiedTxnIds.add(txnId)
+    const stmt = firstEmbed(
+      occ.reconciliation_statements as { file_name?: string | null } | { file_name?: string | null }[] | null,
+    )
+    if (stmt?.file_name) globalOccupiedStmtLabel.set(txnId, String(stmt.file_name))
   }
 
   const tolerance = Number(statement.rounding_tolerance ?? 0.01) || 0.01
@@ -449,9 +513,36 @@ Deno.serve(async (req) => {
       const policyHits = candidates.filter((t) => normalizePolicy(policyOf(t)) === norm)
       const partyHits = policyHits.filter((t) => carrierMgaMatch(stmtMeta, t, row))
       const receivable = (list: CandidateTxn[]) =>
-        list.filter((t) => !t.agency_commission_confirmed && !receiptTxnIds.has(t.id) && !usedTxnIds.has(t.id))
+        list.filter(
+          (t) =>
+            !t.agency_commission_confirmed &&
+            !receiptTxnIds.has(t.id) &&
+            !usedTxnIds.has(t.id) &&
+            !globalOccupiedTxnIds.has(t.id),
+        )
       const alreadyPaid = (list: CandidateTxn[]) =>
         list.filter((t) => t.agency_commission_confirmed || receiptTxnIds.has(t.id))
+
+      const occupiedElsewhere = partyHits.find(
+        (t) =>
+          globalOccupiedTxnIds.has(t.id) && !t.agency_commission_confirmed && !receiptTxnIds.has(t.id),
+      )
+      if (occupiedElsewhere) {
+        const actual = toNum(row.commission_amount)
+        const expected = expectedOf(occupiedElsewhere)
+        const classified = classify(actual, expected, tolerance)
+        await applyRow(row, {
+          match_status: 'exception' satisfies MatchStatus,
+          match_confidence: 'none',
+          matched_transaction_id: occupiedElsewhere.id,
+          expected_commission: expected,
+          variance: classified.variance,
+          discrepancy_type: classified.discrepancyType ?? 'unmatched_row',
+          resolution_status: 'open',
+          resolution_notes: crossStatementOccupancyNote(globalOccupiedStmtLabel.get(occupiedElsewhere.id)),
+        })
+        continue
+      }
 
       const openParty = receivable(partyHits)
       const paidParty = alreadyPaid(partyHits)
@@ -468,15 +559,7 @@ Deno.serve(async (req) => {
       }
 
       if (openParty.length === 0 && paidParty.length > 0 && receivable(policyHits).length === 0) {
-        await applyRow(row, {
-          match_status: 'skipped' satisfies MatchStatus,
-          match_confidence: 'none',
-          matched_transaction_id: paidParty[0]?.id ?? null,
-          expected_commission: paidParty[0] ? expectedOf(paidParty[0]) : null,
-          discrepancy_type: null,
-          resolution_status: 'ignored',
-          resolution_notes: 'Receipt already confirmed for this transaction',
-        })
+        await applyRow(row, buildAlreadyProcessedPatch(paidParty[0], row, tolerance))
         continue
       }
 

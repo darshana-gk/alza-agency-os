@@ -270,7 +270,117 @@ export function formatReconciliationStatus(status: string | null | undefined): s
 
 export function isPreviouslyConfirmedSkip(notes: string | null | undefined): boolean {
   const n = String(notes ?? '').toLowerCase()
-  return n.includes('receipt already confirmed')
+  return n.includes('receipt already confirmed') || n.includes('commission was already recorded at')
+}
+
+export function isCrossStatementOccupancyNote(notes: string | null | undefined): boolean {
+  return String(notes ?? '').includes('Already matched on another statement')
+}
+
+export const GLOBAL_UNCONFIRMED_OCCUPANCY_STATUSES = ['auto_matched', 'manual_matched'] as const
+
+export function isGlobalUnconfirmedOccupancyStatus(status: string | null | undefined): boolean {
+  return GLOBAL_UNCONFIRMED_OCCUPANCY_STATUSES.includes(
+    String(status ?? '').trim().toLowerCase() as (typeof GLOBAL_UNCONFIRMED_OCCUPANCY_STATUSES)[number],
+  )
+}
+
+export function classifyStatementVsRecordedAmount(
+  statementAmount: number | null | undefined,
+  recordedAmount: number | null | undefined,
+  tolerance: number,
+): {
+  discrepancyType: 'exact_match' | 'underpaid' | 'overpaid' | 'zero_amount' | null
+  variance: number | null
+} {
+  if (statementAmount == null || recordedAmount == null) {
+    return { discrepancyType: null, variance: null }
+  }
+  const actual = roundMoney(statementAmount)
+  const recorded = roundMoney(recordedAmount)
+  const variance = roundMoney(actual - recorded)
+  if (actual === 0 && recorded !== 0) return { discrepancyType: 'zero_amount', variance }
+  if (Math.abs(variance) <= tolerance) return { discrepancyType: 'exact_match', variance }
+  if (variance < -tolerance) return { discrepancyType: 'underpaid', variance }
+  return { discrepancyType: 'overpaid', variance }
+}
+
+export function buildAlreadyProcessedResolutionNotes(
+  recordedAmount: number,
+  statementAmount: number | null,
+  tolerance: number,
+): { notes: string; discrepancyType: string | null; variance: number | null } {
+  const classified = classifyStatementVsRecordedAmount(statementAmount, recordedAmount, tolerance)
+  const base = 'Receipt already confirmed for this transaction'
+  if (
+    statementAmount == null ||
+    classified.discrepancyType === 'exact_match' ||
+    classified.discrepancyType === null
+  ) {
+    return { notes: base, discrepancyType: null, variance: null }
+  }
+  return {
+    notes: `${base}. Commission was already recorded at ${formatCurrency(recordedAmount)}. This statement reports ${formatCurrency(statementAmount)}.`,
+    discrepancyType: classified.discrepancyType,
+    variance: classified.variance,
+  }
+}
+
+export function computeStatementPresentationSummary(
+  rows: Array<{
+    rowSource?: string | null
+    matchStatus?: string | null
+    resolutionNotes?: string | null
+  }>,
+): {
+  imported: number
+  alreadyProcessed: number
+  matched: number
+  needsReview: number
+  confirmed: number
+  missing: number
+} {
+  const importedRows = rows.filter((r) => r.rowSource === 'import')
+  let alreadyProcessed = 0
+  let matched = 0
+  let needsReview = 0
+  let confirmed = 0
+  let missing = 0
+
+  for (const row of rows) {
+    if (row.rowSource === 'missing') {
+      missing += 1
+      continue
+    }
+    if (row.matchStatus === 'confirmed') {
+      confirmed += 1
+      continue
+    }
+    if (row.matchStatus === 'skipped' && isPreviouslyConfirmedSkip(row.resolutionNotes)) {
+      alreadyProcessed += 1
+      continue
+    }
+    if (row.matchStatus === 'auto_matched' || row.matchStatus === 'manual_matched') {
+      matched += 1
+      continue
+    }
+    if (
+      row.matchStatus === 'exception' ||
+      row.matchStatus === 'unmatched' ||
+      isCrossStatementOccupancyNote(row.resolutionNotes)
+    ) {
+      needsReview += 1
+    }
+  }
+
+  return {
+    imported: importedRows.length,
+    alreadyProcessed,
+    matched,
+    needsReview,
+    confirmed,
+    missing,
+  }
 }
 
 export function formatReconciliationMatchLabel(row: {
@@ -405,6 +515,22 @@ export function runReconciliationPresentationChecks(): Array<{
       got: String(canConfigureReconciliation('csr')),
       want: 'false',
     },
+    {
+      id: 'p15',
+      name: 'changed amount on already processed shows variance note',
+      got: buildAlreadyProcessedResolutionNotes(100, 115, 0.01).notes.includes(
+        'Commission was already recorded at',
+      )
+        ? 'has-variance-note'
+        : 'missing',
+      want: 'has-variance-note',
+    },
+    {
+      id: 'p16',
+      name: 'same amount already processed has no variance discrepancy',
+      got: buildAlreadyProcessedResolutionNotes(100, 100, 0.01).discrepancyType ?? 'null',
+      want: 'null',
+    },
   ]
   return cases.map((c) => ({
     id: c.id,
@@ -412,6 +538,110 @@ export function runReconciliationPresentationChecks(): Array<{
     passed: c.got === c.want,
     detail: `got ${c.got} want ${c.want}`,
   }))
+}
+
+export function runReconciliationPass2SafetyChecks(): Array<{
+  id: string
+  name: string
+  passed: boolean
+  detail: string
+}> {
+  const cases: Array<{ id: string; name: string; passed: boolean; detail: string }> = []
+
+  cases.push({
+    id: 'A',
+    name: 'Owner complete gate exists in client (canConfigureReconciliation)',
+    passed: canConfigureReconciliation('owner') && !canConfigureReconciliation('csr'),
+    detail: `owner=${canConfigureReconciliation('owner')} csr=${canConfigureReconciliation('csr')}`,
+  })
+
+  cases.push({
+    id: 'C',
+    name: 'CSR cannot confirm reconciliation receipts',
+    passed: !canConfirmReconciliationReceipts('csr'),
+    detail: `csr=${canConfirmReconciliationReceipts('csr')}`,
+  })
+
+  cases.push({
+    id: 'D',
+    name: 'Global occupancy includes auto_matched and manual_matched only',
+    passed:
+      isGlobalUnconfirmedOccupancyStatus('auto_matched') &&
+      isGlobalUnconfirmedOccupancyStatus('manual_matched') &&
+      !isGlobalUnconfirmedOccupancyStatus('exception') &&
+      !isGlobalUnconfirmedOccupancyStatus('skipped'),
+    detail: 'exception excluded from occupancy statuses',
+  })
+
+  cases.push({
+    id: 'H',
+    name: 'Exception on another statement does not count as global occupancy status',
+    passed: !isGlobalUnconfirmedOccupancyStatus('exception'),
+    detail: 'exception not in GLOBAL_UNCONFIRMED_OCCUPANCY_STATUSES',
+  })
+
+  const summary = computeStatementPresentationSummary([
+    { rowSource: 'import', matchStatus: 'skipped', resolutionNotes: 'Receipt already confirmed for this transaction' },
+    { rowSource: 'import', matchStatus: 'skipped', resolutionNotes: 'Receipt already confirmed for this transaction' },
+    { rowSource: 'import', matchStatus: 'auto_matched' },
+    { rowSource: 'import', matchStatus: 'exception' },
+    { rowSource: 'import', matchStatus: 'exception' },
+  ])
+  cases.push({
+    id: 'F-summary',
+    name: 'Tue A+B+C presentation summary (2 processed, 1 matched, 2 review)',
+    passed:
+      summary.imported === 5 &&
+      summary.alreadyProcessed === 2 &&
+      summary.matched === 1 &&
+      summary.needsReview === 2,
+    detail: JSON.stringify(summary),
+  })
+
+  const crossNote =
+    'Already matched on another statement and awaiting receipt confirmation.'
+  cases.push({
+    id: 'G-label',
+    name: 'Cross-statement occupancy uses plain agency note',
+    passed: isCrossStatementOccupancyNote(crossNote),
+    detail: crossNote,
+  })
+
+  cases.push({
+    id: 'I',
+    name: 'Same confirmed amount -> Already Processed label',
+    passed:
+      formatReconciliationMatchLabel({
+        matchStatus: 'skipped',
+        resolutionNotes: 'Receipt already confirmed for this transaction',
+      }) === 'Already Processed',
+    detail: formatReconciliationMatchLabel({
+      matchStatus: 'skipped',
+      resolutionNotes: 'Receipt already confirmed for this transaction',
+    }),
+  })
+
+  const changed = buildAlreadyProcessedResolutionNotes(937.5, 950, 0.01)
+  cases.push({
+    id: 'J',
+    name: 'Different confirmed amount -> Already Processed + overpaid variance',
+    passed:
+      formatReconciliationMatchLabel({
+        matchStatus: 'skipped',
+        resolutionNotes: changed.notes,
+      }) === 'Already Processed' && changed.discrepancyType === 'overpaid',
+    detail: `${changed.discrepancyType} ${changed.variance}`,
+  })
+
+  const cancelClass = classifyStatementVsRecordedAmount(-350, -350, 0.01)
+  cases.push({
+    id: 'K',
+    name: 'Signed cancellation exact match classification',
+    passed: cancelClass.discrepancyType === 'exact_match' && cancelClass.variance === 0,
+    detail: `variance=${cancelClass.variance}`,
+  })
+
+  return cases
 }
 
 export async function hashFileSha256(file: File): Promise<string> {
