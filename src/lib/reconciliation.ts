@@ -331,6 +331,7 @@ export function computeStatementPresentationSummary(
     rowSource?: string | null
     matchStatus?: string | null
     resolutionNotes?: string | null
+    discrepancyType?: string | null
   }>,
 ): {
   imported: number
@@ -339,6 +340,8 @@ export function computeStatementPresentationSummary(
   needsReview: number
   confirmed: number
   missing: number
+  underpaid: number
+  overpaid: number
 } {
   const importedRows = rows.filter((r) => r.rowSource === 'import')
   let alreadyProcessed = 0
@@ -346,8 +349,14 @@ export function computeStatementPresentationSummary(
   let needsReview = 0
   let confirmed = 0
   let missing = 0
+  let underpaid = 0
+  let overpaid = 0
 
   for (const row of rows) {
+    const discrepancy = String(row.discrepancyType ?? '').toLowerCase()
+    if (discrepancy === 'underpaid') underpaid += 1
+    if (discrepancy === 'overpaid') overpaid += 1
+
     if (row.rowSource === 'missing') {
       missing += 1
       continue
@@ -380,6 +389,102 @@ export function computeStatementPresentationSummary(
     needsReview,
     confirmed,
     missing,
+    underpaid,
+    overpaid,
+  }
+}
+
+/** Customer-facing source line for work queue / statement header. */
+export function statementSourceLabel(statement: {
+  carrier?: string | null
+  mga?: string | null
+}): string {
+  const carrier = String(statement.carrier ?? '').trim()
+  const mga = String(statement.mga ?? '').trim()
+  if (carrier && mga) return `Carrier · ${carrier} · MGA · ${mga}`
+  if (carrier) return `Carrier · ${carrier}`
+  if (mga) return `MGA · ${mga}`
+  return '—'
+}
+
+export type StatementWorkflowLabel =
+  | 'Review Required'
+  | 'Ready to Submit'
+  | 'Ready for Approval'
+  | 'Completed'
+  | 'Cancelled'
+  | 'Checking…'
+
+/** Needs Review count for list/queue (DB rollups). */
+export function statementQueueReviewCount(statement: {
+  exceptionCount: number
+  unmatchedCount: number
+}): number {
+  return Math.max(0, Number(statement.exceptionCount) + Number(statement.unmatchedCount))
+}
+
+/**
+ * Daily work-queue workflow label using existing statement statuses.
+ * Does not invent a second approval engine — `reviewed` = Ready for Approval.
+ */
+export function statementWorkflowLabel(statement: {
+  status: StatementStatus
+  exceptionCount: number
+  unmatchedCount: number
+}): StatementWorkflowLabel {
+  const status = statement.status
+  if (status === 'cancelled') return 'Cancelled'
+  if (status === 'completed') return 'Completed'
+  if (status === 'reviewed') return 'Ready for Approval'
+  if (status === 'matched') {
+    return statementQueueReviewCount(statement) > 0 ? 'Review Required' : 'Ready to Submit'
+  }
+  if (
+    status === 'pending' ||
+    status === 'mapping' ||
+    status === 'staged' ||
+    status === 'matching'
+  ) {
+    return 'Checking…'
+  }
+  return statementQueueReviewCount(statement) > 0 ? 'Review Required' : 'Ready to Submit'
+}
+
+export function statementWorkflowSortRank(label: StatementWorkflowLabel): number {
+  switch (label) {
+    case 'Review Required':
+      return 0
+    case 'Ready for Approval':
+      return 1
+    case 'Ready to Submit':
+      return 2
+    case 'Checking…':
+      return 3
+    case 'Completed':
+      return 4
+    case 'Cancelled':
+      return 5
+    default:
+      return 9
+  }
+}
+
+export function statementWorkflowClass(label: StatementWorkflowLabel): string {
+  switch (label) {
+    case 'Review Required':
+      return 'bg-orange-50 text-orange-800 ring-orange-600/20'
+    case 'Ready for Approval':
+      return 'bg-alza-blue-50 text-alza-blue-800 ring-alza-blue-600/20'
+    case 'Ready to Submit':
+      return 'bg-emerald-50 text-emerald-800 ring-emerald-600/20'
+    case 'Checking…':
+      return 'bg-amber-50 text-amber-800 ring-amber-600/20'
+    case 'Completed':
+      return 'bg-slate-100 text-slate-600 ring-slate-500/20'
+    case 'Cancelled':
+      return 'bg-slate-100 text-slate-500 ring-slate-500/20'
+    default:
+      return 'bg-slate-100 text-slate-600 ring-slate-500/20'
   }
 }
 
@@ -530,6 +635,54 @@ export function runReconciliationPresentationChecks(): Array<{
       name: 'same amount already processed has no variance discrepancy',
       got: buildAlreadyProcessedResolutionNotes(100, 100, 0.01).discrepancyType ?? 'null',
       want: 'null',
+    },
+    {
+      id: 'p17',
+      name: 'matched + review > 0 → Review Required',
+      got: statementWorkflowLabel({
+        status: 'matched',
+        exceptionCount: 3,
+        unmatchedCount: 0,
+      }),
+      want: 'Review Required',
+    },
+    {
+      id: 'p18',
+      name: 'matched + review = 0 → Ready to Submit',
+      got: statementWorkflowLabel({
+        status: 'matched',
+        exceptionCount: 0,
+        unmatchedCount: 0,
+      }),
+      want: 'Ready to Submit',
+    },
+    {
+      id: 'p19',
+      name: 'reviewed → Ready for Approval',
+      got: statementWorkflowLabel({
+        status: 'reviewed',
+        exceptionCount: 0,
+        unmatchedCount: 0,
+      }),
+      want: 'Ready for Approval',
+    },
+    {
+      id: 'p20',
+      name: 'carrier-only source label',
+      got: statementSourceLabel({ carrier: 'CNA', mga: null }),
+      want: 'Carrier · CNA',
+    },
+    {
+      id: 'p21',
+      name: 'mga-only source label',
+      got: statementSourceLabel({ carrier: null, mga: 'ISC' }),
+      want: 'MGA · ISC',
+    },
+    {
+      id: 'p22',
+      name: 'dual-party older statement still labeled',
+      got: statementSourceLabel({ carrier: 'CNA', mga: 'ISC' }),
+      want: 'Carrier · CNA · MGA · ISC',
     },
   ]
   return cases.map((c) => ({

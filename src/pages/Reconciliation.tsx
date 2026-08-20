@@ -8,14 +8,16 @@ import {
   fetchReconciliationRows,
   fetchReconciliationStatement,
   fetchReconciliationStatements,
-  formatReconciliationStatus,
-  reconciliationStatusClass,
+  statementQueueReviewCount,
+  statementSourceLabel,
+  statementWorkflowClass,
+  statementWorkflowLabel,
+  statementWorkflowSortRank,
   type ReconciliationStatement,
   type ReconciliationStatementRow,
 } from '../lib/reconciliation'
 import { ExceptionQueue } from '../components/reconciliation/ExceptionQueue'
 import { ImportWizard } from '../components/reconciliation/ImportWizard'
-import { ReconciliationSummaryCards } from '../components/reconciliation/ReconciliationSummaryCards'
 import { StatementDetail } from '../components/reconciliation/StatementDetail'
 
 type Tab = 'statements' | 'exceptions'
@@ -82,15 +84,15 @@ export function Reconciliation() {
     else setSearchParams({}, { replace: true })
   }
 
-  const totals = useMemo(
-    () => ({
-      statements: statements.filter((s) => s.status !== 'cancelled').length,
-      exceptions: exceptions.length,
-      unmatched: statements.reduce((sum, s) => sum + s.unmatchedCount, 0),
-      missing: statements.reduce((sum, s) => sum + s.missingCount, 0),
-    }),
-    [statements, exceptions],
-  )
+  const queueRows = useMemo(() => {
+    return [...statements].sort((a, b) => {
+      const wa = statementWorkflowLabel(a)
+      const wb = statementWorkflowLabel(b)
+      const rank = statementWorkflowSortRank(wa) - statementWorkflowSortRank(wb)
+      if (rank !== 0) return rank
+      return String(b.createdAt).localeCompare(String(a.createdAt))
+    })
+  }, [statements])
 
   return (
     <div className="space-y-6">
@@ -101,8 +103,9 @@ export function Reconciliation() {
             Reconciliation
           </h1>
           <p className="mt-1 max-w-3xl text-sm text-slate-500">
-            Upload carrier or MGA commission statements. ALZA Flow compares each commission with your
-            transactions, matches what it can automatically, and shows anything that needs your review.
+            Upload the commission statements you receive from carriers or MGAs. ALZA Flow compares each statement
+            with the commissions your agency expects, matches what it can automatically, and shows only the items
+            that need your attention.
           </p>
         </div>
         <button
@@ -111,21 +114,21 @@ export function Reconciliation() {
           className="inline-flex items-center gap-2 rounded-lg bg-alza-blue-700 px-4 py-2 text-sm font-medium text-white hover:bg-alza-blue-800"
         >
           <Upload className="h-4 w-4" />
-          Import statement
+          Add Statement
         </button>
       </div>
-
-      {!selectedId && <ReconciliationSummaryCards totals={totals} />}
 
       {error && (
         <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</div>
       )}
 
       <div className="flex gap-2 border-b border-slate-200">
-        {([
-          ['statements', 'Statements'],
-          ['exceptions', 'Needs Review'],
-        ] as const).map(([id, label]) => (
+        {(
+          [
+            ['statements', 'Work queue'],
+            ['exceptions', 'Needs Review'],
+          ] as const
+        ).map(([id, label]) => (
           <button
             key={id}
             type="button"
@@ -163,12 +166,12 @@ export function Reconciliation() {
             }}
             className="text-sm font-medium text-alza-blue-700 hover:underline"
           >
-            ← Back to statements
+            ← Back to work queue
           </button>
           <div>
             <h2 className="text-lg font-semibold text-slate-900">{selected.fileName}</h2>
             <p className="text-sm text-slate-500">
-              {selected.carrier || selected.mga || '—'} · {selected.periodStart} to {selected.periodEnd}
+              {statementSourceLabel(selected)} · {selected.periodStart} to {selected.periodEnd}
             </p>
           </div>
           <StatementDetail
@@ -189,57 +192,58 @@ export function Reconciliation() {
           <table className="min-w-full text-sm">
             <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
               <tr>
-                <th className="px-4 py-3">File</th>
-                <th className="px-4 py-3">Carrier / MGA</th>
-                <th className="px-4 py-3">Period</th>
-                <th className="px-4 py-3">Status</th>
+                <th className="px-4 py-3">Statement</th>
+                <th className="px-4 py-3">Source</th>
                 <th className="px-4 py-3">Rows</th>
                 <th className="px-4 py-3">Matched</th>
                 <th className="px-4 py-3">Needs Review</th>
-                <th className="px-4 py-3">Missing</th>
-                <th className="px-4 py-3">Imported</th>
+                <th className="px-4 py-3">Workflow</th>
               </tr>
             </thead>
             <tbody>
               {loading && (
                 <tr>
-                  <td colSpan={9} className="px-4 py-8 text-center text-slate-500">
+                  <td colSpan={6} className="px-4 py-8 text-center text-slate-500">
                     Loading statements…
                   </td>
                 </tr>
               )}
-              {!loading && statements.length === 0 && (
+              {!loading && queueRows.length === 0 && (
                 <tr>
-                  <td colSpan={9} className="px-4 py-8 text-center text-slate-500">
-                    No statements imported yet.
+                  <td colSpan={6} className="px-4 py-8 text-center text-slate-500">
+                    No statements imported yet. Add a carrier or MGA commission statement to get started.
                   </td>
                 </tr>
               )}
-              {statements.map((row) => (
-                <tr
-                  key={row.id}
-                  className="cursor-pointer border-t border-slate-100 hover:bg-slate-50"
-                  onClick={() => openStatement(row.id)}
-                >
-                  <td className="px-4 py-3 font-medium text-slate-800">{row.fileName}</td>
-                  <td className="px-4 py-3">{row.carrier || row.mga || '—'}</td>
-                  <td className="px-4 py-3">
-                    {row.periodStart} → {row.periodEnd}
-                  </td>
-                  <td className="px-4 py-3">
-                    <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ring-inset ${reconciliationStatusClass(row.status)}`}>
-                      {formatReconciliationStatus(row.status)}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3">{row.rowCount}</td>
-                  <td className="px-4 py-3">{row.matchedCount}</td>
-                  <td className="px-4 py-3">{row.exceptionCount}</td>
-                  <td className="px-4 py-3">{row.missingCount}</td>
-                  <td className="px-4 py-3 text-slate-500">
-                    {row.createdAt ? new Date(row.createdAt).toLocaleString() : '—'}
-                  </td>
-                </tr>
-              ))}
+              {queueRows.map((row) => {
+                const workflow = statementWorkflowLabel(row)
+                const review = statementQueueReviewCount(row)
+                return (
+                  <tr
+                    key={row.id}
+                    className="cursor-pointer border-t border-slate-100 hover:bg-slate-50"
+                    onClick={() => openStatement(row.id)}
+                  >
+                    <td className="px-4 py-3">
+                      <div className="font-medium text-slate-800">{row.fileName}</div>
+                      <div className="text-xs text-slate-500">
+                        {row.periodStart} → {row.periodEnd}
+                      </div>
+                    </td>
+                    <td className="px-4 py-3">{statementSourceLabel(row)}</td>
+                    <td className="px-4 py-3">{row.rowCount}</td>
+                    <td className="px-4 py-3">{row.matchedCount}</td>
+                    <td className="px-4 py-3">{review}</td>
+                    <td className="px-4 py-3">
+                      <span
+                        className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ring-inset ${statementWorkflowClass(workflow)}`}
+                      >
+                        {workflow}
+                      </span>
+                    </td>
+                  </tr>
+                )
+              })}
             </tbody>
           </table>
         </div>

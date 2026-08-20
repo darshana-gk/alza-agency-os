@@ -52,6 +52,7 @@ export function ImportWizard(props: {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [detectMissing, setDetectMissing] = useState(false)
+  const [sourceType, setSourceType] = useState<'carrier' | 'mga' | null>(null)
 
   useEffect(() => {
     if (!props.open) return
@@ -63,6 +64,12 @@ export function ImportWizard(props: {
     setDetectMissing(false)
     setInputMode('file')
     setPasteText('')
+    setSourceType(null)
+    setCarrierId('')
+    setMgaId('')
+    setPeriodStart('')
+    setPeriodEnd('')
+    setStatementDate('')
     void (async () => {
       const [c, m] = await Promise.all([
         supabase.from('carriers').select('id, carrier_name').is('archived_at', null).order('carrier_name'),
@@ -136,10 +143,10 @@ export function ImportWizard(props: {
       const result = await importReconciliationStatement({
         file: upload,
         mapping,
-        carrier: carrierName,
-        mga: mgaName,
-        carrierId: carrierId || null,
-        mgaId: mgaId || null,
+        carrier: sourceType === 'carrier' ? carrierName : null,
+        mga: sourceType === 'mga' ? mgaName : null,
+        carrierId: sourceType === 'carrier' && carrierId ? carrierId : null,
+        mgaId: sourceType === 'mga' && mgaId ? mgaId : null,
         periodStart,
         periodEnd,
         statementDate: statementDate || periodEnd,
@@ -182,51 +189,119 @@ export function ImportWizard(props: {
 
           {step === 1 && (
             <div className="space-y-4">
-              <p className="text-sm text-slate-600 sm:col-span-2">
-                Upload the commission statement you received from the carrier or MGA. ALZA Flow will compare it
-                with your recorded transactions.
+              <p className="text-sm text-slate-600">
+                Choose who sent the statement, then upload it. ALZA Flow will compare the statement with your
+                recorded transactions.
               </p>
+              <div>
+                <p className="mb-2 text-xs font-medium uppercase tracking-wide text-slate-500">
+                  Who sent this commission statement?
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSourceType('carrier')
+                      setMgaId('')
+                    }}
+                    className={`rounded-lg px-4 py-2 text-sm font-medium ${
+                      sourceType === 'carrier'
+                        ? 'bg-alza-blue-700 text-white'
+                        : 'border border-slate-200 text-slate-700 hover:bg-slate-50'
+                    }`}
+                  >
+                    Carrier
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSourceType('mga')
+                      setCarrierId('')
+                    }}
+                    className={`rounded-lg px-4 py-2 text-sm font-medium ${
+                      sourceType === 'mga'
+                        ? 'bg-alza-blue-700 text-white'
+                        : 'border border-slate-200 text-slate-700 hover:bg-slate-50'
+                    }`}
+                  >
+                    MGA
+                  </button>
+                </div>
+              </div>
               <div className="grid gap-4 sm:grid-cols-2">
-              <label>
-                <span className="mb-1 block text-xs font-medium text-slate-500">Carrier</span>
-                <select className={selectClass} value={carrierId} onChange={(e) => setCarrierId(e.target.value)}>
-                  <option value="">— None —</option>
-                  {carriers.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                <span className="mb-1 block text-xs font-medium text-slate-500">MGA</span>
-                <select className={selectClass} value={mgaId} onChange={(e) => setMgaId(e.target.value)}>
-                  <option value="">— None —</option>
-                  {mgas.map((m) => (
-                    <option key={m.id} value={m.id}>
-                      {m.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                <span className="mb-1 block text-xs font-medium text-slate-500">Period start</span>
-                <input type="date" className={inputClass} value={periodStart} onChange={(e) => setPeriodStart(e.target.value)} />
-              </label>
-              <label>
-                <span className="mb-1 block text-xs font-medium text-slate-500">Period end</span>
-                <input type="date" className={inputClass} value={periodEnd} onChange={(e) => setPeriodEnd(e.target.value)} />
-              </label>
-              <label>
-                <span className="mb-1 block text-xs font-medium text-slate-500">Statement date (optional)</span>
-                <input
-                  type="date"
-                  className={inputClass}
-                  value={statementDate}
-                  onChange={(e) => setStatementDate(e.target.value)}
-                />
-              </label>
-            </div>
+                {sourceType === 'carrier' && (
+                  <label className="sm:col-span-2">
+                    <span className="mb-1 block text-xs font-medium text-slate-500">Carrier</span>
+                    <select
+                      className={selectClass}
+                      value={carrierId}
+                      onChange={(e) => {
+                        setCarrierId(e.target.value)
+                        setMgaId('')
+                      }}
+                    >
+                      <option value="">Select carrier…</option>
+                      {carriers.map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                )}
+                {sourceType === 'mga' && (
+                  <label className="sm:col-span-2">
+                    <span className="mb-1 block text-xs font-medium text-slate-500">MGA</span>
+                    <select
+                      className={selectClass}
+                      value={mgaId}
+                      onChange={(e) => {
+                        setMgaId(e.target.value)
+                        setCarrierId('')
+                      }}
+                    >
+                      <option value="">Select MGA…</option>
+                      {mgas.map((m) => (
+                        <option key={m.id} value={m.id}>
+                          {m.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                )}
+                {!sourceType && (
+                  <p className="sm:col-span-2 text-sm text-slate-500">Select Carrier or MGA to continue.</p>
+                )}
+                <label>
+                  <span className="mb-1 block text-xs font-medium text-slate-500">Period start</span>
+                  <input
+                    type="date"
+                    className={inputClass}
+                    value={periodStart}
+                    onChange={(e) => setPeriodStart(e.target.value)}
+                  />
+                </label>
+                <label>
+                  <span className="mb-1 block text-xs font-medium text-slate-500">Period end</span>
+                  <input
+                    type="date"
+                    className={inputClass}
+                    value={periodEnd}
+                    onChange={(e) => setPeriodEnd(e.target.value)}
+                  />
+                </label>
+                <label>
+                  <span className="mb-1 block text-xs font-medium text-slate-500">
+                    Statement date <span className="font-normal text-slate-400">(optional)</span>
+                  </span>
+                  <input
+                    type="date"
+                    className={inputClass}
+                    value={statementDate}
+                    onChange={(e) => setStatementDate(e.target.value)}
+                  />
+                </label>
+              </div>
             </div>
           )}
 
@@ -392,13 +467,23 @@ export function ImportWizard(props: {
               type="button"
               onClick={() => {
                 setError(null)
-                if (step === 1 && !carrierId && !mgaId) {
-                  setError('Select a carrier or MGA.')
-                  return
-                }
-                if (step === 1 && (!periodStart || !periodEnd)) {
-                  setError('Set the statement period.')
-                  return
+                if (step === 1) {
+                  if (!sourceType) {
+                    setError('Choose whether a Carrier or MGA sent this statement.')
+                    return
+                  }
+                  if (sourceType === 'carrier' && !carrierId) {
+                    setError('Select a carrier.')
+                    return
+                  }
+                  if (sourceType === 'mga' && !mgaId) {
+                    setError('Select an MGA.')
+                    return
+                  }
+                  if (!periodStart || !periodEnd) {
+                    setError('Set the statement period.')
+                    return
+                  }
                 }
                 if (step === 2) {
                   if (inputMode === 'file' && !parsed) {
