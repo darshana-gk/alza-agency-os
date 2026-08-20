@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Scale, Upload } from 'lucide-react'
 import { useSearchParams } from 'react-router-dom'
 import { useAuth } from '../lib/auth'
-import { canConfigureReconciliation, roleInputFromProfile } from '../lib/permissions'
+import { canConfigureReconciliation, canConfirmReconciliationReceipts, roleInputFromProfile } from '../lib/permissions'
 import {
   fetchExceptionRows,
   fetchReconciliationRows,
@@ -22,7 +22,9 @@ type Tab = 'statements' | 'exceptions'
 
 export function Reconciliation() {
   const { profile } = useAuth()
-  const canConfigure = canConfigureReconciliation(roleInputFromProfile(profile))
+  const role = roleInputFromProfile(profile)
+  const canConfigure = canConfigureReconciliation(role)
+  const canConfirmReceipts = canConfirmReconciliationReceipts(role)
   const [searchParams, setSearchParams] = useSearchParams()
   const [tab, setTab] = useState<Tab>('statements')
   const [statements, setStatements] = useState<ReconciliationStatement[]>([])
@@ -98,9 +100,9 @@ export function Reconciliation() {
             <Scale className="h-6 w-6 text-alza-blue-700" />
             Reconciliation
           </h1>
-          <p className="mt-1 text-sm text-slate-500">
-            Import carrier/MGA statements, match them to transactions, and confirm agency commission receipts.
-            Producer splits, broker fees, recoveries, and payouts are unchanged.
+          <p className="mt-1 max-w-3xl text-sm text-slate-500">
+            Upload carrier or MGA commission statements. ALZA Flow compares each commission with your
+            transactions, matches what it can automatically, and shows anything that needs your review.
           </p>
         </div>
         <button
@@ -122,7 +124,7 @@ export function Reconciliation() {
       <div className="flex gap-2 border-b border-slate-200">
         {([
           ['statements', 'Statements'],
-          ['exceptions', 'Exceptions'],
+          ['exceptions', 'Needs Review'],
         ] as const).map(([id, label]) => (
           <button
             key={id}
@@ -173,6 +175,7 @@ export function Reconciliation() {
             statement={selected}
             rows={rows}
             canConfigure={canConfigure}
+            canConfirmReceipts={canConfirmReceipts}
             onRefresh={async () => {
               await loadDetail(selectedId)
               await loadList()
@@ -192,7 +195,7 @@ export function Reconciliation() {
                 <th className="px-4 py-3">Status</th>
                 <th className="px-4 py-3">Rows</th>
                 <th className="px-4 py-3">Matched</th>
-                <th className="px-4 py-3">Exceptions</th>
+                <th className="px-4 py-3">Needs Review</th>
                 <th className="px-4 py-3">Missing</th>
                 <th className="px-4 py-3">Imported</th>
               </tr>

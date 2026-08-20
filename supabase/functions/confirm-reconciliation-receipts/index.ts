@@ -3,7 +3,7 @@
 // Does not modify producer splits, broker fees, recoveries, payouts, or approval workflow
 // beyond review_status = 'expected' (same as the manual receipt flow).
 
-import { authorizeOpsStaff, serviceClient } from '../_shared/opsAuth.ts'
+import { authorizeOwnerAdmin, serviceClient } from '../_shared/opsAuth.ts'
 import { corsHeaders, fail, ok } from '../_shared/http.ts'
 
 function roundMoney(value: number): number {
@@ -39,7 +39,7 @@ Deno.serve(async (req) => {
 
   const authHeader = req.headers.get('Authorization') ?? ''
   const admin = serviceClient()
-  const authz = await authorizeOpsStaff(admin, authHeader)
+  const authz = await authorizeOwnerAdmin(admin, authHeader)
   if ('error' in authz && authz.error) return authz.error
 
   let body: { statementId?: string; rowIds?: string[] }

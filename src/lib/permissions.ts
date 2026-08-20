@@ -328,8 +328,13 @@ export function canAccessReconciliation(role: RoleInput): boolean {
   return canAccessFinancials(role)
 }
 
-/** Tolerance, cancel completed statements, delete saved mappings. */
+/** Tolerance, cancel completed statements, delete saved mappings, complete statements. */
 export function canConfigureReconciliation(role: RoleInput): boolean {
+  return isAdminDirectoryRole(role)
+}
+
+/** Record agency commission receipts from Reconciliation. Owner/Admin only. */
+export function canConfirmReconciliationReceipts(role: RoleInput): boolean {
   return isAdminDirectoryRole(role)
 }
 

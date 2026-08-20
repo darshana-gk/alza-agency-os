@@ -183,7 +183,7 @@ export function formatActivityActionLabel(action: string): string {
     case 'reconciliation_manual_unmatch':
       return 'Match removed'
     case 'reconciliation_exception_resolved':
-      return 'Exception resolved'
+      return 'Needs Review item resolved'
     case 'reconciliation_receipts_confirmed':
       return 'Reconciliation receipts confirmed'
     case 'reconciliation_receipts_failed':

@@ -21,7 +21,6 @@ export function ExceptionQueue(props: {
   onRefresh: () => Promise<void>
 }) {
   const [discrepancy, setDiscrepancy] = useState('all')
-  const [confidence, setConfidence] = useState('all')
   const [party, setParty] = useState('all')
   const [busy, setBusy] = useState(false)
 
@@ -37,14 +36,13 @@ export function ExceptionQueue(props: {
   const filtered = useMemo(() => {
     return props.rows.filter((row) => {
       if (discrepancy !== 'all' && row.discrepancyType !== discrepancy) return false
-      if (confidence !== 'all' && row.matchConfidence !== confidence) return false
       if (party !== 'all') {
         const label = row.statement?.carrier || row.statement?.mga || row.carrierName || row.mgaName
         if (label !== party) return false
       }
       return true
     })
-  }, [props.rows, discrepancy, confidence, party])
+  }, [props.rows, discrepancy, party])
 
   async function bulk(status: 'acknowledged' | 'resolved') {
     setBusy(true)
@@ -52,7 +50,7 @@ export function ExceptionQueue(props: {
       await resolveStatementRow({
         rowId: row.id,
         resolutionStatus: status,
-        notes: status === 'acknowledged' ? 'Acknowledged from exception queue' : 'Resolved from exception queue',
+        notes: status === 'acknowledged' ? 'Acknowledged from Needs Review' : 'Resolved from Needs Review',
       })
     }
     await props.onRefresh()
@@ -79,14 +77,6 @@ export function ExceptionQueue(props: {
               </option>
             ),
           )}
-        </select>
-        <select className={selectClass} value={confidence} onChange={(e) => setConfidence(e.target.value)}>
-          <option value="all">All confidence</option>
-          {['high', 'medium', 'low', 'none'].map((c) => (
-            <option key={c} value={c}>
-              {c}
-            </option>
-          ))}
         </select>
         <button
           type="button"
@@ -116,15 +106,14 @@ export function ExceptionQueue(props: {
               <th className="px-3 py-2">Expected</th>
               <th className="px-3 py-2">Actual</th>
               <th className="px-3 py-2">Discrepancy</th>
-              <th className="px-3 py-2">Confidence</th>
               <th className="px-3 py-2" />
             </tr>
           </thead>
           <tbody>
             {filtered.length === 0 && (
               <tr>
-                <td colSpan={8} className="px-3 py-8 text-center text-slate-500">
-                  No open exceptions.
+                <td colSpan={7} className="px-3 py-8 text-center text-slate-500">
+                  Nothing needs review.
                 </td>
               </tr>
             )}
@@ -148,7 +137,6 @@ export function ExceptionQueue(props: {
                     {formatReconciliationStatus(row.discrepancyType)}
                   </span>
                 </td>
-                <td className="px-3 py-2">{row.matchConfidence || '—'}</td>
                 <td className="px-3 py-2 text-right">
                   {row.matchedTransactionId && (
                     <Link className="text-xs text-alza-blue-700 hover:underline" to={`/transactions/${row.matchedTransactionId}`}>

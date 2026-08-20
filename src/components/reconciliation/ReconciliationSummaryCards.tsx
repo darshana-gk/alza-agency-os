@@ -15,7 +15,7 @@ export function ReconciliationSummaryCards(props: {
     ? [
         { label: 'Imported rows', value: s.rowCount },
         { label: 'Matched', value: s.matchedCount },
-        { label: 'Exceptions', value: s.exceptionCount },
+        { label: 'Needs Review', value: s.exceptionCount },
         { label: 'Unmatched', value: s.unmatchedCount },
         { label: 'Missing', value: s.missingCount },
         { label: 'Confirmed', value: s.confirmedCount },
@@ -23,7 +23,7 @@ export function ReconciliationSummaryCards(props: {
       ]
     : [
         { label: 'Statements', value: props.totals?.statements ?? 0 },
-        { label: 'Open exceptions', value: props.totals?.exceptions ?? 0 },
+        { label: 'Needs Review', value: props.totals?.exceptions ?? 0 },
         { label: 'Unmatched', value: props.totals?.unmatched ?? 0 },
         { label: 'Missing from statement', value: props.totals?.missing ?? 0 },
       ]

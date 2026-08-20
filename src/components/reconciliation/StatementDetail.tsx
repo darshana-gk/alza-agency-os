@@ -3,10 +3,12 @@ import { Link, useNavigate } from 'react-router-dom'
 import { formatTypeLabel } from '../../lib/commission'
 import {
   confirmReconciliationReceipts,
+  formatReconciliationMatchLabel,
   formatReconciliationStatus,
   formatSignedCurrency,
   manualMatchRow,
   openExceptions,
+  reconciliationMatchLabelClass,
   reconciliationStatusClass,
   resolveStatementRow,
   runReconciliationMatching,
@@ -30,6 +32,7 @@ export function StatementDetail(props: {
   statement: ReconciliationStatement
   rows: ReconciliationStatementRow[]
   canConfigure: boolean
+  canConfirmReceipts: boolean
   onRefresh: () => Promise<void>
 }) {
   const [statusFilter, setStatusFilter] = useState('all')
@@ -100,8 +103,8 @@ export function StatementDetail(props: {
               onClick={() => navigate(`/reconciliation?statement=${occupancy.statementId}`)}
             >
               {occupancy.confirmed
-                ? `View occupying statement (${occupancy.label})`
-                : `Open occupying match on ${occupancy.label} to unmatch it`}
+                ? `This commission already has a confirmed receipt on ${occupancy.label}. Open that statement.`
+                : `This commission is already matched on ${occupancy.label}. Open that statement to unmatch it first.`}
             </button>
           )}
         </div>
@@ -132,9 +135,10 @@ export function StatementDetail(props: {
         <button
           type="button"
           disabled={Boolean(busy) || props.statement.detectMissing}
+          title="Use this only when the file is the full commission statement for this carrier or MGA and period. ALZA Flow will list unpaid transactions that did not appear on the statement."
           onClick={() => {
             const ok = window.confirm(
-              'Detect missing commissions only if this file is the complete statement for this carrier/MGA and period. Continue?',
+              'Use this only if this file is the complete commission statement for this carrier or MGA and period. ALZA Flow will then list unpaid transactions that are not on the file. Continue?',
             )
             if (!ok) return
             void run('detect-missing', () =>
@@ -145,32 +149,36 @@ export function StatementDetail(props: {
         >
           {props.statement.detectMissing ? 'Missing detection on' : 'Detect missing for full period'}
         </button>
-        <button
-          type="button"
-          disabled={Boolean(busy) || confirmable.length === 0}
-          onClick={() =>
-            void run('confirm', async () => {
-              const result = await confirmReconciliationReceipts(props.statement.id)
-              return { error: result.error }
-            })
-          }
-          className="h-10 rounded-lg bg-alza-blue-700 px-3 text-sm font-medium text-white hover:bg-alza-blue-800 disabled:opacity-40"
-        >
-          Confirm all matched
-        </button>
-        <button
-          type="button"
-          disabled={Boolean(busy) || selected.size === 0}
-          onClick={() =>
-            void run('confirm-selected', async () => {
-              const result = await confirmReconciliationReceipts(props.statement.id, [...selected])
-              return { error: result.error }
-            })
-          }
-          className="h-10 rounded-lg border border-alza-blue-200 px-3 text-sm font-medium text-alza-blue-800 hover:bg-alza-blue-50 disabled:opacity-40"
-        >
-          Confirm selected
-        </button>
+        {props.canConfirmReceipts && (
+          <button
+            type="button"
+            disabled={Boolean(busy) || confirmable.length === 0}
+            onClick={() =>
+              void run('confirm', async () => {
+                const result = await confirmReconciliationReceipts(props.statement.id)
+                return { error: result.error }
+              })
+            }
+            className="h-10 rounded-lg bg-alza-blue-700 px-3 text-sm font-medium text-white hover:bg-alza-blue-800 disabled:opacity-40"
+          >
+            Confirm all matched
+          </button>
+        )}
+        {props.canConfirmReceipts && (
+          <button
+            type="button"
+            disabled={Boolean(busy) || selected.size === 0}
+            onClick={() =>
+              void run('confirm-selected', async () => {
+                const result = await confirmReconciliationReceipts(props.statement.id, [...selected])
+                return { error: result.error }
+              })
+            }
+            className="h-10 rounded-lg border border-alza-blue-200 px-3 text-sm font-medium text-alza-blue-800 hover:bg-alza-blue-50 disabled:opacity-40"
+          >
+            Confirm selected
+          </button>
+        )}
         <button
           type="button"
           disabled={Boolean(busy) || open.length > 0}
@@ -179,14 +187,16 @@ export function StatementDetail(props: {
         >
           Mark reviewed
         </button>
-        <button
-          type="button"
-          disabled={Boolean(busy) || props.statement.status === 'cancelled'}
-          onClick={() => void run('complete', () => updateStatementStatus(props.statement.id, 'completed'))}
-          className="h-10 rounded-lg border border-emerald-200 px-3 text-sm font-medium text-emerald-800 hover:bg-emerald-50"
-        >
-          Complete
-        </button>
+        {props.canConfigure && (
+          <button
+            type="button"
+            disabled={Boolean(busy) || props.statement.status === 'cancelled'}
+            onClick={() => void run('complete', () => updateStatementStatus(props.statement.id, 'completed'))}
+            className="h-10 rounded-lg border border-emerald-200 px-3 text-sm font-medium text-emerald-800 hover:bg-emerald-50"
+          >
+            Complete
+          </button>
+        )}
         <button
           type="button"
           disabled={
@@ -219,7 +229,7 @@ export function StatementDetail(props: {
         <table className="min-w-full text-sm">
           <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
             <tr>
-              <th className="px-3 py-2" />
+            {props.canConfirmReceipts && <th className="px-3 py-2" />}
               <th className="px-3 py-2">Source</th>
               <th className="px-3 py-2">Policy</th>
               <th className="px-3 py-2">Type</th>
@@ -236,14 +246,16 @@ export function StatementDetail(props: {
             {filtered.map((row) => {
               const cells = (
                 <>
-                  <td className="px-3 py-2">
-                    <input
-                      type="checkbox"
-                      checked={selected.has(row.id)}
-                      onChange={() => toggle(row.id)}
-                      disabled={!['auto_matched', 'manual_matched'].includes(row.matchStatus)}
-                    />
-                  </td>
+                  {props.canConfirmReceipts && (
+                    <td className="px-3 py-2">
+                      <input
+                        type="checkbox"
+                        checked={selected.has(row.id)}
+                        onChange={() => toggle(row.id)}
+                        disabled={!['auto_matched', 'manual_matched'].includes(row.matchStatus)}
+                      />
+                    </td>
+                  )}
                   <td className="px-3 py-2">{row.rowSource === 'missing' ? 'Missing' : 'Import'}</td>
                   <td className="px-3 py-2 font-medium text-slate-800">{row.policyNumber || '—'}</td>
                   <td className="px-3 py-2">{row.transactionType ? formatTypeLabel(row.transactionType) : '—'}</td>
@@ -251,9 +263,8 @@ export function StatementDetail(props: {
                   <td className="px-3 py-2">{formatSignedCurrency(row.commissionAmount)}</td>
                   <td className="px-3 py-2">{formatSignedCurrency(row.variance)}</td>
                   <td className="px-3 py-2">
-                    <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset ${reconciliationStatusClass(row.matchStatus)}`}>
-                      {formatReconciliationStatus(row.matchStatus)}
-                      {row.matchConfidence ? ` · ${row.matchConfidence}` : ''}
+                    <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset ${reconciliationMatchLabelClass(row)}`}>
+                      {formatReconciliationMatchLabel(row)}
                     </span>
                   </td>
                   <td className="px-3 py-2">

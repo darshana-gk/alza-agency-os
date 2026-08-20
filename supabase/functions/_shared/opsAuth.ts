@@ -58,6 +58,19 @@ export async function authorizeOpsStaff(adminClient: SupabaseClient, authHeader:
   return { callerAuth, callerProfile, roles: [...roles] }
 }
 
+/** Owner/Admin only — agency commission receipt confirmation and similar financial actions. */
+export async function authorizeOwnerAdmin(adminClient: SupabaseClient, authHeader: string) {
+  const result = await authorizeOpsStaff(adminClient, authHeader)
+  if ('error' in result && result.error) return result
+  const roles = new Set((result.roles ?? []).map((r) => String(r).toLowerCase()))
+  if (!roles.has('owner') && !roles.has('admin')) {
+    return {
+      error: fail('forbidden', 'Only Owner or Admin may confirm agency commission receipts.', 403),
+    }
+  }
+  return result
+}
+
 export function serviceClient(): SupabaseClient {
   const url = Deno.env.get('SUPABASE_URL') ?? ''
   const key = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''

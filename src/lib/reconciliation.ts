@@ -4,6 +4,7 @@ import { formatCurrency } from './commission'
 import {
   canAccessReconciliation,
   canConfigureReconciliation,
+  canConfirmReconciliationReceipts,
   loadCurrentAppRole,
   rejectUnlessRole,
 } from './permissions'
@@ -253,13 +254,60 @@ function mapRow(row: Record<string, unknown>): ReconciliationStatementRow {
 }
 
 export function formatReconciliationStatus(status: string | null | undefined): string {
-  const v = String(status ?? '').trim()
+  const v = String(status ?? '').trim().toLowerCase()
   if (!v) return '—'
+  if (v === 'auto_matched' || v === 'manual_matched') return 'Matched'
+  if (v === 'confirmed') return 'Confirmed'
+  if (v === 'exception' || v === 'unmatched' || v === 'unmatched_row') return 'Needs Review'
+  if (v === 'missing_from_statement' || v === 'missing') return 'Missing'
+  if (v === 'underpaid') return 'Underpaid'
+  if (v === 'overpaid') return 'Overpaid'
+  if (v === 'skipped') return 'Skipped'
+  if (v === 'exact_match') return 'Exact Match'
+  if (v === 'zero_amount') return 'Zero Amount'
   return v.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
 }
 
+export function isPreviouslyConfirmedSkip(notes: string | null | undefined): boolean {
+  const n = String(notes ?? '').toLowerCase()
+  return n.includes('receipt already confirmed')
+}
+
+export function formatReconciliationMatchLabel(row: {
+  matchStatus?: string | null
+  resolutionNotes?: string | null
+  rowSource?: string | null
+}): string {
+  if (row.matchStatus === 'skipped' && isPreviouslyConfirmedSkip(row.resolutionNotes)) {
+    return 'Already Processed'
+  }
+  if (row.rowSource === 'missing' && (row.matchStatus === 'exception' || !row.matchStatus)) {
+    return 'Missing'
+  }
+  return formatReconciliationStatus(row.matchStatus)
+}
+
+export function reconciliationMatchLabelClass(row: {
+  matchStatus?: string | null
+  resolutionNotes?: string | null
+  rowSource?: string | null
+}): string {
+  const label = formatReconciliationMatchLabel(row)
+  if (label === 'Already Processed') return 'bg-slate-100 text-slate-600 ring-slate-500/20'
+  if (label === 'Matched' || label === 'Confirmed') return 'bg-emerald-50 text-emerald-700 ring-emerald-600/20'
+  if (label === 'Needs Review' || label === 'Missing' || label === 'Underpaid' || label === 'Overpaid') {
+    return 'bg-orange-50 text-orange-800 ring-orange-600/20'
+  }
+  return reconciliationStatusClass(row.matchStatus)
+}
+
 export function reconciliationStatusClass(status: string | null | undefined): string {
-  switch (String(status ?? '').toLowerCase()) {
+  const raw = String(status ?? '').toLowerCase()
+  const label = formatReconciliationStatus(raw)
+  if (label === 'Already Processed' || raw === 'already_processed') {
+    return 'bg-slate-100 text-slate-600 ring-slate-500/20'
+  }
+  switch (raw) {
     case 'completed':
     case 'auto_matched':
     case 'confirmed':
@@ -283,17 +331,87 @@ export function reconciliationStatusClass(status: string | null | undefined): st
     case 'overpaid':
     case 'missing_from_statement':
     case 'zero_amount':
-    case 'low':
-      return 'bg-orange-50 text-orange-800 ring-orange-600/20'
     case 'unmatched':
     case 'unmatched_row':
+    case 'low':
+      return 'bg-orange-50 text-orange-800 ring-orange-600/20'
     case 'cancelled':
     case 'skipped':
     case 'ignored':
       return 'bg-slate-100 text-slate-600 ring-slate-500/20'
     default:
+      if (label === 'Needs Review' || label === 'Missing') {
+        return 'bg-orange-50 text-orange-800 ring-orange-600/20'
+      }
+      if (label === 'Matched') return 'bg-emerald-50 text-emerald-700 ring-emerald-600/20'
       return 'bg-slate-100 text-slate-600 ring-slate-500/20'
   }
+}
+
+export function runReconciliationPresentationChecks(): Array<{
+  id: string
+  name: string
+  passed: boolean
+  detail: string
+}> {
+  const cases: Array<{ id: string; name: string; got: string; want: string }> = [
+    { id: 'p1', name: 'auto_matched displays Matched', got: formatReconciliationStatus('auto_matched'), want: 'Matched' },
+    { id: 'p2', name: 'manual_matched displays Matched', got: formatReconciliationStatus('manual_matched'), want: 'Matched' },
+    { id: 'p3', name: 'confirmed displays Confirmed', got: formatReconciliationStatus('confirmed'), want: 'Confirmed' },
+    { id: 'p4', name: 'exception displays Needs Review', got: formatReconciliationStatus('exception'), want: 'Needs Review' },
+    { id: 'p5', name: 'unmatched displays Needs Review', got: formatReconciliationStatus('unmatched'), want: 'Needs Review' },
+    { id: 'p6', name: 'missing_from_statement displays Missing', got: formatReconciliationStatus('missing_from_statement'), want: 'Missing' },
+    { id: 'p7', name: 'underpaid displays Underpaid', got: formatReconciliationStatus('underpaid'), want: 'Underpaid' },
+    { id: 'p8', name: 'overpaid displays Overpaid', got: formatReconciliationStatus('overpaid'), want: 'Overpaid' },
+    {
+      id: 'p9',
+      name: 'skipped with prior receipt displays Already Processed',
+      got: formatReconciliationMatchLabel({
+        matchStatus: 'skipped',
+        resolutionNotes: 'Receipt already confirmed for this transaction',
+      }),
+      want: 'Already Processed',
+    },
+    {
+      id: 'p10',
+      name: 'other skipped stays Skipped',
+      got: formatReconciliationMatchLabel({
+        matchStatus: 'skipped',
+        resolutionNotes: 'Duplicate match to same transaction within this statement',
+      }),
+      want: 'Skipped',
+    },
+    {
+      id: 'p11',
+      name: 'CSR cannot confirm reconciliation receipts',
+      got: String(canConfirmReconciliationReceipts('csr')),
+      want: 'false',
+    },
+    {
+      id: 'p12',
+      name: 'Owner can confirm reconciliation receipts',
+      got: String(canConfirmReconciliationReceipts('owner')),
+      want: 'true',
+    },
+    {
+      id: 'p13',
+      name: 'Producer cannot access Reconciliation',
+      got: String(canAccessReconciliation('producer')),
+      want: 'false',
+    },
+    {
+      id: 'p14',
+      name: 'CSR cannot complete statements (configure/complete gate)',
+      got: String(canConfigureReconciliation('csr')),
+      want: 'false',
+    },
+  ]
+  return cases.map((c) => ({
+    id: c.id,
+    name: c.name,
+    passed: c.got === c.want,
+    detail: `got ${c.got} want ${c.want}`,
+  }))
 }
 
 export async function hashFileSha256(file: File): Promise<string> {
@@ -683,7 +801,10 @@ export async function runReconciliationMatching(
 }
 
 export async function confirmReconciliationReceipts(statementId: string, rowIds?: string[]) {
-  const authz = await requireOps()
+  const authz = await rejectUnlessRole(
+    canConfirmReconciliationReceipts,
+    'Only Owner or Admin may confirm agency commission receipts.',
+  )
   if (!authz.ok) return { data: null, error: authz.message }
   return invokeFunction('confirm-reconciliation-receipts', { statementId, rowIds })
 }
@@ -846,6 +967,26 @@ export async function updateStatementStatus(
 ): Promise<{ error: string | null }> {
   const authz = await requireOps()
   if (!authz.ok) return { error: authz.message }
+  if (status === 'completed') {
+    const cfg = await rejectUnlessRole(
+      canConfigureReconciliation,
+      'Only Owner or Admin may complete a statement.',
+    )
+    if (!cfg.ok) return { error: cfg.message }
+    const { data: unconfirmed, error: unconfirmedError } = await supabase
+      .from('reconciliation_statement_rows')
+      .select('id')
+      .eq('statement_id', id)
+      .in('match_status', ['auto_matched', 'manual_matched'])
+      .is('receipt_id', null)
+      .limit(1)
+    if (unconfirmedError) return { error: unconfirmedError.message }
+    if (unconfirmed?.length) {
+      return {
+        error: 'Confirm matched commission receipts before completing this statement.',
+      }
+    }
+  }
   if (status === 'cancelled') {
     const current = await fetchReconciliationStatement(id)
     if (current.data?.status === 'completed') {

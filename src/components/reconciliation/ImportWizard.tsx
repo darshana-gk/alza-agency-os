@@ -181,7 +181,12 @@ export function ImportWizard(props: {
           )}
 
           {step === 1 && (
-            <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-4">
+              <p className="text-sm text-slate-600 sm:col-span-2">
+                Upload the commission statement you received from the carrier or MGA. ALZA Flow will compare it
+                with your recorded transactions.
+              </p>
+              <div className="grid gap-4 sm:grid-cols-2">
               <label>
                 <span className="mb-1 block text-xs font-medium text-slate-500">Carrier</span>
                 <select className={selectClass} value={carrierId} onChange={(e) => setCarrierId(e.target.value)}>
@@ -222,10 +227,15 @@ export function ImportWizard(props: {
                 />
               </label>
             </div>
+            </div>
           )}
 
           {step === 2 && (
             <div className="space-y-4">
+              <p className="text-sm text-slate-600">
+                Upload the commission statement you received from the carrier or MGA. ALZA Flow will compare it
+                with your recorded transactions.
+              </p>
               <div className="flex gap-2">
                 <button
                   type="button"
