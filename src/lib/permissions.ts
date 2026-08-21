@@ -2,8 +2,11 @@ import type { AppUserProfile } from './auth'
 import { supabase } from './supabase'
 
 /** Supported public.users.role / user_roles.role values. */
-export const APP_ROLES = ['owner', 'admin', 'csr', 'producer', 'viewer'] as const
+export const APP_ROLES = ['owner', 'admin', 'csr', 'producer', 'viewer', 'alza_support'] as const
 export type AppRole = (typeof APP_ROLES)[number]
+
+/** Roles an agency Owner/Admin may assign via Users admin (never platform support). */
+export const AGENCY_ASSIGNABLE_ROLES: AppRole[] = ['owner', 'admin', 'csr', 'producer', 'viewer']
 
 /** Single role string or additive roles array (multi-role). */
 export type RoleInput = string | string[] | null | undefined
@@ -30,10 +33,31 @@ export function toAppRoles(input: RoleInput): AppRole[] {
 
 /** Prefer highest-privilege role for legacy single-role fields. */
 export function primaryAppRole(roles: AppRole[]): AppRole | null {
-  for (const role of ['owner', 'admin', 'csr', 'producer', 'viewer'] as AppRole[]) {
+  for (const role of ['alza_support', 'owner', 'admin', 'csr', 'producer', 'viewer'] as AppRole[]) {
     if (roles.includes(role)) return role
   }
   return null
+}
+
+export function isAlzaSupportRole(role: RoleInput): boolean {
+  return toAppRoles(role).includes('alza_support')
+}
+
+/** Customer Support Center — agency Owner/Admin/CSR/Producer/Viewer. */
+export function canAccessSupportCenter(role: RoleInput): boolean {
+  const roles = toAppRoles(role)
+  return (
+    roles.includes('owner') ||
+    roles.includes('admin') ||
+    roles.includes('csr') ||
+    roles.includes('producer') ||
+    roles.includes('viewer')
+  )
+}
+
+/** ALZA platform Support Inbox — cross-agency; not agency Owner/Admin. */
+export function canAccessAlzaSupportInbox(role: RoleInput): boolean {
+  return isAlzaSupportRole(role)
 }
 
 /** Match producers.producer_name ↔ clients/policies/transactions.producer TEXT. */
@@ -382,6 +406,12 @@ export function canAccessPath(role: RoleInput, pathname: string): boolean {
 
   const path = pathname.split('?')[0] || '/'
 
+  if (path.startsWith('/admin/support-inbox') || path.startsWith('/support-inbox')) {
+    return canAccessAlzaSupportInbox(roles)
+  }
+  if (path.startsWith('/support') || path.startsWith('/help')) {
+    return canAccessSupportCenter(roles) || canAccessAlzaSupportInbox(roles)
+  }
   if (path.startsWith('/admin/')) {
     return canAccessAdminSection(roles)
   }
@@ -423,6 +453,8 @@ export type NavVisibility = {
   reconciliation: boolean
   reports: boolean
   activityHistory: boolean
+  support: boolean
+  alzaSupportInbox: boolean
   administration: boolean
   producers: boolean
   csrs: boolean
@@ -437,23 +469,27 @@ export function getNavVisibility(role: RoleInput): NavVisibility {
   const roles = toAppRoles(role)
   const admin = isAdminDirectoryRole(roles)
   const ops = isOpsMutatorRole(roles) || roles.includes('viewer') || roles.includes('producer')
+  const alzaOnly = isAlzaSupportRole(roles) && !canAccessSupportCenter(roles)
   return {
-    dashboard: roles.length > 0,
-    clients: ops,
-    policyFiles: ops,
-    transactions: ops,
-    financials: canAccessFinancials(roles),
-    reconciliation: canAccessReconciliation(roles),
-    reports: roles.length > 0,
-    activityHistory: roles.includes('owner') || roles.includes('admin') || roles.includes('csr'),
-    administration: admin,
-    producers: admin,
-    csrs: admin,
-    mgas: admin,
-    carriers: admin,
-    users: admin,
-    agencySettings: admin,
-    subscriptionBilling: admin,
+    dashboard: roles.length > 0 && !alzaOnly,
+    clients: ops && !alzaOnly,
+    policyFiles: ops && !alzaOnly,
+    transactions: ops && !alzaOnly,
+    financials: canAccessFinancials(roles) && !alzaOnly,
+    reconciliation: canAccessReconciliation(roles) && !alzaOnly,
+    reports: roles.length > 0 && !alzaOnly,
+    activityHistory:
+      (roles.includes('owner') || roles.includes('admin') || roles.includes('csr')) && !alzaOnly,
+    support: canAccessSupportCenter(roles),
+    alzaSupportInbox: canAccessAlzaSupportInbox(roles),
+    administration: admin && !alzaOnly,
+    producers: admin && !alzaOnly,
+    csrs: admin && !alzaOnly,
+    mgas: admin && !alzaOnly,
+    carriers: admin && !alzaOnly,
+    users: admin && !alzaOnly,
+    agencySettings: admin && !alzaOnly,
+    subscriptionBilling: admin && !alzaOnly,
   }
 }
 
@@ -477,6 +513,12 @@ export function canChangeUserRole(params: {
   }
   if (!next) {
     return { allowed: false, reason: 'Select a valid application role.' }
+  }
+  if (next === 'alza_support' || target === 'alza_support') {
+    return {
+      allowed: false,
+      reason: 'ALZA Support is a platform role and cannot be assigned in Agency Users.',
+    }
   }
   if (actor === 'admin' && (target === 'owner' || next === 'owner')) {
     return { allowed: false, reason: 'Admins cannot modify Owner accounts or assign the Owner role.' }

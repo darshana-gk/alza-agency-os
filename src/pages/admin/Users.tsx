@@ -4,7 +4,7 @@ import { Plus, Search, UserCircle, X } from 'lucide-react'
 import { ExportMenu } from '../../components/ui/ExportMenu'
 import { useAuth } from '../../lib/auth'
 import {
-  APP_ROLES,
+  AGENCY_ASSIGNABLE_ROLES,
   canChangeUserRole,
   canChangeUserStatus,
   canManageUsers,
@@ -156,6 +156,7 @@ const roleStyles: Record<string, string> = {
   csr: 'bg-teal-50 text-teal-700 ring-teal-600/20',
   producer: 'bg-amber-50 text-amber-800 ring-amber-600/20',
   viewer: 'bg-slate-100 text-slate-600 ring-slate-500/20',
+  alza_support: 'bg-cyan-50 text-cyan-800 ring-cyan-600/20',
 }
 
 const statusStyles: Record<UserStatus, string> = {
@@ -305,10 +306,10 @@ export function UsersPage() {
 
   const assignableRoles = useMemo(() => {
     if (actorRole === 'admin') {
-      return APP_ROLES.filter((r) => r !== 'owner')
+      return AGENCY_ASSIGNABLE_ROLES.filter((r) => r !== 'owner')
     }
     // Owner may assign Owner (product rule already encoded in canChangeUserRole).
-    return [...APP_ROLES]
+    return [...AGENCY_ASSIGNABLE_ROLES]
   }, [actorRole])
 
   async function hydrateProducerLinkFields(params: {
@@ -481,8 +482,14 @@ export function UsersPage() {
     }
 
     const targetIsSelf = selected.id === profile?.id
-    const nextRoles = rolesValue.length ? rolesValue : ([roleValue] as AppRole[])
+    const nextRoles = (rolesValue.length ? rolesValue : ([roleValue] as AppRole[])).filter((r) =>
+      AGENCY_ASSIGNABLE_ROLES.includes(r),
+    )
     const primary = primaryAppRole(nextRoles) ?? roleValue
+    if (rolesValue.includes('alza_support' as AppRole) || roleValue === 'alza_support') {
+      setFormError('ALZA Support is a platform role and cannot be assigned here.')
+      return
+    }
     const roleCheck = canChangeUserRole({
       actorRole: profile?.role,
       targetRole: selected.role,

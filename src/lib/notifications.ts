@@ -7,6 +7,7 @@ import {
 } from './commission'
 import {
   isAdminDirectoryRole,
+  isAlzaSupportRole,
   isProducerBookScoped,
   isProducerRole,
   producerKeysMatch,
@@ -15,6 +16,7 @@ import {
   toAppRoles,
   type RoleInput,
 } from './permissions'
+import { fetchSupportNotificationSeeds } from './support'
 import { supabase } from './supabase'
 
 export type NotificationCategory =
@@ -22,6 +24,7 @@ export type NotificationCategory =
   | 'policies'
   | 'financials'
   | 'recoveries'
+  | 'support'
 
 export type NotificationKind =
   | 'awaiting_receipt'
@@ -34,6 +37,9 @@ export type NotificationKind =
   | 'open_recovery'
   | 'policy_expiring'
   | 'renewal_due'
+  | 'support_waiting_alza'
+  | 'support_waiting_customer'
+  | 'support_resolved'
 
 export type ReviewQueueFilter = 'all' | 'assigned' | 'submitted' | 'returned' | 'approved'
 
@@ -157,6 +163,20 @@ function roleAllowsKind(role: RoleInput, kind: NotificationKind): boolean {
       allowed.add(k as NotificationKind),
     )
   }
+  if (roles.includes('alza_support')) {
+    ;['support_waiting_alza'].forEach((k) => allowed.add(k as NotificationKind))
+  }
+  ;['support_waiting_customer', 'support_resolved'].forEach((k) => {
+    if (
+      roles.includes('owner') ||
+      roles.includes('admin') ||
+      roles.includes('csr') ||
+      roles.includes('producer') ||
+      roles.includes('viewer')
+    ) {
+      allowed.add(k as NotificationKind)
+    }
+  })
   return allowed.has(kind)
 }
 
@@ -621,6 +641,72 @@ export async function fetchOperationalNotifications(params: {
     }
   }
 
+  // Support Center — derived from conversation status (in-app only).
+  const supportSeeds = await fetchSupportNotificationSeeds({
+    role: roleInput,
+    profileId,
+  })
+  if (isAlzaSupportRole(roleInput)) {
+    for (const row of supportSeeds.waitingOnAlza) {
+      items.push(
+        withReadState(
+          {
+            id: `support_waiting_alza:${row.id}:${row.updatedAt}`,
+            kind: 'support_waiting_alza',
+            category: 'support',
+            title: 'Support request needs ALZA reply',
+            context: `${row.subject} · ${row.agencyName || 'Agency'}`,
+            dateLabel: row.updatedAt ? row.updatedAt.slice(0, 10) : null,
+            href: `/admin/support-inbox?c=${row.id}`,
+            actionLabel: 'Open Support Inbox',
+            sortDate: row.updatedAt || row.createdAt,
+            reviewQueue: null,
+          },
+          readMap,
+        ),
+      )
+    }
+  } else {
+    for (const row of supportSeeds.waitingOnCustomer) {
+      items.push(
+        withReadState(
+          {
+            id: `support_waiting_customer:${row.id}:${row.updatedAt}`,
+            kind: 'support_waiting_customer',
+            category: 'support',
+            title: 'ALZA replied to your support request',
+            context: row.subject,
+            dateLabel: row.updatedAt ? row.updatedAt.slice(0, 10) : null,
+            href: `/support?c=${row.id}`,
+            actionLabel: 'Open Conversation',
+            sortDate: row.updatedAt || row.createdAt,
+            reviewQueue: null,
+          },
+          readMap,
+        ),
+      )
+    }
+    for (const row of supportSeeds.recentlyResolved.slice(0, 10)) {
+      items.push(
+        withReadState(
+          {
+            id: `support_resolved:${row.id}:${row.resolvedAt || row.updatedAt}`,
+            kind: 'support_resolved',
+            category: 'support',
+            title: 'Support request resolved',
+            context: row.subject,
+            dateLabel: (row.resolvedAt || row.updatedAt || '').slice(0, 10) || null,
+            href: `/support?c=${row.id}`,
+            actionLabel: 'View Conversation',
+            sortDate: row.resolvedAt || row.updatedAt || row.createdAt,
+            reviewQueue: null,
+          },
+          readMap,
+        ),
+      )
+    }
+  }
+
   items.sort((a, b) => String(b.sortDate).localeCompare(String(a.sortDate)))
 
   const attention = buildAttentionSummary(items, {
@@ -733,6 +819,8 @@ export function notificationCategoryLabel(category: NotificationCategory): strin
       return 'Financials'
     case 'recoveries':
       return 'Recoveries'
+    case 'support':
+      return 'Support'
     default:
       return category
   }

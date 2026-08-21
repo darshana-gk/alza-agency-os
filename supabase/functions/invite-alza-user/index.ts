@@ -81,7 +81,7 @@ async function authorizeCaller(adminClient: SupabaseClient, authHeader: string) 
 
   const { data: callerProfile, error: callerProfileError } = await adminClient
     .from('users')
-    .select('id, role, status, archived_at')
+    .select('id, role, status, archived_at, agency_profile_id')
     .eq('auth_user_id', callerAuth.id)
     .maybeSingle()
 
@@ -105,7 +105,11 @@ async function authorizeCaller(adminClient: SupabaseClient, authHeader: string) 
     return { error: fail('forbidden', 'Only Owner or Admin may invite users.', 403) }
   }
 
-  return { callerRole, callerAuth }
+  return {
+    callerRole,
+    callerAuth,
+    callerAgencyProfileId: (callerProfile?.agency_profile_id as string | null) ?? null,
+  }
 }
 
 /**
@@ -241,10 +245,11 @@ async function handleResend(opts: {
 async function handleInvite(opts: {
   adminClient: SupabaseClient
   callerRole: string
+  callerAgencyProfileId: string | null
   body: Record<string, unknown>
   inviteRedirectTo: string
 }) {
-  const { adminClient, callerRole, body, inviteRedirectTo } = opts
+  const { adminClient, callerRole, callerAgencyProfileId, body, inviteRedirectTo } = opts
   const email = String(body.email ?? '').trim().toLowerCase()
   const fullName = String(body.full_name ?? body.fullName ?? '').trim()
   const role = String(body.role ?? '').trim().toLowerCase() as InviteRole
@@ -260,6 +265,10 @@ async function handleInvite(opts: {
     ),
   ]
   if (!roles.includes(role)) roles.unshift(role)
+
+  if (role === ('alza_support' as InviteRole) || rawRoles.some((r) => String(r).toLowerCase() === 'alza_support')) {
+    return fail('invalid_role', 'ALZA Support is a platform role and cannot be invited from Agency Users.')
+  }
 
   if (!email || !email.includes('@')) {
     return fail('invalid_email', 'A valid email is required.')
@@ -320,6 +329,18 @@ async function handleInvite(opts: {
 
   const nowIso = new Date().toISOString()
 
+  // Prefer inviter membership; fall back to singleton agency workspace.
+  let agencyProfileId: string | null = callerAgencyProfileId
+  if (!agencyProfileId) {
+    const { data: agencyRow } = await adminClient
+      .from('agency_profile')
+      .select('id')
+      .order('created_at', { ascending: true })
+      .limit(1)
+      .maybeSingle()
+    agencyProfileId = agencyRow?.id ?? null
+  }
+
   const { data: existingProfile } = await adminClient
     .from('users')
     .select('id, auth_user_id')
@@ -339,6 +360,7 @@ async function handleInvite(opts: {
         invited_at: nowIso,
         invite_status: 'pending',
         archived_at: null,
+        agency_profile_id: agencyProfileId,
       })
       .eq('id', existingProfile.id)
       .select('id')
@@ -363,6 +385,7 @@ async function handleInvite(opts: {
         auth_user_id: authUserId,
         invited_at: nowIso,
         invite_status: 'pending',
+        agency_profile_id: agencyProfileId,
       })
       .select('id')
       .single()
@@ -458,6 +481,7 @@ Deno.serve(async (req) => {
     return await handleInvite({
       adminClient,
       callerRole: authz.callerRole!,
+      callerAgencyProfileId: authz.callerAgencyProfileId ?? null,
       body,
       inviteRedirectTo,
     })

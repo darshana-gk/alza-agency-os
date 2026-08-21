@@ -11,6 +11,7 @@ export type ActivityEntityType =
   | 'agency'
   | 'producer'
   | 'reconciliation'
+  | 'support'
   | 'other'
 
 export interface ActivityHistoryRow {

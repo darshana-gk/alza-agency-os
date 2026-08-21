@@ -166,6 +166,16 @@ export function formatActivityActionLabel(action: string): string {
       return 'Document removed'
     case 'recovery_create':
       return 'Recovery recorded'
+    case 'support_request_created':
+      return 'Support request created'
+    case 'support_reply_sent':
+      return 'Support reply sent'
+    case 'support_reply_sent_alza':
+      return 'ALZA support replied'
+    case 'support_request_resolved':
+      return 'Support request resolved'
+    case 'support_request_reopened':
+      return 'Support request reopened'
     case 'recovery_direct_payment':
       return 'Direct recovery payment'
     case 'recovery_void':
@@ -219,6 +229,8 @@ export function formatActivityEntityLabel(entityType: string): string {
       return 'Agency'
     case 'reconciliation':
       return 'Reconciliation'
+    case 'support':
+      return 'Support'
     default:
       return entityType.replace(/_/g, ' ') || '—'
   }

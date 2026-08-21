@@ -1,4 +1,4 @@
-import { NavLink } from 'react-router-dom'
+import { NavLink, Link } from 'react-router-dom'
 import {
   LayoutDashboard,
   Users,
@@ -17,6 +17,8 @@ import {
   ChevronDown,
   Zap,
   Settings,
+  LifeBuoy,
+  Inbox,
 } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import type { NavGroup } from '@/types'
@@ -82,6 +84,10 @@ export function Sidebar() {
     if (nav.reconciliation) items.push({ label: 'Reconciliation', path: '/reconciliation', icon: Scale })
     if (nav.reports) items.push({ label: 'Reports', path: '/reports', icon: BarChart3 })
     if (nav.activityHistory) items.push({ label: 'Activity History', path: '/activity', icon: History })
+    if (nav.support) items.push({ label: 'Help & Support', path: '/support', icon: LifeBuoy })
+    if (nav.alzaSupportInbox) {
+      items.push({ label: 'ALZA Support Inbox', path: '/admin/support-inbox', icon: Inbox })
+    }
     return { items }
   }, [nav])
 
@@ -130,10 +136,15 @@ export function Sidebar() {
       </nav>
 
       <div className="border-t border-white/10 p-4">
-        <div className="rounded-lg bg-white/5 p-3">
-          <p className="text-xs font-medium text-white">Need help?</p>
-          <p className="mt-0.5 text-[11px] text-slate-400">Contact ALZA support</p>
-        </div>
+        {(nav.support || nav.alzaSupportInbox) && (
+          <Link
+            to={nav.support ? '/support' : '/admin/support-inbox'}
+            className="block rounded-lg bg-white/5 p-3 transition-colors hover:bg-white/10"
+          >
+            <p className="text-xs font-medium text-white">Need help?</p>
+            <p className="mt-0.5 text-[11px] text-slate-400">Contact ALZA support</p>
+          </Link>
+        )}
       </div>
     </aside>
   )
