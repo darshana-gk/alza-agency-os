@@ -13,11 +13,11 @@ import {
 import {
   CalendarRange,
   CircleDollarSign,
-  Download,
   TrendingUp,
   Users,
   Wallet,
 } from 'lucide-react'
+import { ExportMenu } from '../components/ui/ExportMenu'
 import { useAuth } from '../lib/auth'
 import {
   fetchCommissionTransactions,
@@ -30,12 +30,14 @@ import {
   TRANSACTION_TYPES,
   type CommissionTransaction,
 } from '../lib/commission'
+import { reportDetailCsvColumns } from '../lib/exportDefinitions'
 import {
   isProducerBookScoped,
   resolveProducerBookName,
   roleInputFromProfile,
 } from '../lib/permissions'
 import { exportProducerRevenueReport } from '../lib/reportsExport'
+import { downloadTableExport } from '../lib/tableExport'
 
 const ALL = 'all'
 const MONTH_LABELS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
@@ -577,15 +579,26 @@ export function Reports() {
             </span>
           </div>
           <div className="flex flex-wrap items-center gap-3">
-            <button
-              type="button"
-              onClick={() => void handleExportExcel()}
-              disabled={loading || exporting}
-              className="inline-flex items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 shadow-sm transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              <Download className="h-4 w-4 text-slate-500" />
-              {exporting ? 'Exporting…' : 'Export Excel'}
-            </button>
+            <ExportMenu
+              rowCount={detailRows.length}
+              disabled={loading}
+              exporting={exporting}
+              emptyMessage="No records to export"
+              onExport={async (format) => {
+                if (format === 'xlsx') {
+                  await handleExportExcel()
+                  return
+                }
+                await downloadTableExport({
+                  format,
+                  sheetName: 'Producer Revenue',
+                  columns: reportDetailCsvColumns,
+                  rows: detailRows,
+                  filenameBase: 'Reports_Producer_Revenue',
+                  label: 'transactions',
+                })
+              }}
+            />
             {hasActiveFilters && (
               <button
                 type="button"

@@ -2,9 +2,12 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { Building2, ChevronLeft, ChevronRight, Plus, Search, X } from 'lucide-react'
-import { useAuth } from '../../lib/auth'
+import { ExportMenu } from '../../components/ui/ExportMenu'
 import { SearchInput } from '../../components/ui/SearchInput'
+import { useAuth } from '../../lib/auth'
 import { archiveMga, createMga, isAdminDirectoryRole, updateMga } from '../../lib/directory'
+import { mgaExportColumns } from '../../lib/exportDefinitions'
+import { downloadTableExport } from '../../lib/tableExport'
 import { supabase } from '../../lib/supabase'
 
 type MGAStatus = 'active' | 'inactive' | 'pending'
@@ -258,6 +261,20 @@ export function MGAs() {
             <option value="inactive">Inactive</option>
             <option value="pending">Pending</option>
           </select>
+          <ExportMenu
+            rowCount={filtered.length}
+            disabled={loading}
+            onExport={(format) =>
+              downloadTableExport({
+                format,
+                sheetName: 'MGAs',
+                columns: mgaExportColumns,
+                rows: filtered,
+                filenameBase: 'MGAs',
+                label: 'MGAs',
+              })
+            }
+          />
         </div>
         {canMutate && (
           <button

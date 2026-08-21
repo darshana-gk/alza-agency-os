@@ -22,6 +22,7 @@ import {
   Wallet,
   X,
 } from 'lucide-react'
+import { ExportMenu } from '../../components/ui/ExportMenu'
 import { SearchInput } from '../../components/ui/SearchInput'
 import { useAuth } from '../../lib/auth'
 import {
@@ -35,6 +36,8 @@ import {
   formatCurrency,
   type CommissionTransaction,
 } from '../../lib/commission'
+import { producerExportColumns } from '../../lib/exportDefinitions'
+import { downloadTableExport } from '../../lib/tableExport'
 import { supabase } from '../../lib/supabase'
 
 type ProducerStatus = 'active' | 'inactive'
@@ -545,6 +548,20 @@ export function Producers() {
               <option key={year} value={year}>{year}</option>
             ))}
           </select>
+          <ExportMenu
+            rowCount={filtered.length}
+            disabled={loading}
+            onExport={(format) =>
+              downloadTableExport({
+                format,
+                sheetName: 'Producers',
+                columns: producerExportColumns,
+                rows: filtered,
+                filenameBase: 'Producers',
+                label: 'producers',
+              })
+            }
+          />
         </div>
         {canMutate && (
           <button

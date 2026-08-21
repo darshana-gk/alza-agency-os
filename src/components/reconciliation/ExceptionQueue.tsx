@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { formatTypeLabel } from '../../lib/commission'
+import { reconciliationExportColumns } from '../../lib/exportDefinitions'
 import {
   formatReconciliationStatus,
   formatSignedCurrency,
@@ -9,6 +10,8 @@ import {
   type ReconciliationStatement,
   type ReconciliationStatementRow,
 } from '../../lib/reconciliation'
+import { downloadTableExport } from '../../lib/tableExport'
+import { ExportMenu } from '../ui/ExportMenu'
 
 const selectClass =
   'h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-900 focus:border-alza-blue-500 focus:outline-none focus:ring-2 focus:ring-alza-blue-500/20'
@@ -94,6 +97,21 @@ export function ExceptionQueue(props: {
         >
           Resolve visible
         </button>
+        <ExportMenu
+          rowCount={filtered.length}
+          disabled={busy}
+          emptyMessage="No records to export"
+          onExport={(format) =>
+            downloadTableExport({
+              format,
+              sheetName: 'Needs Review',
+              columns: reconciliationExportColumns,
+              rows: filtered,
+              filenameBase: 'Reconciliation_Needs_Review',
+              label: 'rows',
+            })
+          }
+        />
       </div>
 
       <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm">

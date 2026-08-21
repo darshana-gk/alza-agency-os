@@ -39,13 +39,20 @@ import {
   voidProducerRecovery,
   type CommissionTransaction,
 } from '../lib/commission'
+import { ExportMenu } from '../components/ui/ExportMenu'
 import { useAuth } from '../lib/auth'
+import {
+  producerPaymentExportColumns,
+  receiptExportColumns,
+  recoveryExportColumns,
+} from '../lib/exportDefinitions'
 import {
   financialsLinkState,
   financialsRecordLinkClassName,
   parseFinancialsTab,
   type FinancialsTabId,
 } from '../lib/financialsNav'
+import { downloadTableExport } from '../lib/tableExport'
 import {
   canAccessAdminSection,
   canConfirmReceipts,
@@ -1151,20 +1158,65 @@ export function Financials() {
       </div>
 
       <div className="flex flex-col gap-4">
-        <div className="relative flex-1 lg:max-w-md">
-          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-          <input
-            type="search"
-            value={search}
-            onChange={(e) => setParam('q', e.currentTarget.value, '')}
-            placeholder={
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="relative min-w-[12rem] flex-1 lg:max-w-md">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+            <input
+              type="search"
+              value={search}
+              onChange={(e) => setParam('q', e.currentTarget.value, '')}
+              placeholder={
+                tab === 'receipts'
+                  ? 'Search receipts by client, policy, or transaction...'
+                  : tab === 'payments'
+                    ? 'Search batches by number, producer, or reference...'
+                    : 'Search recoveries by producer, transaction, or notes...'
+              }
+              className="h-10 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-4 text-sm text-slate-900 placeholder:text-slate-400 focus:border-alza-blue-500 focus:outline-none focus:ring-2 focus:ring-alza-blue-500/20"
+            />
+          </div>
+          <ExportMenu
+            rowCount={
               tab === 'receipts'
-                ? 'Search receipts by client, policy, or transaction...'
+                ? filteredReceipts.length
                 : tab === 'payments'
-                  ? 'Search batches by number, producer, or reference...'
-                  : 'Search recoveries by producer, transaction, or notes...'
+                  ? filteredBatches.length
+                  : filteredRecoveries.length
             }
-            className="h-10 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-4 text-sm text-slate-900 placeholder:text-slate-400 focus:border-alza-blue-500 focus:outline-none focus:ring-2 focus:ring-alza-blue-500/20"
+            disabled={loading}
+            onExport={(format) => {
+              if (tab === 'receipts') {
+                return downloadTableExport({
+                  format,
+                  sheetName: 'Receipts',
+                  columns: receiptExportColumns,
+                  rows: filteredReceipts.map((row) => ({
+                    ...row,
+                    amountReceived: transactionsById.get(row.transactionId)?.amountReceived ?? null,
+                  })),
+                  filenameBase: 'Financials_Receipts',
+                  label: 'receipts',
+                })
+              }
+              if (tab === 'payments') {
+                return downloadTableExport({
+                  format,
+                  sheetName: 'Producer Payments',
+                  columns: producerPaymentExportColumns,
+                  rows: filteredBatches,
+                  filenameBase: 'Financials_Producer_Payments',
+                  label: 'payments',
+                })
+              }
+              return downloadTableExport({
+                format,
+                sheetName: 'Recoveries',
+                columns: recoveryExportColumns,
+                rows: filteredRecoveries,
+                filenameBase: 'Financials_Recoveries',
+                label: 'recoveries',
+              })
+            }}
           />
         </div>
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">

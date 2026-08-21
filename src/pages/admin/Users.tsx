@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
 import { Plus, Search, UserCircle, X } from 'lucide-react'
+import { ExportMenu } from '../../components/ui/ExportMenu'
 import { useAuth } from '../../lib/auth'
 import {
   APP_ROLES,
@@ -13,6 +14,8 @@ import {
   type AppRole,
 } from '../../lib/permissions'
 import { syncProducerDirectoryForUser, fetchProducerLinkOptions, suggestProducerLinkId, type ProducerLinkOption } from '../../lib/directory'
+import { userExportColumns } from '../../lib/exportDefinitions'
+import { downloadTableExport } from '../../lib/tableExport'
 import { supabase } from '../../lib/supabase'
 
 type UserStatus = 'active' | 'inactive'
@@ -695,13 +698,29 @@ export function UsersPage() {
         </div>
       )}
 
-      <div className="relative max-w-md">
-        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-        <input
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search name, email, or role…"
-          className={`${inputClassName} pl-9`}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+        <div className="relative max-w-md flex-1">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search name, email, or role…"
+            className={`${inputClassName} pl-9`}
+          />
+        </div>
+        <ExportMenu
+          rowCount={filtered.length}
+          disabled={loading}
+          onExport={(format) =>
+            downloadTableExport({
+              format,
+              sheetName: 'Users',
+              columns: userExportColumns,
+              rows: filtered,
+              filenameBase: 'Users',
+              label: 'users',
+            })
+          }
         />
       </div>
 

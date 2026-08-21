@@ -76,6 +76,9 @@ import {
   type CommissionType,
 } from '../lib/commission'
 import { useAuth } from '../lib/auth'
+import { transactionExportColumns } from '../lib/exportDefinitions'
+import { downloadTableExport } from '../lib/tableExport'
+import { ExportMenu } from '../components/ui/ExportMenu'
 import {
   financialsLinkState,
   transactionLinkState,
@@ -1384,6 +1387,20 @@ export function Transactions() {
             </span>
           </div>
           <div className="flex flex-wrap items-center gap-2">
+            <ExportMenu
+              rowCount={filteredTransactions.length}
+              disabled={loading}
+              onExport={(format) =>
+                downloadTableExport({
+                  format,
+                  sheetName: 'Transactions',
+                  columns: transactionExportColumns,
+                  rows: filteredTransactions,
+                  filenameBase: 'Transactions',
+                  label: 'transactions',
+                })
+              }
+            />
             <button
               type="button"
               onClick={() => setMoreFiltersOpen((open) => !open)}

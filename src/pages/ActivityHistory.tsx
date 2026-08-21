@@ -1,11 +1,14 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { History, Search } from 'lucide-react'
+import { ExportMenu } from '../components/ui/ExportMenu'
 import { fetchActivityHistory, type ActivityHistoryRow } from '../lib/activity'
 import {
   formatActivityActionLabel,
   formatActivityDetailsSummary,
   formatActivityEntityLabel,
 } from '../lib/activityPresentation'
+import { activityExportColumns, activityRowForExport } from '../lib/exportDefinitions'
+import { downloadTableExport } from '../lib/tableExport'
 import { supabase } from '../lib/supabase'
 
 const inputClassName =
@@ -194,6 +197,23 @@ export function ActivityHistoryPage() {
             placeholder="UUID"
           />
         </label>
+        <div className="flex items-end sm:col-span-2 lg:col-span-4">
+          <ExportMenu
+            rowCount={rows.length}
+            disabled={loading}
+            hint="Exports up to 300 matching activity records."
+            onExport={(format) =>
+              downloadTableExport({
+                format,
+                sheetName: 'Activity',
+                columns: activityExportColumns,
+                rows: rows.map(activityRowForExport),
+                filenameBase: 'Activity',
+                label: 'activity records',
+              })
+            }
+          />
+        </div>
       </div>
 
       {error && (

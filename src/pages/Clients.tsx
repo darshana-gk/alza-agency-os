@@ -9,9 +9,12 @@ import {
   Users,
 } from 'lucide-react'
 import { DirectoryNameSelect } from '../components/directory/DirectoryNameSelect'
+import { ExportMenu } from '../components/ui/ExportMenu'
 import { useAuth } from '../lib/auth'
 import { formatCurrency } from '../lib/commission'
 import { createClient } from '../lib/directory'
+import { clientExportColumns } from '../lib/exportDefinitions'
+import { downloadTableExport } from '../lib/tableExport'
 import {
   canManageClients,
   isProducerBookScoped,
@@ -27,7 +30,9 @@ type ClientStatus = 'active' | 'pending' | 'inactive' | 'prospect'
 
 interface Client {
   id: string
+  clientNumber: string
   name: string
+  dba: string
   contact: string
   phone: string
   email: string
@@ -151,7 +156,9 @@ function normalizeStatus(status: string | null): ClientStatus {
 function mapRowToClient(row: SupabaseClientRow): Client {
   return {
     id: String(row.id),
+    clientNumber: row.client_number ?? '',
     name: row.business_name ?? '',
+    dba: row.dba ?? '',
     contact: row.contact_name ?? '',
     email: row.email ?? '',
     phone: row.phone ?? '',
@@ -488,6 +495,20 @@ export function Clients() {
               </option>
             ))}
           </select>
+          <ExportMenu
+            rowCount={filteredClients.length}
+            disabled={loading}
+            onExport={(format) =>
+              downloadTableExport({
+                format,
+                sheetName: 'Clients',
+                columns: clientExportColumns,
+                rows: filteredClients,
+                filenameBase: 'Clients',
+                label: 'clients',
+              })
+            }
+          />
         </div>
 
         {canMutate && (

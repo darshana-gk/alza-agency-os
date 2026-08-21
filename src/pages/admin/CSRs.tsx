@@ -2,9 +2,12 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { ChevronLeft, ChevronRight, Headphones, Plus, Search, Users, X } from 'lucide-react'
-import { useAuth } from '../../lib/auth'
+import { ExportMenu } from '../../components/ui/ExportMenu'
 import { SearchInput } from '../../components/ui/SearchInput'
+import { useAuth } from '../../lib/auth'
 import { archiveCsr, createCsr, isAdminDirectoryRole, updateCsr } from '../../lib/directory'
+import { csrExportColumns } from '../../lib/exportDefinitions'
+import { downloadTableExport } from '../../lib/tableExport'
 import { supabase } from '../../lib/supabase'
 
 type CSRStatus = 'active' | 'inactive'
@@ -220,6 +223,20 @@ export function CSRs() {
             <option value="active">Active</option>
             <option value="inactive">Inactive</option>
           </select>
+          <ExportMenu
+            rowCount={filtered.length}
+            disabled={loading}
+            onExport={(format) =>
+              downloadTableExport({
+                format,
+                sheetName: 'CSRs',
+                columns: csrExportColumns,
+                rows: filtered,
+                filenameBase: 'CSRs',
+                label: 'CSRs',
+              })
+            }
+          />
         </div>
         {canMutate && (
           <button type="button" onClick={openAdd} className="inline-flex items-center justify-center gap-2 rounded-lg gradient-alza px-4 py-2.5 text-sm font-medium text-white shadow-sm hover:opacity-90">

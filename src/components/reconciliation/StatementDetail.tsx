@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { ChevronDown } from 'lucide-react'
 import { formatTypeLabel } from '../../lib/commission'
+import { reconciliationExportColumns } from '../../lib/exportDefinitions'
 import {
   computeStatementPresentationSummary,
   confirmReconciliationReceipts,
@@ -23,6 +24,8 @@ import {
   type ReconciliationStatementRow,
 } from '../../lib/reconciliation'
 import { varianceRequiresReview } from '../../lib/reconciliationMatching'
+import { downloadTableExport } from '../../lib/tableExport'
+import { ExportMenu } from '../ui/ExportMenu'
 import { MatchSearchDialog } from './MatchSearchDialog'
 import { MissingTransactionRow } from './MissingTransactionRow'
 
@@ -367,25 +370,46 @@ export function StatementDetail(props: {
         </div>
       )}
 
-      {rowView === 'all' && (
-        <div className="flex flex-wrap items-center gap-2">
-          <select className={selectClass} value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
-            <option value="all">All statuses</option>
-            {['pending', 'auto_matched', 'manual_matched', 'exception', 'unmatched', 'confirmed', 'skipped'].map(
-              (s) => (
-                <option key={s} value={s}>
-                  {formatReconciliationStatus(s)}
-                </option>
-              ),
-            )}
-          </select>
-          <select className={selectClass} value={sourceFilter} onChange={(e) => setSourceFilter(e.target.value)}>
-            <option value="all">All sources</option>
-            <option value="import">Imported</option>
-            <option value="missing">Missing from statement</option>
-          </select>
-        </div>
-      )}
+      <div className="flex flex-wrap items-center gap-2">
+        {rowView === 'all' && (
+          <>
+            <select className={selectClass} value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
+              <option value="all">All statuses</option>
+              {['pending', 'auto_matched', 'manual_matched', 'exception', 'unmatched', 'confirmed', 'skipped'].map(
+                (s) => (
+                  <option key={s} value={s}>
+                    {formatReconciliationStatus(s)}
+                  </option>
+                ),
+              )}
+            </select>
+            <select className={selectClass} value={sourceFilter} onChange={(e) => setSourceFilter(e.target.value)}>
+              <option value="all">All sources</option>
+              <option value="import">Imported</option>
+              <option value="missing">Missing from statement</option>
+            </select>
+          </>
+        )}
+        <ExportMenu
+          rowCount={filtered.length}
+          emptyMessage="No records to export"
+          onExport={(format) =>
+            downloadTableExport({
+              format,
+              sheetName: 'Reconciliation',
+              columns: reconciliationExportColumns,
+              rows: filtered.map((row) => ({
+                ...row,
+                statementFileName: props.statement.fileName,
+                statement: props.statement,
+              })),
+              filenameBase: 'Reconciliation',
+              suffix: props.statement.carrier || props.statement.mga || 'Statement',
+              label: 'rows',
+            })
+          }
+        />
+      </div>
 
       {rowView === 'review' && open.length === 0 && (
         <p className="text-sm text-slate-500">No items need review. Use View all rows to see matched commissions.</p>

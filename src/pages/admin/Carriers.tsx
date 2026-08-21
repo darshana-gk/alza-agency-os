@@ -2,9 +2,12 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { Building2, ChevronLeft, ChevronRight, Plus, Search, X } from 'lucide-react'
-import { useAuth } from '../../lib/auth'
+import { ExportMenu } from '../../components/ui/ExportMenu'
 import { SearchInput } from '../../components/ui/SearchInput'
+import { useAuth } from '../../lib/auth'
 import { archiveCarrier, createCarrier, isAdminDirectoryRole, updateCarrier } from '../../lib/directory'
+import { carrierExportColumns } from '../../lib/exportDefinitions'
+import { downloadTableExport } from '../../lib/tableExport'
 import { supabase } from '../../lib/supabase'
 
 type CarrierStatus = 'active' | 'inactive'
@@ -251,6 +254,20 @@ export function Carriers() {
             <option value="active">Active</option>
             <option value="inactive">Inactive</option>
           </select>
+          <ExportMenu
+            rowCount={filtered.length}
+            disabled={loading}
+            onExport={(format) =>
+              downloadTableExport({
+                format,
+                sheetName: 'Carriers',
+                columns: carrierExportColumns,
+                rows: filtered,
+                filenameBase: 'Carriers',
+                label: 'carriers',
+              })
+            }
+          />
         </div>
         {canMutate && (
           <button

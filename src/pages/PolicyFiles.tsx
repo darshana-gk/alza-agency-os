@@ -12,8 +12,11 @@ import {
 } from 'lucide-react'
 import { AddPolicyModal } from '../components/policies/AddPolicyModal'
 import { SearchInput } from '../components/ui/SearchInput'
+import { ExportMenu } from '../components/ui/ExportMenu'
 import { useAuth } from '../lib/auth'
 import { fetchPolicyTransactionSummaries } from '../lib/commission'
+import { policyExportColumns } from '../lib/exportDefinitions'
+import { downloadTableExport } from '../lib/tableExport'
 import {
   canManagePolicies,
   isProducerBookScoped,
@@ -37,7 +40,11 @@ interface PolicyRow {
   expirationDate: string
   producer: string
   csr: string
+  /** On-screen Current Policy Premium (transaction-derived SoT). */
   premium: number
+  /** Raw policies.premium for export. */
+  filePremium: number
+  agencyCommissionPercentage: number | null
   status: PolicyStatus
 }
 
@@ -137,6 +144,7 @@ export function PolicyFiles() {
         effective_date,
         expiration_date,
         premium,
+        agency_commission_percentage,
         status,
         clients ( business_name )
       `,
@@ -165,8 +173,18 @@ export function PolicyFiles() {
         expirationDate: String(row.expiration_date ?? ''),
         producer: String(row.producer ?? '—'),
         csr: String(row.csr ?? '—'),
-        // Placeholder until transaction summaries apply (transactions are SoT).
+        // filePremium = policies.premium; on-screen premium filled from transaction SoT below.
         premium: 0,
+        filePremium: (() => {
+          if (row.premium == null || row.premium === '') return 0
+          const n = Number(row.premium)
+          return Number.isFinite(n) ? n : 0
+        })(),
+        agencyCommissionPercentage: (() => {
+          if (row.agency_commission_percentage == null || row.agency_commission_percentage === '') return null
+          const n = Number(row.agency_commission_percentage)
+          return Number.isFinite(n) ? n : null
+        })(),
         status: normalizeStatus(row.status as string | null),
       }
     })
@@ -358,16 +376,32 @@ export function PolicyFiles() {
           />
         </div>
 
-        {canAdd && (
-          <button
-            type="button"
-            onClick={() => setAddOpen(true)}
-            className="inline-flex items-center justify-center gap-2 rounded-lg gradient-alza px-4 py-2.5 text-sm font-medium text-white shadow-sm transition-opacity hover:opacity-90"
-          >
-            <Plus className="h-4 w-4" />
-            Add Policy
-          </button>
-        )}
+        <div className="flex flex-wrap items-center gap-2">
+          <ExportMenu
+            rowCount={filtered.length}
+            disabled={loading}
+            onExport={(format) =>
+              downloadTableExport({
+                format,
+                sheetName: 'Policies',
+                columns: policyExportColumns,
+                rows: filtered,
+                filenameBase: 'Policies',
+                label: 'policies',
+              })
+            }
+          />
+          {canAdd && (
+            <button
+              type="button"
+              onClick={() => setAddOpen(true)}
+              className="inline-flex items-center justify-center gap-2 rounded-lg gradient-alza px-4 py-2.5 text-sm font-medium text-white shadow-sm transition-opacity hover:opacity-90"
+            >
+              <Plus className="h-4 w-4" />
+              Add Policy
+            </button>
+          )}
+        </div>
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
