@@ -98,7 +98,9 @@ export const reviewStatusStyles: Record<string, string> = {
  */
 export const WORKFLOW_STATUSES = [
   'Archived',
+  'Paid via ALZA Flow Pay',
   'Paid Outside ALZA Flow',
+  'Paid (Historical)',
   'Batch Created',
   'Ready for Payment',
   'Approved',
@@ -110,6 +112,18 @@ export const WORKFLOW_STATUSES = [
 ] as const
 export type TransactionWorkflowStatus = (typeof WORKFLOW_STATUSES)[number]
 
+const PAID_WORKFLOW_STATUSES = [
+  'Paid (Historical)',
+  'Paid Outside ALZA Flow',
+  'Paid via ALZA Flow Pay',
+] as const
+
+function isPaidWorkflowStatus(
+  status: string,
+): status is (typeof PAID_WORKFLOW_STATUSES)[number] {
+  return (PAID_WORKFLOW_STATUSES as readonly string[]).includes(status)
+}
+
 /** Ordered stages for the transaction detail timeline (excludes Archived). */
 export const FINAL_WORKFLOW_STAGES = [
   'Entered',
@@ -120,7 +134,9 @@ export const FINAL_WORKFLOW_STAGES = [
   'Approved',
   'Ready for Payment',
   'Batch Created',
+  'Paid (Historical)',
   'Paid Outside ALZA Flow',
+  'Paid via ALZA Flow Pay',
 ] as const
 export type FinalWorkflowStage = (typeof FINAL_WORKFLOW_STAGES)[number]
 
@@ -135,7 +151,9 @@ export const workflowStatusStyles: Record<TransactionWorkflowStatus, string> = {
   Approved: 'bg-alza-blue-50 text-alza-blue-700 ring-alza-blue-600/20',
   'Ready for Payment': 'bg-amber-50 text-amber-800 ring-amber-600/20',
   'Batch Created': 'bg-violet-50 text-violet-700 ring-violet-600/20',
+  'Paid (Historical)': 'bg-emerald-50 text-emerald-700 ring-emerald-600/20',
   'Paid Outside ALZA Flow': 'bg-emerald-50 text-emerald-700 ring-emerald-600/20',
+  'Paid via ALZA Flow Pay': 'bg-emerald-50 text-emerald-700 ring-emerald-600/20',
   Archived: 'bg-slate-100 text-slate-600 ring-slate-500/20',
 }
 
@@ -153,17 +171,24 @@ export function formatReviewStatusLabel(
 export function getTransactionWorkflowStatus(tx: {
   archived: boolean
   producerPaymentStatus: string
-  paidDate: string | null
+  paidDate?: string | null
   paymentBatchId: string | null
+  paymentChannel?: string | null
   agencyCommissionConfirmed: boolean
   reviewStatus: string
   reviewReturnedAt?: string | null
   reviewReturnReason?: string
 }): TransactionWorkflowStatus {
   if (tx.archived) return 'Archived'
-  if (tx.producerPaymentStatus === 'paid' || Boolean(tx.paidDate)) return 'Paid Outside ALZA Flow'
+  // producer_payment_status is authoritative. paid_date alone must not
+  // display a contradictory ready/not_ready row as paid.
+  if (normalizePaymentStatus(tx.producerPaymentStatus) === 'paid') {
+    const paidLabel = formatBatchStatusLabel('paid', tx.paymentChannel)
+    if (isPaidWorkflowStatus(paidLabel)) return paidLabel
+    return 'Paid (Historical)'
+  }
   if (tx.paymentBatchId) return 'Batch Created'
-  if (tx.producerPaymentStatus === 'ready') return 'Ready for Payment'
+  if (normalizePaymentStatus(tx.producerPaymentStatus) === 'ready') return 'Ready for Payment'
   if (tx.agencyCommissionConfirmed && tx.reviewStatus === 'approved') return 'Approved'
   if (tx.agencyCommissionConfirmed && tx.reviewStatus === 'matched') return 'Submitted for Review'
   if (
@@ -190,15 +215,18 @@ const STAGE_PHASE: Record<FinalWorkflowStage, WorkflowTimelinePhase> = {
   Approved: 'Review',
   'Ready for Payment': 'Payout',
   'Batch Created': 'Payment',
+  'Paid (Historical)': 'Payment',
   'Paid Outside ALZA Flow': 'Payment',
+  'Paid via ALZA Flow Pay': 'Payment',
 }
 
 /** Timeline for drawer: Entered → … → Paid with completed / current / future. */
 export function getTransactionWorkflowTimeline(tx: {
   archived: boolean
   producerPaymentStatus: string
-  paidDate: string | null
+  paidDate?: string | null
   paymentBatchId: string | null
+  paymentChannel?: string | null
   agencyCommissionConfirmed: boolean
   reviewStatus: string
   reviewReturnedAt?: string | null
@@ -223,6 +251,11 @@ export function getTransactionWorkflowTimeline(tx: {
   const visibleStages = FINAL_WORKFLOW_STAGES.filter((stage) => {
     if (stage === 'Returned for Correction') {
       return current === 'Returned for Correction'
+    }
+    if (isPaidWorkflowStatus(stage)) {
+      if (isPaidWorkflowStatus(current)) return stage === current
+      // V1 confirm path is outside ALZA Flow; keep that as the future terminal.
+      return stage === 'Paid Outside ALZA Flow'
     }
     return true
   })
@@ -661,11 +694,11 @@ export function isOperationallyPendingTransaction(tx: {
   archived: boolean
   voidedAt?: string | null
   producerPaymentStatus: string
-  paidDate: string | null
+  paidDate?: string | null
 }): boolean {
   if (tx.archived) return false
   if (tx.voidedAt) return false
-  if (tx.producerPaymentStatus === 'paid' || Boolean(tx.paidDate)) return false
+  if (normalizePaymentStatus(tx.producerPaymentStatus) === 'paid') return false
   return true
 }
 
@@ -766,7 +799,8 @@ export const TRANSACTION_COMMISSION_SELECT = `
   producer_payment_batches (
     id,
     batch_number,
-    status
+    status,
+    payment_channel
   ),
   reviewer:users!reviewer_user_id (
     id,
@@ -855,8 +889,18 @@ export interface TransactionCommissionRow {
       }[]
     | null
   producer_payment_batches:
-    | { id: string; batch_number: string | null; status: string | null }
-    | { id: string; batch_number: string | null; status: string | null }[]
+    | {
+        id: string
+        batch_number: string | null
+        status: string | null
+        payment_channel?: string | null
+      }
+    | {
+        id: string
+        batch_number: string | null
+        status: string | null
+        payment_channel?: string | null
+      }[]
     | null
   reviewer:
     | { id: string; full_name: string | null; email: string | null; role: string | null }
@@ -913,6 +957,7 @@ export interface CommissionTransaction {
   paymentBatchId: string | null
   paymentBatchNumber: string
   paymentBatchStatus: string
+  paymentChannel: string | null
   scheduledPaymentDate: string | null
   paidAmount: number | null
   paidDate: string | null
@@ -1001,6 +1046,7 @@ export function mapCommissionTransaction(row: TransactionCommissionRow): Commiss
     paymentBatchId: row.payment_batch_id,
     paymentBatchNumber: batch?.batch_number?.trim() || '',
     paymentBatchStatus: (batch?.status ?? '').toLowerCase(),
+    paymentChannel: batch?.payment_channel?.trim() || null,
     scheduledPaymentDate: row.scheduled_payment_date,
     paidAmount:
       row.paid_amount === null || row.paid_amount === undefined ? null : toNumber(row.paid_amount),
@@ -2935,6 +2981,29 @@ export interface ConfirmReceiptInput {
   varianceAcknowledged: boolean
 }
 
+/**
+ * Receipt confirm must start the CSR submit path (review_status = expected)
+ * only while the transaction is still pre-review / pre-payout.
+ *
+ * Do not reset review when producer payment has already progressed
+ * (ready, paid, batched, or paid_date set) — that would move the
+ * producer-payment workflow backwards.
+ */
+export function receiptConfirmShouldResetReviewStatus(row: {
+  producerPaymentStatus?: string | null
+  paidDate?: string | null
+  paymentBatchId?: string | null
+  reviewStatus?: string | null
+}): boolean {
+  const payment = normalizePaymentStatus(row.producerPaymentStatus)
+  if (payment === 'ready' || payment === 'paid') return false
+  if (row.paidDate) return false
+  if (row.paymentBatchId) return false
+  const review = String(row.reviewStatus ?? '').trim().toLowerCase()
+  if (review === 'matched' || review === 'approved') return false
+  return true
+}
+
 export async function confirmAgencyCommissionReceived(input: ConfirmReceiptInput) {
   const authz = await rejectUnlessRole(canConfirmReceipts)
   if (!authz.ok) {
@@ -2964,6 +3033,58 @@ export async function confirmAgencyCommissionReceived(input: ConfirmReceiptInput
       : '',
   ].filter(Boolean)
   const notes = noteParts.join(' ') || null
+
+  const { data: currentRow, error: currentError } = await supabase
+    .from('transactions')
+    .select(
+      `
+      id,
+      agency_commission_confirmed,
+      agency_commission_receipt_id,
+      producer_payment_status,
+      payment_batch_id,
+      paid_date,
+      review_status
+    `,
+    )
+    .eq('id', transaction.id)
+    .maybeSingle()
+
+  if (currentError) {
+    return {
+      error: {
+        message: currentError.message,
+        table: 'transactions',
+        operation: 'confirm_receipt_fetch',
+        details: currentError,
+      },
+    }
+  }
+  if (!currentRow) {
+    return {
+      error: {
+        message: 'Transaction not found for receipt confirmation.',
+        table: 'transactions',
+        operation: 'confirm_receipt_validation',
+      },
+    }
+  }
+  if (currentRow.agency_commission_confirmed || currentRow.agency_commission_receipt_id) {
+    return {
+      data: {
+        receiptId: currentRow.agency_commission_receipt_id,
+        duplicate: true,
+      },
+      error: null,
+    }
+  }
+
+  const resetReview = receiptConfirmShouldResetReviewStatus({
+    producerPaymentStatus: currentRow.producer_payment_status as string | null,
+    paidDate: currentRow.paid_date as string | null,
+    paymentBatchId: currentRow.payment_batch_id as string | null,
+    reviewStatus: currentRow.review_status as string | null,
+  })
 
   const receiptPayload = {
     client_id: transaction.clientId || null,
@@ -3024,18 +3145,26 @@ export async function confirmAgencyCommissionReceived(input: ConfirmReceiptInput
     }
   }
 
-  // Receipt confirm only — do not auto-approve or auto-submit for review.
-  // review_status stays expected so CSR must Submit for Review (matched).
-  const { error: txnError } = await supabase
+  // Receipt confirm records agency money received. It must not:
+  // - auto-approve or auto-submit for review
+  // - change producer_payment_status / paid_date / payment_batch_id
+  // - reset review_status when producer payment has already progressed
+  const txnPatch: Record<string, unknown> = {
+    amount_received: input.amountReceived,
+    received_date: input.receivedDate,
+    agency_commission_confirmed: true,
+    agency_commission_receipt_id: receipt.id,
+  }
+  if (resetReview) {
+    txnPatch.review_status = 'expected'
+  }
+
+  const { data: updatedTxn, error: txnError } = await supabase
     .from('transactions')
-    .update({
-      amount_received: input.amountReceived,
-      received_date: input.receivedDate,
-      agency_commission_confirmed: true,
-      agency_commission_receipt_id: receipt.id,
-      review_status: 'expected',
-    })
+    .update(txnPatch)
     .eq('id', transaction.id)
+    .eq('agency_commission_confirmed', false)
+    .select('id')
 
   if (txnError) {
     return {
@@ -3046,6 +3175,13 @@ export async function confirmAgencyCommissionReceived(input: ConfirmReceiptInput
         details: txnError,
         receiptId: receipt.id,
       },
+    }
+  }
+
+  if (!updatedTxn || updatedTxn.length === 0) {
+    return {
+      data: { receiptId: receipt.id as string, duplicate: true },
+      error: null,
     }
   }
 

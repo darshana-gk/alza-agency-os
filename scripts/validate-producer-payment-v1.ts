@@ -51,6 +51,9 @@ const AGENCY_TS = readRepo('src/lib/agency.ts')
 const AGENCY_SETTINGS = readRepo('src/pages/admin/AgencySettings.tsx')
 const FINANCIALS = readRepo('src/pages/Financials.tsx')
 const SCHEDULE_TS = readRepo('src/lib/producerPayoutSchedule.ts')
+const RECONCILE_FN = readRepo('supabase/functions/confirm-reconciliation-receipts/index.ts')
+const DASHBOARD = readRepo('src/pages/Dashboard.tsx')
+const NOTIFICATIONS = readRepo('src/lib/notifications.ts')
 
 function functionBody(source: string, name: string): string {
   const start = source.indexOf(`export async function ${name}`)
@@ -61,6 +64,7 @@ function functionBody(source: string, name: string): string {
 
 const CONFIRM_CLIENT = functionBody(COMMISSION_TS, 'confirmProducerPaid')
 const CREATE_CLIENT = functionBody(COMMISSION_TS, 'createProducerPaymentBatch')
+const RECEIPT_CLIENT = functionBody(COMMISSION_TS, 'confirmAgencyCommissionReceived')
 
 const CONFIRM_METHODS = [
   { value: 'ach', label: 'ACH / Bank Transfer' },
@@ -128,12 +132,28 @@ function getTransactionWorkflowStatus(tx: {
   producerPaymentStatus: string
   paidDate: string | null
   paymentBatchId: string | null
+  paymentChannel?: string | null
 }): string {
   if (tx.archived) return 'Archived'
-  if (tx.producerPaymentStatus === 'paid' || Boolean(tx.paidDate)) return 'Paid Outside ALZA Flow'
+  if (tx.producerPaymentStatus === 'paid') return formatBatchStatusLabel('paid', tx.paymentChannel)
   if (tx.paymentBatchId) return 'Batch Created'
   if (tx.producerPaymentStatus === 'ready') return 'Ready for Payment'
   return 'Awaiting Receipt'
+}
+
+function receiptConfirmShouldResetReviewStatus(row: {
+  producerPaymentStatus?: string | null
+  paidDate?: string | null
+  paymentBatchId?: string | null
+  reviewStatus?: string | null
+}): boolean {
+  const payment = (row.producerPaymentStatus ?? 'not_ready').toLowerCase()
+  if (payment === 'ready' || payment === 'paid') return false
+  if (row.paidDate) return false
+  if (row.paymentBatchId) return false
+  const review = String(row.reviewStatus ?? '').trim().toLowerCase()
+  if (review === 'matched' || review === 'approved') return false
+  return true
 }
 
 function canManageProducerPayments(role: string): boolean {
@@ -459,9 +479,42 @@ assertEq(
     producerPaymentStatus: 'paid',
     paidDate: '2026-01-01',
     paymentBatchId: 'batch',
+    paymentChannel: 'outside_alza_flow',
   }),
   'Paid Outside ALZA Flow',
-  'Y: paid transactions display Paid Outside ALZA Flow',
+  'Y: V1 paid + outside_alza_flow displays Paid Outside ALZA Flow',
+)
+assertEq(
+  getTransactionWorkflowStatus({
+    archived: false,
+    producerPaymentStatus: 'paid',
+    paidDate: '2026-01-01',
+    paymentBatchId: 'batch',
+    paymentChannel: null,
+  }),
+  'Paid (Historical)',
+  'Y: paid + null channel displays Paid (Historical)',
+)
+assertEq(
+  getTransactionWorkflowStatus({
+    archived: false,
+    producerPaymentStatus: 'paid',
+    paidDate: '2026-07-30',
+    paymentBatchId: null,
+    paymentChannel: null,
+  }),
+  'Paid (Historical)',
+  'Y: historical paid without batch displays Paid (Historical)',
+)
+assertEq(
+  getTransactionWorkflowStatus({
+    archived: false,
+    producerPaymentStatus: 'ready',
+    paidDate: '2026-08-05',
+    paymentBatchId: null,
+  }),
+  'Ready for Payment',
+  'Y: ready + paid_date contradictory legacy displays Ready, not Paid',
 )
 assertEq(
   getTransactionWorkflowStatus({
@@ -658,6 +711,154 @@ assert(
     CONFIRM_SQL.includes('Rolling back to prevent a partial-paid batch') &&
     CONFIRM_SQL.includes('FOR UPDATE'),
   '9: confirm remains atomic',
+)
+
+// ---------------------------------------------------------------------------
+// Integrity hardening: receipt confirm + status-authoritative display
+// ---------------------------------------------------------------------------
+const RECEIPT_HELPER = (() => {
+  const start = COMMISSION_TS.indexOf('export function receiptConfirmShouldResetReviewStatus')
+  if (start < 0) return ''
+  const next = COMMISSION_TS.indexOf('\nexport async function ', start + 1)
+  return next < 0 ? COMMISSION_TS.slice(start) : COMMISSION_TS.slice(start, next)
+})()
+
+assert(
+  RECEIPT_HELPER.includes("payment === 'ready' || payment === 'paid'") &&
+    RECEIPT_HELPER.includes('if (row.paidDate) return false') &&
+    RECEIPT_HELPER.includes('if (row.paymentBatchId) return false') &&
+    RECEIPT_HELPER.includes("review === 'matched' || review === 'approved'"),
+  'IH: receiptConfirmShouldResetReviewStatus preserves ready/paid/batched/reviewed rows',
+)
+
+assert(
+  receiptConfirmShouldResetReviewStatus({
+    producerPaymentStatus: 'not_ready',
+    paidDate: null,
+    paymentBatchId: null,
+    reviewStatus: 'expected',
+  }),
+  'A: receipt confirm on normal pre-review transaction still resets review to expected',
+)
+assert(
+  !receiptConfirmShouldResetReviewStatus({
+    producerPaymentStatus: 'ready',
+    paidDate: null,
+    paymentBatchId: null,
+    reviewStatus: 'approved',
+  }),
+  'B: receipt confirm does not regress ready → expected',
+)
+assert(
+  !receiptConfirmShouldResetReviewStatus({
+    producerPaymentStatus: 'paid',
+    paidDate: '2026-07-30',
+    paymentBatchId: null,
+    reviewStatus: 'approved',
+  }),
+  'C: receipt confirm does not regress paid → expected',
+)
+assert(
+  RECEIPT_CLIENT.includes('receiptConfirmShouldResetReviewStatus') &&
+    RECEIPT_CLIENT.includes("txnPatch.review_status = 'expected'") &&
+    !/update\(\s*\{[^}]*review_status:\s*'expected'/.test(RECEIPT_CLIENT) &&
+    RECEIPT_CLIENT.includes(".eq('agency_commission_confirmed', false)") &&
+    !RECEIPT_CLIENT.includes('producer_payment_status:') &&
+    !RECEIPT_CLIENT.includes('paid_date:') &&
+    !RECEIPT_CLIENT.includes('paid_amount:') &&
+    !RECEIPT_CLIENT.includes('payment_batch_id:'),
+  'D/E: receipt confirm does not write producer payment status or paid_date; review reset is conditional',
+)
+assertEq(
+  getTransactionWorkflowStatus({
+    archived: false,
+    producerPaymentStatus: 'ready',
+    paidDate: '2026-08-05',
+    paymentBatchId: null,
+  }),
+  'Ready for Payment',
+  'F: ready + paid_date displays Ready for Payment',
+)
+assertEq(
+  getTransactionWorkflowStatus({
+    archived: false,
+    producerPaymentStatus: 'paid',
+    paidDate: '2026-07-30',
+    paymentBatchId: null,
+    paymentChannel: null,
+  }),
+  'Paid (Historical)',
+  'G: paid + null channel displays Paid (Historical)',
+)
+assertEq(
+  getTransactionWorkflowStatus({
+    archived: false,
+    producerPaymentStatus: 'paid',
+    paidDate: '2026-08-23',
+    paymentBatchId: 'batch',
+    paymentChannel: 'outside_alza_flow',
+  }),
+  'Paid Outside ALZA Flow',
+  'H: paid + outside_alza_flow displays Paid Outside ALZA Flow',
+)
+assert(
+  COMMISSION_TS.includes("normalizePaymentStatus(tx.producerPaymentStatus) === 'paid'") &&
+    !COMMISSION_TS.includes("producerPaymentStatus === 'paid' || Boolean(tx.paidDate)") &&
+    !DASHBOARD.includes("producerPaymentStatus === 'paid' || Boolean(tx.paidDate)") &&
+    !NOTIFICATIONS.includes("producerPaymentStatus === 'paid' || Boolean(tx.paidDate)"),
+  'F/G/H: display and paid KPIs use producer_payment_status, not paid_date override',
+)
+assert(
+  receiptConfirmShouldResetReviewStatus({
+    producerPaymentStatus: 'paid',
+    paidDate: '2026-07-30',
+    paymentBatchId: null,
+    reviewStatus: 'approved',
+  }) === false &&
+    getTransactionWorkflowStatus({
+      archived: false,
+      producerPaymentStatus: 'paid',
+      paidDate: '2026-07-30',
+      paymentBatchId: null,
+      paymentChannel: null,
+    }) === 'Paid (Historical)',
+  'I: historical paid without batch remains valid and displays Paid (Historical)',
+)
+assert(
+  CREATE_SQL.includes("status") &&
+    /INSERT INTO public\.producer_payment_batches[\s\S]*'draft'/.test(CREATE_SQL) &&
+    CREATE_SQL.includes('t.paid_date IS NULL') &&
+    !CREATE_SQL.includes("producer_payment_status = 'paid'"),
+  'J: batch create still draft/unpaid',
+)
+assert(
+  CONFIRM_SQL.includes('GET DIAGNOSTICS v_updated_count = ROW_COUNT') &&
+    CONFIRM_SQL.includes('Rolling back to prevent a partial-paid batch') &&
+    CONFIRM_SQL.includes('FOR UPDATE'),
+  'K: confirm still atomic',
+)
+assert(
+  CREATE_SQL.includes('producer_commission_recoveries') &&
+    CREATE_SQL.includes('producer_recovery_allocations') &&
+    !RECEIPT_CLIENT.includes('producer_commission_recoveries') &&
+    !RECEIPT_CLIENT.includes('producer_recovery_allocations'),
+  'L: recoveries unchanged by receipt confirm',
+)
+assert(
+  PERMISSIONS_TS.includes('export function canConfirmReceipts') &&
+    /export function canManageProducerPayments[\s\S]*return isAdminDirectoryRole/.test(PERMISSIONS_TS) &&
+    !canManageProducerPayments('csr') &&
+    !canManageProducerPayments('producer'),
+  'M: CSR/Producer payment permissions unchanged',
+)
+assert(
+  RECONCILE_FN.includes('function receiptConfirmShouldResetReviewStatus') &&
+    RECONCILE_FN.includes('receiptConfirmShouldResetReviewStatus(txn)') &&
+    RECONCILE_FN.includes(".eq('agency_commission_confirmed', false)") &&
+    RECONCILE_FN.includes("txnPatch.review_status = 'expected'") &&
+    !RECONCILE_FN.includes('producer_payment_status:') &&
+    RECONCILE_FN.includes('source: \'reconciliation\''),
+  'N: reconciliation receipt flow still confirms receipts; review reset is guarded the same way',
 )
 
 console.log(`Producer Payment V1 validation: ${passed} passed, ${failed} failed`)

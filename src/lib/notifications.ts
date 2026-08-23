@@ -512,7 +512,7 @@ export async function fetchOperationalNotifications(params: {
     if (
       hasProducerIdentity &&
       isOwnProducerTx &&
-      (tx.producerPaymentStatus === 'paid' || Boolean(tx.paidDate)) &&
+      tx.producerPaymentStatus === 'paid' &&
       roleAllowsKind(roleInput, 'commission_paid')
     ) {
       const paidIso = (tx.paidDate || tx.transactionDate || '').slice(0, 10)

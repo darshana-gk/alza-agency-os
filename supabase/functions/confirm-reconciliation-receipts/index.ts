@@ -1,7 +1,7 @@
 // Deno Edge Function: confirm-reconciliation-receipts
 // Mirrors confirmAgencyCommissionReceived() receipt payload + transaction update.
 // Does not modify producer splits, broker fees, recoveries, payouts, or approval workflow
-// beyond review_status = 'expected' (same as the manual receipt flow).
+// beyond optionally setting review_status = 'expected' on the pre-review path only.
 
 import { authorizeOwnerAdmin, serviceClient } from '../_shared/opsAuth.ts'
 import { corsHeaders, fail, ok } from '../_shared/http.ts'
@@ -31,6 +31,27 @@ function mapReceiptMatchConfidence(value: unknown): 'exact_invoice' | 'strong' |
 
 function varianceRequiresReview(type: unknown): boolean {
   return type === 'underpaid' || type === 'overpaid' || type === 'zero_amount'
+}
+
+/**
+ * Mirror src/lib/commission.ts receiptConfirmShouldResetReviewStatus.
+ * Receipt confirm must not reset review_status when producer payment has
+ * already progressed (ready/paid/batched/paid_date) or review is already
+ * submitted/approved.
+ */
+function receiptConfirmShouldResetReviewStatus(txn: {
+  producer_payment_status?: string | null
+  paid_date?: string | null
+  payment_batch_id?: string | null
+  review_status?: string | null
+}): boolean {
+  const payment = String(txn.producer_payment_status ?? '').toLowerCase()
+  if (payment === 'ready' || payment === 'paid') return false
+  if (txn.paid_date) return false
+  if (txn.payment_batch_id) return false
+  const review = String(txn.review_status ?? '').trim().toLowerCase()
+  if (review === 'matched' || review === 'approved') return false
+  return true
 }
 
 function isDuplicateReceiptError(error: { code?: string; message?: string } | null | undefined): boolean {
@@ -148,6 +169,7 @@ Deno.serve(async (req) => {
         `
         id, transaction_number, client_id, policy_id, producer, expected_amount,
         agency_commission_amount, amount_received, agency_commission_confirmed,
+        producer_payment_status, payment_batch_id, paid_date, review_status,
         clients ( business_name ),
         policies ( policy_number )
       `,
@@ -233,15 +255,19 @@ Deno.serve(async (req) => {
       continue
     }
 
+    const txnPatch: Record<string, unknown> = {
+      amount_received: amountReceived,
+      received_date: settlementDate || null,
+      agency_commission_confirmed: true,
+      agency_commission_receipt_id: receipt.id,
+    }
+    if (receiptConfirmShouldResetReviewStatus(txn)) {
+      txnPatch.review_status = 'expected'
+    }
+
     const { data: updatedTxn, error: updateError } = await admin
       .from('transactions')
-      .update({
-        amount_received: amountReceived,
-        received_date: settlementDate || null,
-        agency_commission_confirmed: true,
-        agency_commission_receipt_id: receipt.id,
-        review_status: 'expected',
-      })
+      .update(txnPatch)
       .eq('id', txn.id)
       .eq('agency_commission_confirmed', false)
       .select('id')

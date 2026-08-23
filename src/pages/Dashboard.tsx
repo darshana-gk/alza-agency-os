@@ -248,7 +248,7 @@ export function Dashboard() {
       .filter((tx) => isReadyForPayout(tx))
       .reduce((sum, tx) => sum + tx.producerCommissionAmount, 0)
     const producerPaid = transactions
-      .filter((tx) => tx.producerPaymentStatus === 'paid' || Boolean(tx.paidDate))
+      .filter((tx) => tx.producerPaymentStatus === 'paid')
       .reduce((sum, tx) => sum + (tx.paidAmount ?? tx.producerCommissionAmount), 0)
 
     return {
