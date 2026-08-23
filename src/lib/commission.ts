@@ -301,8 +301,10 @@ export function formatBatchStatusLabel(
   if (normalized === 'unknown') return 'Unknown'
   if (normalized === 'draft') return 'Ready to Pay'
   if (normalized === 'paid') {
-    if ((paymentChannel ?? '').trim() === 'alza_flow_pay') return 'Paid via ALZA Flow Pay'
-    return 'Paid Outside ALZA Flow'
+    const channel = (paymentChannel ?? '').trim()
+    if (channel === 'alza_flow_pay') return 'Paid via ALZA Flow Pay'
+    if (channel === 'outside_alza_flow') return 'Paid Outside ALZA Flow'
+    return 'Paid (Historical)'
   }
   return formatLabel(normalized)
 }
@@ -1648,13 +1650,13 @@ export function canMarkProducerCommissionReady(tx: CommissionTransaction): boole
 
 /** Explain why Mark Ready is hidden for an otherwise approved transaction. */
 export function markReadyBlockedReason(tx: CommissionTransaction): string | null {
-  if (tx.voidedAt) return 'Voided transactions cannot be marked ready for payout.'
-  if (tx.archived) return 'Archived transactions cannot be marked ready for payout.'
+  if (tx.voidedAt) return 'Voided transactions cannot be marked ready for payment.'
+  if (tx.archived) return 'Archived transactions cannot be marked ready for payment.'
   if (!tx.agencyCommissionConfirmed) return 'Confirm agency commission receipt before Mark Ready.'
   if (tx.reviewStatus !== 'approved') return 'Approve the transaction before Mark Ready for Payment.'
   if (!isAssignableProducer(tx.producer)) return 'Assign an active producer before Mark Ready.'
   if (!(tx.producerCommissionAmount > 0)) {
-    return `Producer commission is ${formatCurrency(tx.producerCommissionAmount)}. Mark Ready requires a positive producer commission (batch payouts exclude $0 / negative).`
+    return `Producer commission is ${formatCurrency(tx.producerCommissionAmount)}. Mark Ready requires a positive producer commission (payment batches exclude $0 / negative).`
   }
   if (tx.producerPaymentStatus === 'ready') return null
   if (tx.producerPaymentStatus === 'paid' || tx.paidDate) return 'This transaction is already paid.'

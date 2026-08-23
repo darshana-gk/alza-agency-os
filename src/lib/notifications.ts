@@ -762,7 +762,7 @@ function buildAttentionSummary(
       href: '/transactions?review=approved&payment=not_ready',
     },
     {
-      label: 'Ready for producer payout',
+      label: 'Ready for producer payment',
       count: countKind('ready_for_payout'),
       href: '/financials?tab=payments',
     },

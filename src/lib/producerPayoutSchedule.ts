@@ -140,12 +140,10 @@ export function nextPlannedPayoutDate(input: {
 
 export function formatPaymentChannelLabel(
   channel: string | null | undefined,
-  status?: string | null,
+  _status?: string | null,
 ): string {
-  const paid = (status ?? '').toLowerCase() === 'paid'
   if (channel === 'alza_flow_pay') return 'ALZA Flow Pay'
   if (channel === 'outside_alza_flow') return 'Outside ALZA Flow'
-  if (paid) return 'Outside ALZA Flow'
   return '—'
 }
 

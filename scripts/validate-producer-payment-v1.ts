@@ -83,8 +83,10 @@ function formatBatchStatusLabel(status: string | null | undefined, paymentChanne
   const normalized = (status ?? '').toLowerCase().trim()
   if (normalized === 'draft') return 'Ready to Pay'
   if (normalized === 'paid') {
-    if ((paymentChannel ?? '').trim() === 'alza_flow_pay') return 'Paid via ALZA Flow Pay'
-    return 'Paid Outside ALZA Flow'
+    const channel = (paymentChannel ?? '').trim()
+    if (channel === 'alza_flow_pay') return 'Paid via ALZA Flow Pay'
+    if (channel === 'outside_alza_flow') return 'Paid Outside ALZA Flow'
+    return 'Paid (Historical)'
   }
   if (!normalized) return 'Unknown'
   return formatLabel(normalized)
@@ -329,6 +331,7 @@ assert(
   COMMISSION_TS.includes("return 'Payment date is required.'") &&
     COMMISSION_TS.includes("return 'Payment method is required.'") &&
     COMMISSION_TS.includes("'Ready to Pay'") &&
+    COMMISSION_TS.includes("'Paid (Historical)'") &&
     COMMISSION_TS.includes("'Paid Outside ALZA Flow'") &&
     COMMISSION_TS.includes("'Ready for Payment'") &&
     COMMISSION_TS.includes("'Batch Created'") &&
@@ -442,14 +445,14 @@ assert(
 // ---------------------------------------------------------------------------
 // Y–Z legacy display / methods
 // ---------------------------------------------------------------------------
-assertEq(formatBatchStatusLabel('paid', null), 'Paid Outside ALZA Flow', 'Y: legacy paid batch label')
+assertEq(formatBatchStatusLabel('paid', null), 'Paid (Historical)', 'Y: legacy paid batch with null channel is Paid (Historical)')
 assertEq(
   formatBatchStatusLabel('paid', 'outside_alza_flow'),
   'Paid Outside ALZA Flow',
   'Y: outside-ALZA paid batch label',
 )
 assertEq(formatBatchStatusLabel('draft'), 'Ready to Pay', 'Y: draft batch is Ready to Pay')
-assertEq(formatPaymentChannelLabel(null, 'paid'), 'Outside ALZA Flow', 'Y: null channel displays as outside ALZA')
+assertEq(formatPaymentChannelLabel(null, 'paid'), '—', 'Y: null channel is not displayed as Outside ALZA Flow')
 assertEq(
   getTransactionWorkflowStatus({
     archived: false,
@@ -544,6 +547,16 @@ assert(
   'UI: required warning copy',
 )
 assert(FINANCIALS.includes('Ready for Payment'), 'UI: Ready for Payment heading')
+assert(
+  FINANCIALS.includes('Producer commissions that are ready to be included in a payment batch.'),
+  'UI: Ready for Payment supporting description',
+)
+assert(!FINANCIALS.includes('Ready for Payout'), 'UI: Ready for Payout heading is gone')
+assert(
+  COMMISSION_TS.includes("return 'Paid (Historical)'") &&
+    FINANCIALS.includes('formatBatchStatusLabel(row.status, row.paymentChannel)'),
+  'UI: historical paid batches use Paid (Historical) via formatBatchStatusLabel',
+)
 assert(
   CONFIRM_SQL.includes('ADD COLUMN IF NOT EXISTS confirmed_at') &&
     CONFIRM_SQL.includes('ADD COLUMN IF NOT EXISTS payment_channel') &&

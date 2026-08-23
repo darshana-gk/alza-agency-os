@@ -1414,7 +1414,9 @@ export function Financials() {
               {statusOptions.map((status) => (
                 <option key={status} value={status}>
                   {tab === 'payments'
-                    ? formatBatchStatusLabel(status)
+                    ? status === 'paid'
+                      ? 'Paid'
+                      : formatBatchStatusLabel(status)
                     : tab === 'recoveries'
                       ? formatRecoveryStatusLabel(status)
                       : formatLabel(status)}
@@ -1443,8 +1445,7 @@ export function Financials() {
             <div>
               <h3 className="text-sm font-semibold text-slate-900">Ready for Payment</h3>
               <p className="text-sm text-slate-500">
-                Producer-level payouts. Open recoveries reduce net proposed (carry-forward; never below $0). Creating a
-                batch does not mark commissions paid.
+                Producer commissions that are ready to be included in a payment batch.
               </p>
             </div>
             {canPay && (

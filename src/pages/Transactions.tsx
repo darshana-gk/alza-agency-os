@@ -2568,7 +2568,7 @@ export function Transactions() {
                 ? isCorrectionRequired(selected)
                   ? 'Returned for Correction — Owner/Admin or assigned CSR may amend amount, commission, dates, and identity. Paid/batched transactions stay locked.'
                   : 'Identity and unconfirmed commission snapshot may be edited. Paid, batched, or receipt-confirmed transactions keep commission locked unless returned for correction.'
-                : 'Identity and metadata only. Premium and commission amounts stay locked because this transaction is confirmed, batched, paid, ready for payout, or otherwise financially locked.'}
+                : 'Identity and metadata only. Premium and commission amounts stay locked because this transaction is confirmed, batched, paid, ready for payment, or otherwise financially locked.'}
             </p>
             <div className="grid gap-3 sm:grid-cols-2">
               <Field label="Transaction date">
