@@ -98,9 +98,9 @@ export const reviewStatusStyles: Record<string, string> = {
  */
 export const WORKFLOW_STATUSES = [
   'Archived',
-  'Paid',
-  'In Payment Batch',
-  'Ready for Payout',
+  'Paid Outside ALZA Flow',
+  'Batch Created',
+  'Ready for Payment',
   'Approved',
   'Submitted for Review',
   'Returned for Correction',
@@ -118,9 +118,9 @@ export const FINAL_WORKFLOW_STAGES = [
   'Returned for Correction',
   'Submitted for Review',
   'Approved',
-  'Ready for Payout',
-  'In Payment Batch',
-  'Paid',
+  'Ready for Payment',
+  'Batch Created',
+  'Paid Outside ALZA Flow',
 ] as const
 export type FinalWorkflowStage = (typeof FINAL_WORKFLOW_STAGES)[number]
 
@@ -133,9 +133,9 @@ export const workflowStatusStyles: Record<TransactionWorkflowStatus, string> = {
   'Returned for Correction': 'bg-orange-50 text-orange-800 ring-orange-600/25',
   'Submitted for Review': 'bg-amber-50 text-amber-700 ring-amber-600/20',
   Approved: 'bg-alza-blue-50 text-alza-blue-700 ring-alza-blue-600/20',
-  'Ready for Payout': 'bg-amber-50 text-amber-800 ring-amber-600/20',
-  'In Payment Batch': 'bg-violet-50 text-violet-700 ring-violet-600/20',
-  Paid: 'bg-emerald-50 text-emerald-700 ring-emerald-600/20',
+  'Ready for Payment': 'bg-amber-50 text-amber-800 ring-amber-600/20',
+  'Batch Created': 'bg-violet-50 text-violet-700 ring-violet-600/20',
+  'Paid Outside ALZA Flow': 'bg-emerald-50 text-emerald-700 ring-emerald-600/20',
   Archived: 'bg-slate-100 text-slate-600 ring-slate-500/20',
 }
 
@@ -161,9 +161,9 @@ export function getTransactionWorkflowStatus(tx: {
   reviewReturnReason?: string
 }): TransactionWorkflowStatus {
   if (tx.archived) return 'Archived'
-  if (tx.producerPaymentStatus === 'paid' || Boolean(tx.paidDate)) return 'Paid'
-  if (tx.paymentBatchId) return 'In Payment Batch'
-  if (tx.producerPaymentStatus === 'ready') return 'Ready for Payout'
+  if (tx.producerPaymentStatus === 'paid' || Boolean(tx.paidDate)) return 'Paid Outside ALZA Flow'
+  if (tx.paymentBatchId) return 'Batch Created'
+  if (tx.producerPaymentStatus === 'ready') return 'Ready for Payment'
   if (tx.agencyCommissionConfirmed && tx.reviewStatus === 'approved') return 'Approved'
   if (tx.agencyCommissionConfirmed && tx.reviewStatus === 'matched') return 'Submitted for Review'
   if (
@@ -188,9 +188,9 @@ const STAGE_PHASE: Record<FinalWorkflowStage, WorkflowTimelinePhase> = {
   'Returned for Correction': 'Review',
   'Submitted for Review': 'Review',
   Approved: 'Review',
-  'Ready for Payout': 'Payout',
-  'In Payment Batch': 'Payment',
-  Paid: 'Payment',
+  'Ready for Payment': 'Payout',
+  'Batch Created': 'Payment',
+  'Paid Outside ALZA Flow': 'Payment',
 }
 
 /** Timeline for drawer: Entered → … → Paid with completed / current / future. */
@@ -293,15 +293,23 @@ export function normalizeBatchStatus(value: string | null | undefined): string {
   return 'unknown'
 }
 
-export function formatBatchStatusLabel(status: string | null | undefined): string {
+export function formatBatchStatusLabel(
+  status: string | null | undefined,
+  paymentChannel?: string | null,
+): string {
   const normalized = normalizeBatchStatus(status)
   if (normalized === 'unknown') return 'Unknown'
+  if (normalized === 'draft') return 'Ready to Pay'
+  if (normalized === 'paid') {
+    if ((paymentChannel ?? '').trim() === 'alza_flow_pay') return 'Paid via ALZA Flow Pay'
+    return 'Paid Outside ALZA Flow'
+  }
   return formatLabel(normalized)
 }
 
 /**
- * Payment methods for Confirm Producer Paid.
- * Stored values must match producer_payment_batches.payment_method CHECK.
+ * Full stored payment-method set, including historical Venmo/PayPal for display.
+ * New Confirm Paid Outside ALZA Flow writes use PRODUCER_PAYMENT_CONFIRM_METHODS only.
  */
 export const PRODUCER_PAYMENT_METHODS = [
   { value: 'ach', label: 'ACH / Bank Transfer' },
@@ -314,7 +322,23 @@ export const PRODUCER_PAYMENT_METHODS = [
   { value: 'other', label: 'Other' },
 ] as const
 
+/** Methods offered on the Confirm Paid Outside ALZA Flow modal (new writes). */
+export const PRODUCER_PAYMENT_CONFIRM_METHODS = [
+  { value: 'ach', label: 'ACH / Bank Transfer' },
+  { value: 'check', label: 'Check' },
+  { value: 'zelle', label: 'Zelle' },
+  { value: 'wire', label: 'Wire' },
+  { value: 'cash', label: 'Cash' },
+  { value: 'other', label: 'Other' },
+] as const
+
 export type ProducerPaymentMethodValue = (typeof PRODUCER_PAYMENT_METHODS)[number]['value']
+export type ProducerPaymentConfirmMethodValue =
+  (typeof PRODUCER_PAYMENT_CONFIRM_METHODS)[number]['value']
+
+export const CONFIRM_PRODUCER_PAID_RPC = 'confirm_producer_paid_outside_alza_flow'
+export const PAYMENT_CHANNEL_OUTSIDE_ALZA_FLOW = 'outside_alza_flow'
+export const PAYMENT_CHANNEL_ALZA_FLOW_PAY = 'alza_flow_pay'
 
 export function formatProducerPaymentMethodLabel(value: string | null | undefined): string {
   const raw = (value ?? '').trim()
@@ -334,6 +358,22 @@ export function formatProducerPaymentMethodLabel(value: string | null | undefine
 export function isValidProducerPaymentMethod(value: string | null | undefined): boolean {
   const v = (value ?? '').trim()
   return PRODUCER_PAYMENT_METHODS.some((m) => m.value === v)
+}
+
+export function isValidProducerPaymentConfirmMethod(value: string | null | undefined): boolean {
+  const v = (value ?? '').trim()
+  return PRODUCER_PAYMENT_CONFIRM_METHODS.some((m) => m.value === v)
+}
+
+export function validateConfirmPaidOutsideAlzaFlowInput(input: {
+  paymentDate?: string | null
+  paymentMethod?: string | null
+  paymentReference?: string | null
+  notes?: string | null
+}): string | null {
+  if (!(input.paymentDate ?? '').trim()) return 'Payment date is required.'
+  if (!isValidProducerPaymentConfirmMethod(input.paymentMethod)) return 'Payment method is required.'
+  return null
 }
 
 export function canConfirmProducerPaid(batch: {
@@ -1611,7 +1651,7 @@ export function markReadyBlockedReason(tx: CommissionTransaction): string | null
   if (tx.voidedAt) return 'Voided transactions cannot be marked ready for payout.'
   if (tx.archived) return 'Archived transactions cannot be marked ready for payout.'
   if (!tx.agencyCommissionConfirmed) return 'Confirm agency commission receipt before Mark Ready.'
-  if (tx.reviewStatus !== 'approved') return 'Approve the transaction before Mark Ready for Payout.'
+  if (tx.reviewStatus !== 'approved') return 'Approve the transaction before Mark Ready for Payment.'
   if (!isAssignableProducer(tx.producer)) return 'Assign an active producer before Mark Ready.'
   if (!(tx.producerCommissionAmount > 0)) {
     return `Producer commission is ${formatCurrency(tx.producerCommissionAmount)}. Mark Ready requires a positive producer commission (batch payouts exclude $0 / negative).`
@@ -3782,12 +3822,14 @@ export async function createProducerPaymentBatch(input: CreatePaymentBatchInput)
 
 export interface ConfirmProducerPaidInput {
   batchId: string
-  transactionIds: string[]
-  itemNetAmounts: Record<string, number>
   paymentDate: string
   paymentMethod: string
-  paymentReference: string
+  paymentReference?: string
   notes?: string
+  /** Ignored — RPC derives linked transactions from the batch. Kept for call-site compatibility. */
+  transactionIds?: string[]
+  /** Ignored — RPC derives item nets from the database. Kept for call-site compatibility. */
+  itemNetAmounts?: Record<string, number>
 }
 
 export async function confirmProducerPaid(input: ConfirmProducerPaidInput) {
@@ -3801,179 +3843,12 @@ export async function confirmProducerPaid(input: ConfirmProducerPaidInput) {
       },
     }
   }
-  if (!input.paymentDate.trim()) {
+
+  const validationError = validateConfirmPaidOutsideAlzaFlowInput(input)
+  if (validationError) {
     return {
       error: {
-        message: 'Payment date is required.',
-        table: 'producer_payment_batches',
-        operation: 'confirm_paid_validation',
-      },
-    }
-  }
-  if (!isValidProducerPaymentMethod(input.paymentMethod)) {
-    return {
-      error: {
-        message: 'Payment method is required.',
-        table: 'producer_payment_batches',
-        operation: 'confirm_paid_validation',
-      },
-    }
-  }
-
-  const { data: batch, error: batchFetchError } = await supabase
-    .from('producer_payment_batches')
-    .select(
-      `
-      id,
-      batch_number,
-      producer,
-      status,
-      gross_commission,
-      net_payment,
-      voided_at,
-      producer_payment_batch_items (
-        id,
-        batch_id,
-        transaction_id,
-        net_amount
-      )
-    `,
-    )
-    .eq('id', input.batchId)
-    .maybeSingle()
-
-  if (batchFetchError) {
-    return {
-      error: {
-        message: batchFetchError.message,
-        table: 'producer_payment_batches',
-        operation: 'confirm_paid_fetch',
-        details: batchFetchError,
-      },
-    }
-  }
-
-  if (!batch) {
-    return {
-      error: {
-        message: 'Payment batch not found.',
-        table: 'producer_payment_batches',
-        operation: 'confirm_paid_validation',
-      },
-    }
-  }
-
-  const batchStatus = (batch.status ?? '').toLowerCase()
-  const items = Array.isArray(batch.producer_payment_batch_items)
-    ? batch.producer_payment_batch_items
-    : batch.producer_payment_batch_items
-      ? [batch.producer_payment_batch_items]
-      : []
-  const batchNet = toNumber(batch.net_payment)
-  const batchGross = toNumber(batch.gross_commission)
-  const batchProducer = (batch.producer ?? '').trim()
-
-  // Zero-net batches are allowed when recoveries fully offset gross at batch create.
-  // Confirm Paid must NOT touch recovery balances again (consumed at create).
-  if (batchStatus !== 'draft' || batch.voided_at || items.length < 1 || !(batchNet >= 0)) {
-    return {
-      error: {
-        message:
-          'Payment batch is not confirmable. It must be draft, not voided, have at least one item, and net_payment >= 0.',
-        table: 'producer_payment_batches',
-        operation: 'confirm_paid_validation',
-      },
-    }
-  }
-
-  const transactionIds = items
-    .map((item) => item.transaction_id)
-    .filter((id): id is string => Boolean(id))
-
-  if (transactionIds.length !== items.length) {
-    return {
-      error: {
-        message: 'One or more batch items are missing a linked transaction.',
-        table: 'producer_payment_batch_items',
-        operation: 'confirm_paid_validation',
-      },
-    }
-  }
-
-  const { data: transactions, error: txnFetchError } = await supabase
-    .from('transactions')
-    .select(
-      `
-      id,
-      transaction_number,
-      producer,
-      producer_payment_status,
-      payment_batch_id,
-      paid_date
-    `,
-    )
-    .in('id', transactionIds)
-
-  if (txnFetchError) {
-    return {
-      error: {
-        message: txnFetchError.message,
-        table: 'transactions',
-        operation: 'confirm_paid_fetch',
-        details: txnFetchError,
-      },
-    }
-  }
-
-  const txnById = new Map((transactions ?? []).map((row) => [row.id, row]))
-  let itemsNetSum = 0
-
-  for (const item of items) {
-    const itemNet = toNumber(item.net_amount)
-    if (!(itemNet >= 0)) {
-      return {
-        error: {
-          message: 'Every batch item must have net_amount >= 0.',
-          table: 'producer_payment_batch_items',
-          operation: 'confirm_paid_validation',
-        },
-      }
-    }
-    itemsNetSum += itemNet
-
-    const tx = txnById.get(item.transaction_id)
-    if (!tx) {
-      return {
-        error: {
-          message: `Linked transaction ${item.transaction_id} was not found.`,
-          table: 'transactions',
-          operation: 'confirm_paid_validation',
-        },
-      }
-    }
-
-    const txProducer = (tx.producer ?? '').trim()
-    if (
-      tx.payment_batch_id !== batch.id ||
-      normalizePaymentStatus(tx.producer_payment_status) !== 'ready' ||
-      tx.paid_date ||
-      !isAssignableProducer(txProducer) ||
-      txProducer !== batchProducer
-    ) {
-      return {
-        error: {
-          message: `Transaction ${tx.transaction_number ?? tx.id} is not eligible for payment confirmation (must be ready, linked to this batch, unpaid, and match batch producer).`,
-          table: 'transactions',
-          operation: 'confirm_paid_validation',
-        },
-      }
-    }
-  }
-
-  if (Math.abs(itemsNetSum - batchNet) > 0.009) {
-    return {
-      error: {
-        message: `Batch item net totals (${itemsNetSum.toFixed(2)}) do not match batch net_payment (${batchNet.toFixed(2)}).`,
+        message: validationError,
         table: 'producer_payment_batches',
         operation: 'confirm_paid_validation',
       },
@@ -3981,110 +3856,66 @@ export async function confirmProducerPaid(input: ConfirmProducerPaidInput) {
   }
 
   const paymentMethod = input.paymentMethod.trim()
-  const paymentReference = input.paymentReference.trim() || null
+  const paymentReference = (input.paymentReference ?? '').trim() || null
   const paymentNotes = input.notes?.trim() || null
 
-  const batchUpdate: Record<string, unknown> = {
-    status: 'paid',
-    payment_date: input.paymentDate,
-    payment_method: paymentMethod,
-    payment_reference: paymentReference,
-  }
-  // Only set notes when provided so create-time batch notes are not wiped by empty confirm notes.
-  if (paymentNotes !== null) {
-    batchUpdate.notes = paymentNotes
-  }
+  const { data, error } = await supabase.rpc(CONFIRM_PRODUCER_PAID_RPC, {
+    p_batch_id: input.batchId,
+    p_payment_date: input.paymentDate.trim(),
+    p_payment_method: paymentMethod,
+    p_payment_reference: paymentReference,
+    p_notes: paymentNotes,
+  })
 
-  const { data: updatedBatch, error: batchError } = await supabase
-    .from('producer_payment_batches')
-    .update(batchUpdate)
-    .eq('id', input.batchId)
-    .eq('status', 'draft')
-    .is('voided_at', null)
-    .select('id')
-
-  if (batchError) {
+  if (error) {
+    const missingFn =
+      error.code === 'PGRST202' ||
+      /Could not find the function/i.test(error.message) ||
+      /schema cache/i.test(error.message)
     return {
       error: {
-        message: batchError.message,
+        message: missingFn
+          ? 'Atomic confirm RPC is not applied yet. Apply migration 20260823140000_producer_payment_confirm_outside_alza_flow.sql before confirming producer payments.'
+          : error.message,
         table: 'producer_payment_batches',
-        operation: 'update_confirm_paid',
-        details: batchError,
+        operation: missingFn ? 'rpc_missing' : 'rpc_confirm_producer_paid_outside_alza_flow',
+        details: error,
       },
     }
   }
 
-  if (!updatedBatch || updatedBatch.length === 0) {
-    return {
-      error: {
-        message:
-          'Payment batch was not updated. It may no longer be draft, or it may have been voided concurrently.',
-        table: 'producer_payment_batches',
-        operation: 'confirm_paid_validation',
-      },
-    }
-  }
-
-  for (const item of items) {
-    const { data: updatedTxn, error: txnError } = await supabase
-      .from('transactions')
-      .update({
-        producer_payment_status: 'paid',
-        paid_amount: toNumber(item.net_amount),
-        paid_date: input.paymentDate,
-        payment_method: paymentMethod,
-        payment_reference: paymentReference,
-      })
-      .eq('id', item.transaction_id)
-      .eq('payment_batch_id', input.batchId)
-      .eq('producer_payment_status', 'ready')
-      .is('paid_date', null)
-      .select('id')
-
-    if (txnError) {
-      return {
-        error: {
-          message: txnError.message,
-          table: 'transactions',
-          operation: 'update_confirm_paid',
-          details: txnError,
-          transactionId: item.transaction_id,
-          batchId: input.batchId,
-        },
-      }
-    }
-
-    if (!updatedTxn || updatedTxn.length === 0) {
-      return {
-        error: {
-          message:
-            'Batch was marked paid, but a linked transaction could not be updated (possible concurrent change). Review the batch and transaction before retrying.',
-          table: 'transactions',
-          operation: 'confirm_paid_partial_failure',
-          transactionId: item.transaction_id,
-          batchId: input.batchId,
-        },
-      }
-    }
-  }
+  const payload = data as {
+    batch_id?: string
+    batch_number?: string
+    producer?: string
+    payment_date?: string
+    payment_method?: string
+    payment_reference?: string | null
+    notes?: string | null
+    gross_commission?: number
+    net_payment?: number
+    recovery_applied?: number
+    confirmed_at?: string
+    payment_channel?: string
+  } | null
 
   await recordActivity({
     action: 'producer_payout_confirm',
     entityType: 'payment_batch',
     entityId: input.batchId,
-    recordReference: String(batch.batch_number ?? ''),
+    recordReference: String(payload?.batch_number ?? ''),
     newValue: {
-      producer: batchProducer,
-      paymentDate: input.paymentDate,
-      paymentMethod,
-      paymentReference,
-      notes: paymentNotes,
-      grossCommission: batchGross,
-      netPayment: batchNet,
-      recoveryApplied: roundMoney(Math.max(batchGross - batchNet, 0)),
-      transactionIds,
+      producer: payload?.producer ?? null,
+      paymentChannel: payload?.payment_channel ?? PAYMENT_CHANNEL_OUTSIDE_ALZA_FLOW,
+      paymentDate: payload?.payment_date ?? input.paymentDate.trim(),
+      paymentMethod: payload?.payment_method ?? paymentMethod,
+      paymentReference: payload?.payment_reference ?? paymentReference,
+      notes: payload?.notes ?? paymentNotes,
+      grossCommission: payload?.gross_commission ?? null,
+      netPayment: payload?.net_payment ?? null,
+      recoveryApplied: payload?.recovery_applied ?? null,
     },
   })
 
-  return { error: null }
+  return { error: null, data: payload }
 }

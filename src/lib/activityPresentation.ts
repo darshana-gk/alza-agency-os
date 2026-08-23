@@ -1,5 +1,6 @@
 import type { ActivityHistoryRow } from './activity'
 import { formatCurrency, formatProducerPaymentMethodLabel, formatTypeLabel } from './commission'
+import { formatPaymentChannelLabel } from './producerPayoutSchedule'
 
 function formatMoneyMaybe(value: unknown): string | null {
   if (typeof value === 'number' && Number.isFinite(value)) return formatCurrency(value)
@@ -44,6 +45,7 @@ const FIELD_LABELS: Record<string, string> = {
   paymentDate: 'Payment Date',
   paymentMethod: 'Payment Method',
   paymentReference: 'Payment Reference',
+  paymentChannel: 'Payment Channel',
   netPayment: 'Net Amount Paid',
   grossCommission: 'Gross Producer Commission',
   recoveryApplied: 'Recovery / Chargeback Applied',
@@ -62,6 +64,8 @@ const SKIP_KEYS = new Set([
   'policyId',
   'reviewerUserId',
   'id',
+  'confirmedBy',
+  'batchId',
 ])
 
 function looksLikeUuid(value: string): boolean {
@@ -83,6 +87,9 @@ export function humanActivityValue(key: string, value: unknown): string | null {
 
   if (key === 'paymentMethod') {
     return formatProducerPaymentMethodLabel(String(value))
+  }
+  if (key === 'paymentChannel') {
+    return formatPaymentChannelLabel(String(value))
   }
   if (key.toLowerCase().includes('split') && typeof value === 'number') {
     return `${Number(value).toFixed(2)}%`
@@ -151,7 +158,7 @@ export function formatActivityActionLabel(action: string): string {
     case 'transaction_approve':
       return 'Approved'
     case 'transaction_mark_ready':
-      return 'Marked Ready for Payout'
+      return 'Marked Ready for Payment'
     case 'transaction_void':
       return 'Transaction voided'
     case 'transaction_archive':
@@ -159,7 +166,7 @@ export function formatActivityActionLabel(action: string): string {
     case 'payment_batch_create':
       return 'Payment batch created'
     case 'producer_payout_confirm':
-      return 'Producer payment confirmed'
+      return 'Producer payment confirmed outside ALZA Flow'
     case 'document_upload':
       return 'Document uploaded'
     case 'document_delete':
@@ -275,8 +282,8 @@ export function formatActivityDetailsSummary(row: ActivityHistoryRow): string {
           newObj.producerCommissionAmount ?? newObj.amount ?? newObj.producerCommission,
         ) || humanActivityValue('amount', newObj.amount)
       return amount
-        ? `Producer commission marked Ready for Payout — ${amount}`
-        : 'Producer commission marked Ready for Payout'
+        ? `Producer commission marked Ready for Payment — ${amount}`
+        : 'Producer commission marked Ready for Payment'
     }
 
     case 'recovery_create': {
@@ -309,10 +316,12 @@ export function formatActivityDetailsSummary(row: ActivityHistoryRow): string {
       const net = humanActivityValue('netPayment', newObj.netPayment)
       const method = humanActivityValue('paymentMethod', newObj.paymentMethod)
       const date = humanActivityValue('paymentDate', newObj.paymentDate)
-      const parts = [net, method, date].filter(Boolean)
+      const channel = humanActivityValue('paymentChannel', newObj.paymentChannel)
+      const reference = humanActivityValue('paymentReference', newObj.paymentReference)
+      const parts = [channel, net, method, date, reference ? `Ref ${reference}` : null].filter(Boolean)
       return parts.length
-        ? `Producer payment confirmed — ${parts.join(' · ')}`
-        : 'Producer payment confirmed'
+        ? `Producer payment confirmed outside ALZA Flow — ${parts.join(' · ')}`
+        : 'Producer payment confirmed outside ALZA Flow'
     }
 
     case 'document_upload': {
@@ -383,11 +392,11 @@ export function activityDrawerHeadline(row: ActivityHistoryRow): string {
     case 'transaction_return':
       return `Returned for correction by ${who}`
     case 'transaction_mark_ready':
-      return `Marked ready for payout by ${who}`
+      return `Marked ready for payment by ${who}`
     case 'payment_batch_create':
       return `Added to payment batch by ${who}`
     case 'producer_payout_confirm':
-      return `Producer payment recorded by ${who}`
+      return `Producer payment recorded outside ALZA Flow by ${who}`
     case 'transaction_void':
       return `Transaction voided by ${who}`
     case 'transaction_archive':
@@ -435,6 +444,7 @@ export function activityDrawerDetailLines(row: ActivityHistoryRow): string[] {
 
   if (row.action === 'producer_payout_confirm') {
     const lines: string[] = []
+    const channel = humanActivityValue('paymentChannel', newObj.paymentChannel)
     const paymentDate = humanActivityValue('paymentDate', newObj.paymentDate)
     const paymentMethod = humanActivityValue('paymentMethod', newObj.paymentMethod)
     const paymentReference = humanActivityValue('paymentReference', newObj.paymentReference)
@@ -442,6 +452,7 @@ export function activityDrawerDetailLines(row: ActivityHistoryRow): string[] {
     const gross = humanActivityValue('grossCommission', newObj.grossCommission)
     const recovery = humanActivityValue('recoveryApplied', newObj.recoveryApplied)
     const net = humanActivityValue('netPayment', newObj.netPayment)
+    if (channel) lines.push(`Payment Channel: ${channel}`)
     if (paymentDate) lines.push(`Payment Date: ${paymentDate}`)
     if (paymentMethod) lines.push(`Payment Method: ${paymentMethod}`)
     if (paymentReference) lines.push(`Payment Reference: ${paymentReference}`)

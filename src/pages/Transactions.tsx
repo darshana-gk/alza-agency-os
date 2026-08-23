@@ -807,7 +807,7 @@ export function Transactions() {
       return
     }
     setReadyOpen(false)
-    setActionSuccess('Producer commission marked Ready for payout.')
+    setActionSuccess('Producer commission marked Ready for Payment.')
     await loadTransactions()
   }
 
@@ -2208,7 +2208,7 @@ export function Transactions() {
                 )}
                 {showMarkReady && (
                   <button type="button" onClick={() => setReadyOpen(true)} className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-alza-blue-200 bg-alza-blue-50 px-4 py-2.5 text-sm font-medium text-alza-blue-800 hover:bg-alza-blue-100">
-                    {ownerOverrideLabel ? 'Mark Ready for Payout (Owner Override)' : 'Mark Ready for Payout'}
+                    {ownerOverrideLabel ? 'Mark Ready for Payment (Owner Override)' : 'Mark Ready for Payment'}
                   </button>
                 )}
                 {showGoToPayments && (
@@ -2348,10 +2348,11 @@ export function Transactions() {
       )}
 
       {readyOpen && selected && (
-        <Modal title="Mark Ready for Payout" onClose={() => !saving && setReadyOpen(false)}>
+        <Modal title="Mark Ready for Payment" onClose={() => !saving && setReadyOpen(false)}>
           <p className="text-sm text-slate-600">
-            Sets <span className="font-medium">producer_payment_status</span> to <span className="font-medium">ready</span> for{' '}
-            {selected.transactionNumber}. Create the payment batch and Confirm Paid only from Financials → Producer Payments.
+            Sets producer payment status to ready for {selected.transactionNumber}. Create the payment batch from
+            Financials → Producer Payments. Confirm Paid Outside ALZA Flow only after the producer has actually been
+            paid.
           </p>
           <DetailGrid
             items={[
@@ -2363,7 +2364,7 @@ export function Transactions() {
           <div className="mt-4 flex justify-end gap-2">
             <button type="button" disabled={saving} onClick={() => setReadyOpen(false)} className="rounded-lg border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50">Cancel</button>
             <button type="button" disabled={saving} onClick={handleMarkReady} className="rounded-lg gradient-alza px-4 py-2.5 text-sm font-medium text-white shadow-sm hover:opacity-90 disabled:opacity-50">
-              {saving ? 'Updating…' : 'Mark Ready for Payout'}
+              {saving ? 'Updating…' : 'Mark Ready for Payment'}
             </button>
           </div>
         </Modal>
@@ -2795,7 +2796,7 @@ export function Transactions() {
           <form onSubmit={handleSubmitForReview} className="space-y-4">
             <p className="text-sm text-slate-600">
               Moves this transaction to <span className="font-medium">Submitted for Review</span> and notifies
-              active Owner/Admin reviewers. Payout still requires Approve → Mark Ready → Producer Payments batch.
+              active Owner/Admin reviewers. Payment still requires Approve → Mark Ready → Producer Payments batch.
             </p>
             <DetailGrid
               items={[

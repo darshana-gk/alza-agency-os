@@ -1,5 +1,9 @@
 import { supabase } from './supabase'
 import { isAdminDirectoryRole, rejectUnlessRole } from './permissions'
+import {
+  isProducerPayoutSchedule,
+  type ProducerPayoutSchedule,
+} from './producerPayoutSchedule'
 
 export interface AgencyProfile {
   id: string
@@ -11,6 +15,9 @@ export interface AgencyProfile {
   website: string
   address: string
   timezone: string
+  producerPayoutSchedule: ProducerPayoutSchedule | null
+  producerPayoutScheduleNotes: string
+  producerPayoutAnchorDate: string | null
 }
 
 export interface AgencyProfileInput {
@@ -21,12 +28,37 @@ export interface AgencyProfileInput {
   website: string
   address: string
   timezone: string
+  producerPayoutSchedule?: ProducerPayoutSchedule | '' | null
+  producerPayoutScheduleNotes?: string
+  producerPayoutAnchorDate?: string | null
 }
 
 const LOGO_MAX_BYTES = 2 * 1024 * 1024
 const LOGO_MIME = new Set(['image/png', 'image/jpeg', 'image/webp'])
 
+const AGENCY_SELECT_WITH_SCHEDULE = `
+      id, agency_name, legal_name, logo_url, phone, email, website, address, timezone,
+      producer_payout_schedule, producer_payout_schedule_notes, producer_payout_anchor_date
+    `
+
+const AGENCY_SELECT_LEGACY =
+  'id, agency_name, legal_name, logo_url, phone, email, website, address, timezone'
+
+function isMissingColumnError(error: { message?: string; code?: string } | null): boolean {
+  if (!error) return false
+  const msg = (error.message ?? '').toLowerCase()
+  const code = error.code ?? ''
+  return (
+    code === 'PGRST204' ||
+    code === '42703' ||
+    msg.includes('schema cache') ||
+    msg.includes('does not exist') ||
+    msg.includes('producer_payout_schedule')
+  )
+}
+
 function mapAgency(row: Record<string, unknown>): AgencyProfile {
+  const scheduleRaw = String(row.producer_payout_schedule ?? '').trim()
   return {
     id: String(row.id ?? ''),
     agencyName: String(row.agency_name ?? '').trim() || 'Agency Workspace',
@@ -37,6 +69,9 @@ function mapAgency(row: Record<string, unknown>): AgencyProfile {
     website: String(row.website ?? '').trim(),
     address: String(row.address ?? '').trim(),
     timezone: String(row.timezone ?? '').trim() || 'America/New_York',
+    producerPayoutSchedule: isProducerPayoutSchedule(scheduleRaw) ? scheduleRaw : null,
+    producerPayoutScheduleNotes: String(row.producer_payout_schedule_notes ?? '').trim(),
+    producerPayoutAnchorDate: (row.producer_payout_anchor_date as string | null) ?? null,
   }
 }
 
@@ -45,13 +80,24 @@ export async function fetchAgencyProfile(): Promise<{
   error: string | null
   missingTable?: boolean
 }> {
-  const { data, error } = await supabase
+  const first = await supabase
     .from('agency_profile')
-    .select(
-      'id, agency_name, legal_name, logo_url, phone, email, website, address, timezone',
-    )
+    .select(AGENCY_SELECT_WITH_SCHEDULE)
     .limit(1)
     .maybeSingle()
+
+  let data: unknown = first.data
+  let error = first.error
+
+  if (error && isMissingColumnError(error)) {
+    const retry = await supabase
+      .from('agency_profile')
+      .select(AGENCY_SELECT_LEGACY)
+      .limit(1)
+      .maybeSingle()
+    data = retry.data
+    error = retry.error
+  }
 
   if (error) {
     const missing =
@@ -81,7 +127,7 @@ export async function saveAgencyProfile(input: AgencyProfileInput): Promise<{
     return { data: null, error: 'Agency display name is required.' }
   }
 
-  const payload = {
+  const identityPayload = {
     agency_name: agencyName,
     legal_name: input.legalName.trim() || null,
     phone: input.phone.trim() || null,
@@ -92,6 +138,14 @@ export async function saveAgencyProfile(input: AgencyProfileInput): Promise<{
     updated_at: new Date().toISOString(),
   }
 
+  const scheduleRaw = (input.producerPayoutSchedule ?? '').trim()
+  const schedulePayload = {
+    producer_payout_schedule: isProducerPayoutSchedule(scheduleRaw) ? scheduleRaw : null,
+    producer_payout_schedule_notes: input.producerPayoutScheduleNotes?.trim() || null,
+    producer_payout_anchor_date: input.producerPayoutAnchorDate?.trim() || null,
+  }
+  const payload = { ...identityPayload, ...schedulePayload }
+
   const existing = await fetchAgencyProfile()
   if (existing.error && existing.missingTable) {
     return {
@@ -101,29 +155,29 @@ export async function saveAgencyProfile(input: AgencyProfileInput): Promise<{
     }
   }
 
-  if (existing.data?.id) {
-    const { data, error } = await supabase
+  async function persist(
+    rowPayload: Record<string, unknown>,
+    select: string,
+    id?: string,
+  ) {
+    if (id) {
+      return supabase.from('agency_profile').update(rowPayload).eq('id', id).select(select).single()
+    }
+    return supabase
       .from('agency_profile')
-      .update(payload)
-      .eq('id', existing.data.id)
-      .select(
-        'id, agency_name, legal_name, logo_url, phone, email, website, address, timezone',
-      )
+      .insert({ ...rowPayload, singleton_key: true })
+      .select(select)
       .single()
-    if (error) return { data: null, error: error.message }
-    return { data: mapAgency(data as Record<string, unknown>), error: null }
   }
 
-  const { data, error } = await supabase
-    .from('agency_profile')
-    .insert({ ...payload, singleton_key: true })
-    .select(
-      'id, agency_name, legal_name, logo_url, phone, email, website, address, timezone',
-    )
-    .single()
-
-  if (error) return { data: null, error: error.message }
-  return { data: mapAgency(data as Record<string, unknown>), error: null }
+  const existingId = existing.data?.id
+  let result = await persist(payload, AGENCY_SELECT_WITH_SCHEDULE, existingId)
+  if (result.error && isMissingColumnError(result.error)) {
+    result = await persist(identityPayload, AGENCY_SELECT_LEGACY, existingId)
+  }
+  if (result.error) return { data: null, error: result.error.message }
+  if (!result.data) return { data: null, error: 'Agency profile save returned no row.' }
+  return { data: mapAgency(result.data as unknown as Record<string, unknown>), error: null }
 }
 
 export async function uploadAgencyLogo(file: File): Promise<{

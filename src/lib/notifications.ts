@@ -495,7 +495,7 @@ export async function fetchOperationalNotifications(params: {
             category: 'financials',
             title: isOwnProducerTx
               ? 'Your commission is ready'
-              : 'Producer commission ready for payout',
+              : 'Producer commission ready for payment',
             context: `${display(tx.producer)} · ${formatCurrency(tx.producerCommissionAmount)} · ${display(tx.transactionNumber)}`,
             dateLabel: tx.transactionDate || null,
             href: producerLocked ? `/transactions/${tx.id}` : '/financials?tab=payments',

@@ -29,18 +29,25 @@ import {
   isDirectPaymentSettlement,
   isPayoutAppliedSettlement,
   isReadyForPayout,
-  isValidProducerPaymentMethod,
+  isValidProducerPaymentConfirmMethod,
   netAfterRecoveries,
   normalizeBatchStatus,
   normalizeRecoveryStatus,
-  PRODUCER_PAYMENT_METHODS,
+  PRODUCER_PAYMENT_CONFIRM_METHODS,
   todayIsoDate,
   toNumber,
+  validateConfirmPaidOutsideAlzaFlowInput,
   voidProducerRecovery,
   type CommissionTransaction,
 } from '../lib/commission'
 import { ExportMenu } from '../components/ui/ExportMenu'
+import { useAgency } from '../lib/agencyContext'
 import { useAuth } from '../lib/auth'
+import {
+  formatPaymentChannelLabel,
+  formatPayoutScheduleLabel,
+  nextPlannedPayoutDate,
+} from '../lib/producerPayoutSchedule'
 import {
   producerPaymentExportColumns,
   receiptExportColumns,
@@ -138,6 +145,9 @@ interface PaymentBatchRow {
   payment_method: string | null
   payment_reference: string | null
   voided_at: string | null
+  confirmed_by?: string | null
+  confirmed_at?: string | null
+  payment_channel?: string | null
   producer_payment_batch_items:
     | {
         id: string
@@ -209,6 +219,9 @@ interface PaymentBatch {
   itemCount: number
   transactionIds: string[]
   itemNetAmounts: Record<string, number>
+  paymentChannel: string | null
+  confirmedBy: string | null
+  confirmedAt: string | null
 }
 
 interface RecoveryAmountRow {
@@ -227,6 +240,41 @@ const inputClassName =
   'h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-900 placeholder:text-slate-400 focus:border-alza-blue-500 focus:outline-none focus:ring-2 focus:ring-alza-blue-500/20'
 const textareaClassName =
   'w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-alza-blue-500 focus:outline-none focus:ring-2 focus:ring-alza-blue-500/20'
+
+const BATCH_ITEMS_EMBED = `
+            producer_payment_batch_items (
+              id, batch_id, transaction_id, net_amount,
+              transactions ( transaction_number )
+            )
+`
+
+const BATCH_SELECT_WITH_AUDIT = `
+            id, created_at, notes, status, producer, payment_date, batch_number,
+            gross_commission, net_payment, payment_method, payment_reference, voided_at,
+            confirmed_by, confirmed_at, payment_channel,
+            ${BATCH_ITEMS_EMBED}
+          `
+
+const BATCH_SELECT_LEGACY = `
+            id, created_at, notes, status, producer, payment_date, batch_number,
+            gross_commission, net_payment, payment_method, payment_reference, voided_at,
+            ${BATCH_ITEMS_EMBED}
+          `
+
+function isMissingColumnError(error: { message?: string; code?: string } | null): boolean {
+  if (!error) return false
+  const msg = (error.message ?? '').toLowerCase()
+  const code = error.code ?? ''
+  return (
+    code === 'PGRST204' ||
+    code === '42703' ||
+    msg.includes('schema cache') ||
+    msg.includes('does not exist') ||
+    msg.includes('payment_channel') ||
+    msg.includes('confirmed_by') ||
+    msg.includes('confirmed_at')
+  )
+}
 
 function firstEmbed<T>(value: T | T[] | null | undefined): T | null {
   if (!value) return null
@@ -318,11 +366,15 @@ function mapBatch(row: PaymentBatchRow): PaymentBatch {
     itemCount: items.length,
     transactionIds,
     itemNetAmounts,
+    paymentChannel: row.payment_channel?.trim() || null,
+    confirmedBy: row.confirmed_by ?? null,
+    confirmedAt: row.confirmed_at ?? null,
   }
 }
 
 export function Financials() {
   const { profile } = useAuth()
+  const { agency } = useAgency()
   const canPay = canMutateFinancialPayments(profile?.role)
   const canConfirm = canConfirmReceipts(profile?.role)
   const canLinkProducers = canAccessAdminSection(profile?.role)
@@ -422,7 +474,7 @@ export function Financials() {
     setRecoveriesError(null)
     setTransactionsError(null)
 
-    const [receiptsResult, batchesResult, recoveriesResult, txResult, recoveryAmtResult] =
+    const [receiptsResult, batchesFirst, recoveriesResult, txResult, recoveryAmtResult] =
       await Promise.all([
         supabase
           .from('agency_commission_receipts')
@@ -439,16 +491,7 @@ export function Financials() {
           .order('created_at', { ascending: false }),
         supabase
           .from('producer_payment_batches')
-          .select(
-            `
-            id, created_at, notes, status, producer, payment_date, batch_number,
-            gross_commission, net_payment, payment_method, payment_reference, voided_at,
-            producer_payment_batch_items (
-              id, batch_id, transaction_id, net_amount,
-              transactions ( transaction_number )
-            )
-          `,
-          )
+          .select(BATCH_SELECT_WITH_AUDIT)
           .order('payment_date', { ascending: false, nullsFirst: false })
           .order('created_at', { ascending: false }),
         supabase
@@ -467,6 +510,15 @@ export function Financials() {
           .from('producer_commission_recoveries')
           .select('producer, amount, applied_amount, remaining_amount, status, settlement_method'),
       ])
+
+    let batchesResult: { data: unknown; error: { message: string } | null } = batchesFirst
+    if (batchesResult.error && isMissingColumnError(batchesResult.error)) {
+      batchesResult = await supabase
+        .from('producer_payment_batches')
+        .select(BATCH_SELECT_LEGACY)
+        .order('payment_date', { ascending: false, nullsFirst: false })
+        .order('created_at', { ascending: false })
+    }
 
     if (receiptsResult.error) {
       setReceiptsError(receiptsResult.error.message)
@@ -557,6 +609,15 @@ export function Financials() {
     }
     return map
   }, [recoveryAmounts])
+
+  const nextPlannedPayout = useMemo(
+    () =>
+      nextPlannedPayoutDate({
+        schedule: agency?.producerPayoutSchedule,
+        anchorDate: agency?.producerPayoutAnchorDate,
+      }),
+    [agency?.producerPayoutSchedule, agency?.producerPayoutAnchorDate],
+  )
 
   const kpis = useMemo(() => {
     const expectedAgency = transactions.reduce((sum, tx) => sum + tx.expectedAmount, 0)
@@ -919,8 +980,14 @@ export function Financials() {
       setActionError('Payment date is required.')
       return
     }
-    if (!isValidProducerPaymentMethod(paymentMethod)) {
-      setActionError('Payment method is required.')
+    const confirmValidation = validateConfirmPaidOutsideAlzaFlowInput({
+      paymentDate,
+      paymentMethod,
+      paymentReference,
+      notes: paymentNotes,
+    })
+    if (confirmValidation) {
+      setActionError(confirmValidation)
       return
     }
 
@@ -928,8 +995,6 @@ export function Financials() {
     setActionError(null)
     const result = await confirmProducerPaid({
       batchId: payBatch.id,
-      transactionIds: payBatch.transactionIds,
-      itemNetAmounts: payBatch.itemNetAmounts,
       paymentDate,
       paymentMethod,
       paymentReference,
@@ -946,12 +1011,12 @@ export function Financials() {
 
     setPayBatch(null)
     setPaymentNotes('')
-    setActionSuccess(`Producer payment confirmed for batch ${payBatch.batchNumber}.`)
+    setActionSuccess(`Payment confirmed outside ALZA Flow for batch ${payBatch.batchNumber}.`)
     await loadAll()
   }
 
   const confirmPaidReady =
-    Boolean(paymentDate.trim()) && isValidProducerPaymentMethod(paymentMethod)
+    Boolean(paymentDate.trim()) && isValidProducerPaymentConfirmMethod(paymentMethod)
 
   async function handleCreateRecovery(e: FormEvent) {
     e.preventDefault()
@@ -1126,10 +1191,21 @@ export function Financials() {
       {actionSuccess && (
         <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{actionSuccess}</div>
       )}
+      {nextPlannedPayout && (
+        <div className="rounded-xl border border-alza-blue-100 bg-alza-blue-50 px-4 py-3 text-sm text-alza-blue-900">
+          <span className="font-medium">Next Planned Payout:</span> {formatDate(nextPlannedPayout)}
+          {agency?.producerPayoutSchedule ? (
+            <span className="text-alza-blue-800">
+              {' '}
+              ({formatPayoutScheduleLabel(agency.producerPayoutSchedule)} schedule — planning only)
+            </span>
+          ) : null}
+        </div>
+      )}
       {!canPay && (
         <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
           Financials is limited for your role: you can view all tabs and confirm agency commission receipts.
-          Creating payment batches, confirming producer paid, and recording/voiding recoveries require Owner or
+          Creating payment batches, confirming paid outside ALZA Flow, and recording/voiding recoveries require Owner or
           Admin.
         </div>
       )}
@@ -1365,9 +1441,10 @@ export function Financials() {
         <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
           <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <h3 className="text-sm font-semibold text-slate-900">Ready for Payout</h3>
+              <h3 className="text-sm font-semibold text-slate-900">Ready for Payment</h3>
               <p className="text-sm text-slate-500">
-                Producer-level payouts. Open recoveries reduce net proposed (carry-forward; never below $0).
+                Producer-level payouts. Open recoveries reduce net proposed (carry-forward; never below $0). Creating a
+                batch does not mark commissions paid.
               </p>
             </div>
             {canPay && (
@@ -1388,7 +1465,7 @@ export function Financials() {
           {loading ? (
             <p className="text-sm text-slate-500">Loading ready payables...</p>
           ) : readyByProducer.length === 0 ? (
-            <p className="text-sm text-slate-500">No producer commissions are currently ready for payout.</p>
+            <p className="text-sm text-slate-500">No producer commissions are currently ready for payment.</p>
           ) : (
             <div className="space-y-5">
               {readyByProducer.map(([producer, group]) => (
@@ -1676,7 +1753,7 @@ export function Financials() {
                 {loading ? (
                   <EmptyOrLoading colSpan={8} loading label="Loading producer payment batches..." />
                 ) : filteredBatches.length === 0 ? (
-                  <EmptyOrLoading colSpan={8} title="No producer payment batches recorded yet." subtitle="Create a batch from Ready for Payout when commissions are ready." />
+                  <EmptyOrLoading colSpan={8} title="No producer payment batches recorded yet." subtitle="Create a batch from Ready for Payment when commissions are ready." />
                 ) : (
                   filteredBatches.map((row) => (
                     <tr key={row.id} className="hover:bg-alza-blue-50/60">
@@ -1715,7 +1792,7 @@ export function Financials() {
                       <td className="whitespace-nowrap px-6 py-4 text-right text-sm font-semibold tabular-nums">{formatCurrency(row.netPayment)}</td>
                       <td className="px-6 py-4">
                         <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ring-inset ${badgeClass(row.status)}`}>
-                          {formatBatchStatusLabel(row.status)}
+                          {formatBatchStatusLabel(row.status, row.paymentChannel)}
                         </span>
                       </td>
                       <td className="px-6 py-4 text-sm text-slate-700">
@@ -1755,7 +1832,7 @@ export function Financials() {
                             }}
                             className="relative z-10 inline-flex cursor-pointer items-center rounded-lg px-2.5 py-1.5 text-sm font-medium text-alza-blue-700 hover:bg-alza-blue-50 hover:text-alza-blue-800"
                           >
-                            Confirm Producer Paid
+                            Confirm Paid Outside ALZA Flow
                           </button>
                         ) : row.status === 'paid' ? (
                           <button
@@ -2058,10 +2135,10 @@ export function Financials() {
       )}
 
       {payBatch && (
-        <Modal title="Confirm Producer Paid" onClose={() => !saving && setPayBatch(null)}>
+        <Modal title="Confirm Paid Outside ALZA Flow" onClose={() => !saving && setPayBatch(null)}>
           <form onSubmit={handleConfirmPaid} className="space-y-4">
-            <p className="text-sm text-slate-600">
-              Enter payment details to mark this batch Paid. Accounting confirmation only — no external bank transfer is performed.
+            <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+              Confirm only after the producer has actually been paid. ALZA Flow does not process this payment.
             </p>
             <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-3 text-sm space-y-1.5">
               <p>
@@ -2112,7 +2189,7 @@ export function Financials() {
                   className={selectClassName}
                 >
                   <option value="">Select payment method…</option>
-                  {PRODUCER_PAYMENT_METHODS.map((method) => (
+                  {PRODUCER_PAYMENT_CONFIRM_METHODS.map((method) => (
                     <option key={method.value} value={method.value}>
                       {method.label}
                     </option>
@@ -2155,7 +2232,7 @@ export function Financials() {
                 disabled={saving || !confirmPaidReady}
                 className="rounded-lg gradient-alza px-4 py-2.5 text-sm font-medium text-white shadow-sm hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
               >
-                {saving ? 'Updating…' : 'Confirm Producer Paid'}
+                {saving ? 'Confirming…' : 'Confirm Payment'}
               </button>
             </div>
           </form>
@@ -2176,7 +2253,9 @@ export function Financials() {
               </p>
               <p>
                 <span className="text-slate-500">Status:</span>{' '}
-                <span className="font-medium text-slate-900">{formatBatchStatusLabel(viewBatch.status)}</span>
+                <span className="font-medium text-slate-900">
+                  {formatBatchStatusLabel(viewBatch.status, viewBatch.paymentChannel)}
+                </span>
               </p>
               <p>
                 <span className="text-slate-500">Gross Producer Commission:</span>{' '}
@@ -2208,6 +2287,22 @@ export function Financials() {
                 <span className="text-slate-500">Payment Reference / Confirmation #:</span>{' '}
                 <span className="font-medium text-slate-900">
                   {viewBatch.paymentReference !== '—' ? viewBatch.paymentReference : '—'}
+                </span>
+              </p>
+              <p>
+                <span className="text-slate-500">Payment Channel:</span>{' '}
+                <span className="font-medium text-slate-900">
+                  {formatPaymentChannelLabel(viewBatch.paymentChannel, viewBatch.status)}
+                </span>
+              </p>
+              <p>
+                <span className="text-slate-500">Confirmed:</span>{' '}
+                <span className="font-medium text-slate-900">
+                  {viewBatch.confirmedAt
+                    ? formatDate(viewBatch.confirmedAt)
+                    : viewBatch.status === 'paid'
+                      ? 'Historical payment'
+                      : '—'}
                 </span>
               </p>
               <p>

@@ -9,6 +9,10 @@ import {
   type AgencyProfile,
 } from '../../lib/agency'
 import { canManageAgencySettings } from '../../lib/permissions'
+import {
+  PRODUCER_PAYOUT_SCHEDULE_OPTIONS,
+  type ProducerPayoutSchedule,
+} from '../../lib/producerPayoutSchedule'
 
 const inputClassName =
   'h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-900 placeholder:text-slate-400 focus:border-alza-blue-500 focus:outline-none focus:ring-2 focus:ring-alza-blue-500/20'
@@ -43,6 +47,9 @@ export function AgencySettingsPage() {
     website: '',
     address: '',
     timezone: 'America/New_York',
+    producerPayoutSchedule: '' as ProducerPayoutSchedule | '',
+    producerPayoutScheduleNotes: '',
+    producerPayoutAnchorDate: '',
   })
 
   const load = useCallback(async () => {
@@ -68,6 +75,9 @@ export function AgencySettingsPage() {
         website: result.data.website,
         address: result.data.address,
         timezone: result.data.timezone || 'America/New_York',
+        producerPayoutSchedule: result.data.producerPayoutSchedule ?? '',
+        producerPayoutScheduleNotes: result.data.producerPayoutScheduleNotes,
+        producerPayoutAnchorDate: result.data.producerPayoutAnchorDate ?? '',
       })
     }
     setLoading(false)
@@ -246,6 +256,88 @@ export function AgencySettingsPage() {
                   </option>
                 ))}
               </select>
+            </label>
+          </div>
+
+          <div className="space-y-3 rounded-lg border border-slate-200 bg-slate-50 p-4">
+            <div>
+              <h2 className="text-sm font-semibold text-slate-900">Producer payout schedule</h2>
+              <p className="mt-1 text-xs text-slate-500">
+                Planning only. Saving a schedule never creates a payment batch, never marks
+                commissions ready or paid, and never moves money.
+              </p>
+            </div>
+            <label className="block">
+              <span className="mb-1.5 block text-xs font-medium text-slate-500">Schedule</span>
+              <select
+                disabled={!canEdit}
+                value={form.producerPayoutSchedule}
+                onChange={(e) =>
+                  setForm((f) => ({
+                    ...f,
+                    producerPayoutSchedule: e.target.value as ProducerPayoutSchedule | '',
+                  }))
+                }
+                className={inputClassName}
+              >
+                <option value="">Not set</option>
+                {PRODUCER_PAYOUT_SCHEDULE_OPTIONS.map((option) => (
+                  <option key={option.key} value={option.key}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+              {form.producerPayoutSchedule && (
+                <p className="mt-1 text-xs text-slate-500">
+                  {
+                    PRODUCER_PAYOUT_SCHEDULE_OPTIONS.find(
+                      (option) => option.key === form.producerPayoutSchedule,
+                    )?.hint
+                  }
+                </p>
+              )}
+            </label>
+            {(form.producerPayoutSchedule === 'weekly' ||
+              form.producerPayoutSchedule === 'biweekly' ||
+              form.producerPayoutSchedule === 'monthly') && (
+              <label className="block">
+                <span className="mb-1.5 block text-xs font-medium text-slate-500">
+                  Anchor date
+                </span>
+                <input
+                  type="date"
+                  disabled={!canEdit}
+                  value={form.producerPayoutAnchorDate}
+                  onChange={(e) =>
+                    setForm((f) => ({ ...f, producerPayoutAnchorDate: e.target.value }))
+                  }
+                  className={inputClassName}
+                />
+                <p className="mt-1 text-xs text-slate-500">
+                  Used to calculate Next Planned Payout in Financials. Not required to save.
+                </p>
+              </label>
+            )}
+            <label className="block">
+              <span className="mb-1.5 block text-xs font-medium text-slate-500">
+                {form.producerPayoutSchedule === 'custom'
+                  ? 'Custom schedule / rule / notes'
+                  : 'Schedule notes (optional)'}
+              </span>
+              <textarea
+                disabled={!canEdit}
+                rows={3}
+                value={form.producerPayoutScheduleNotes}
+                onChange={(e) =>
+                  setForm((f) => ({ ...f, producerPayoutScheduleNotes: e.target.value }))
+                }
+                className={textareaClassName}
+                placeholder={
+                  form.producerPayoutSchedule === 'custom'
+                    ? 'Describe when producers are paid…'
+                    : 'Optional notes'
+                }
+              />
             </label>
           </div>
 
