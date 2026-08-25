@@ -19,6 +19,7 @@ import {
   Settings,
   LifeBuoy,
   Inbox,
+  Upload,
 } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import type { NavGroup } from '@/types'
@@ -84,6 +85,9 @@ export function Sidebar() {
     if (nav.reconciliation) items.push({ label: 'Reconciliation', path: '/reconciliation', icon: Scale })
     if (nav.reports) items.push({ label: 'Reports', path: '/reports', icon: BarChart3 })
     if (nav.activityHistory) items.push({ label: 'Activity History', path: '/activity', icon: History })
+    if (nav.onboardingImport) {
+      items.push({ label: 'Onboarding Import', path: '/onboarding', icon: Upload })
+    }
     if (nav.support) items.push({ label: 'Help & Support', path: '/support', icon: LifeBuoy })
     if (nav.alzaSupportInbox) {
       items.push({ label: 'ALZA Support Inbox', path: '/admin/support-inbox', icon: Inbox })

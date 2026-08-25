@@ -12,6 +12,7 @@ import { Reconciliation } from '@/pages/Reconciliation'
 import { Reports } from '@/pages/Reports'
 import { NotificationsPage } from '@/pages/Notifications'
 import { ActivityHistoryPage } from '@/pages/ActivityHistory'
+import { Onboarding } from '@/pages/Onboarding'
 import { SupportCenterPage } from '@/pages/SupportCenter'
 import { Producers } from '@/pages/admin/Producers'
 import { CSRs } from '@/pages/admin/CSRs'
@@ -146,6 +147,14 @@ function AuthenticatedApp() {
           element={
             <Guard path="/activity">
               <ActivityHistoryPage />
+            </Guard>
+          }
+        />
+        <Route
+          path="onboarding"
+          element={
+            <Guard path="/onboarding">
+              <Onboarding />
             </Guard>
           }
         />

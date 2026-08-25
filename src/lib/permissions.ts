@@ -415,6 +415,9 @@ export function canAccessPath(role: RoleInput, pathname: string): boolean {
   if (path.startsWith('/admin/')) {
     return canAccessAdminSection(roles)
   }
+  if (path.startsWith('/onboarding')) {
+    return canAccessAdminSection(roles)
+  }
   if (path.startsWith('/financials')) {
     return canAccessFinancials(roles)
   }
@@ -455,6 +458,7 @@ export type NavVisibility = {
   activityHistory: boolean
   support: boolean
   alzaSupportInbox: boolean
+  onboardingImport: boolean
   administration: boolean
   producers: boolean
   csrs: boolean
@@ -482,6 +486,7 @@ export function getNavVisibility(role: RoleInput): NavVisibility {
       (roles.includes('owner') || roles.includes('admin') || roles.includes('csr')) && !alzaOnly,
     support: canAccessSupportCenter(roles),
     alzaSupportInbox: canAccessAlzaSupportInbox(roles),
+    onboardingImport: admin && !alzaOnly,
     administration: admin && !alzaOnly,
     producers: admin && !alzaOnly,
     csrs: admin && !alzaOnly,

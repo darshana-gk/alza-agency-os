@@ -19,6 +19,10 @@ const pageTitles: Record<string, { title: string; subtitle?: string }> = {
     title: 'Activity History',
     subtitle: 'Append-only audit trail of operational and financial actions',
   },
+  '/onboarding': {
+    title: 'Onboarding Import',
+    subtitle: 'Import directory, clients, and policies from spreadsheets or pasted tables',
+  },
   '/admin/producers': { title: 'Producers', subtitle: 'Manage producer accounts' },
   '/admin/csrs': { title: 'CSRs', subtitle: 'Customer service representatives' },
   '/admin/mgas': { title: 'MGAs', subtitle: 'Managing general agents' },
