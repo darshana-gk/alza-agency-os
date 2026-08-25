@@ -134,6 +134,7 @@ const FIELD_ALIASES: Record<OnboardingEntity, Record<string, string[]>> = {
       'client name',
       'client_name',
       'clientname',
+      'name',
       'insured',
       'named insured',
       'named_insured',
@@ -334,6 +335,7 @@ const FIELD_ALIASES: Record<OnboardingEntity, Record<string, string[]>> = {
       'carrier_name',
       'carriername',
       'carrier',
+      'name',
       'company',
       'writing company',
       'writing_company',
@@ -383,6 +385,7 @@ const FIELD_ALIASES: Record<OnboardingEntity, Record<string, string[]>> = {
       'mga_name',
       'mganame',
       'mga',
+      'name',
       'wholesaler',
       'broker',
     ],
@@ -413,6 +416,7 @@ const FIELD_ALIASES: Record<OnboardingEntity, Record<string, string[]>> = {
       'producer_name',
       'producername',
       'producer',
+      'name',
       'agent',
       'agent name',
       'agent_name',
@@ -447,6 +451,7 @@ const FIELD_ALIASES: Record<OnboardingEntity, Record<string, string[]>> = {
       'csr_name',
       'csrname',
       'csr',
+      'name',
       'account manager',
       'account_manager',
       'accountmanager',
@@ -634,6 +639,55 @@ export function buildOnboardingMappingUiState(
     headers: parsed.headers,
     rows: parsed.rows,
     mapping: suggestOnboardingMapping(entity, parsed.headers),
+  }
+}
+
+/** Per-field select contract actually rendered on the mapping step. */
+export interface OnboardingMappingSelectRow {
+  fieldKey: string
+  label: string
+  required: boolean
+  /** Controlled <select value>; empty string means “— Not mapped —”. */
+  value: string
+  /** <option value> list (spreadsheet headers). */
+  options: string[]
+}
+
+export function buildOnboardingMappingSelectModel(
+  entity: OnboardingEntity,
+  mapping: OnboardingMapping,
+  headers: string[],
+): OnboardingMappingSelectRow[] {
+  return ONBOARDING_FIELDS[entity].map((field) => ({
+    fieldKey: field.key,
+    label: field.label,
+    required: field.required,
+    value: mapping[field.key] ?? '',
+    options: headers,
+  }))
+}
+
+/**
+ * Same transition the wizard runs in applyParsed → mapping step render.
+ * Returns mapping state AND the select values that must appear selected.
+ */
+export function runOnboardingParseToMappingStep(
+  entity: OnboardingEntity,
+  parsed: { headers: string[]; rows: Record<string, unknown>[] },
+): {
+  step: 3
+  headers: string[]
+  rows: Record<string, unknown>[]
+  mapping: OnboardingMapping
+  selects: OnboardingMappingSelectRow[]
+} {
+  const ui = buildOnboardingMappingUiState(entity, parsed)
+  return {
+    step: 3,
+    headers: ui.headers,
+    rows: ui.rows,
+    mapping: ui.mapping,
+    selects: buildOnboardingMappingSelectModel(entity, ui.mapping, ui.headers),
   }
 }
 

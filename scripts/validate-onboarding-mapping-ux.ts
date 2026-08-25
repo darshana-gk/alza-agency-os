@@ -80,6 +80,10 @@ console.log('C. Carrier header auto-map (canonical + aliases)')
     'NAIC Number → NAIC',
   )
   assert(
+    suggestOnboardingMapping('carriers', ['name']).carrier_name === 'name',
+    'name → Carrier Name (real test-carrier.xlsx header)',
+  )
+  assert(
     suggestOnboardingMapping('carriers', ['Weird Col', 'Foo']).carrier_name === undefined,
     'Unknown headers stay unmapped for Carrier Name',
   )

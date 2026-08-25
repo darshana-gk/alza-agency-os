@@ -8,7 +8,6 @@ import {
 } from '../../lib/onboardingIntake'
 import {
   ONBOARDING_ENTITY_LABELS,
-  ONBOARDING_FIELDS,
   ONBOARDING_FILE_ACCEPT,
   applyOnboardingMappingChange,
   buildOnboardingPreview,
@@ -18,7 +17,8 @@ import {
   formatOnboardingStatus,
   requiredFieldsMapped,
   resolveUploadFileControlAction,
-  buildOnboardingMappingUiState,
+  buildOnboardingMappingSelectModel,
+  runOnboardingParseToMappingStep,
   type OnboardingEntity,
   type OnboardingImportResult,
   type OnboardingMapping,
@@ -89,7 +89,7 @@ export function OnboardingImportWizard(props: {
     setError(null)
     setDragOver(false)
     if (fileInputRef.current) fileInputRef.current.value = ''
-  }, [props.open, allowedEntities])
+  }, [props.open])
 
   useEffect(() => {
     if (!props.open || allowedEntities.length === 0) return
@@ -131,11 +131,11 @@ export function OnboardingImportWizard(props: {
   }
 
   function applyParsed(parsed: { headers: string[]; rows: Record<string, unknown>[] }) {
-    const ui = buildOnboardingMappingUiState(entity, parsed)
-    setHeaders(ui.headers)
-    setRows(ui.rows)
-    setMapping(ui.mapping)
-    setStep(3)
+    const next = runOnboardingParseToMappingStep(entity, parsed)
+    setHeaders(next.headers)
+    setRows(next.rows)
+    setMapping(next.mapping)
+    setStep(next.step)
   }
 
   async function loadSheet() {
@@ -219,7 +219,7 @@ export function OnboardingImportWizard(props: {
 
   if (!props.open) return null
 
-  const fields = ONBOARDING_FIELDS[entity]
+  const mappingSelects = buildOnboardingMappingSelectModel(entity, mapping, headers)
   const canContinueFile = Boolean(file) && allowedEntities.length > 0
   const canContinuePaste = pasteText.trim().length > 0 && allowedEntities.length > 0
 
@@ -383,7 +383,9 @@ export function OnboardingImportWizard(props: {
           {step === 3 && (
             <div className="space-y-4">
               <p className="text-sm text-slate-600">
-                {rows.length} data rows found. Review column mappings. Required fields must be mapped.
+                {rows.length} data rows found. Spreadsheet columns detected:{' '}
+                {headers.length ? headers.map((h) => `"${h}"`).join(', ') : '(none)'}. Review column
+                mappings. Required fields must be mapped.
               </p>
               <div className="overflow-x-auto rounded-lg border border-slate-200">
                 <table className="min-w-full text-sm">
@@ -394,28 +396,29 @@ export function OnboardingImportWizard(props: {
                     </tr>
                   </thead>
                   <tbody>
-                    {fields.map((f) => (
-                      <tr key={f.key} className="border-t border-slate-100">
+                    {mappingSelects.map((row) => (
+                      <tr key={row.fieldKey} className="border-t border-slate-100">
                         <td className="px-3 py-2">
-                          {f.label}
-                          {f.required ? <span className="text-rose-600"> *</span> : null}
+                          {row.label}
+                          {row.required ? <span className="text-rose-600"> *</span> : null}
                         </td>
                         <td className="px-3 py-2">
                           <select
                             className={selectClass}
-                            value={mapping[f.key] ?? ''}
+                            data-onboarding-field={row.fieldKey}
+                            value={row.value}
                             onChange={(e) =>
                               setMapping((m) =>
                                 applyOnboardingMappingChange(
                                   m,
-                                  f.key,
+                                  row.fieldKey,
                                   e.target.value || undefined,
                                 ),
                               )
                             }
                           >
                             <option value="">— Not mapped —</option>
-                            {headers.map((h) => (
+                            {row.options.map((h) => (
                               <option key={h} value={h}>
                                 {h}
                               </option>

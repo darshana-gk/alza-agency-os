@@ -67,12 +67,8 @@ console.log('A. Wizard wires the same UI-state builder after parse')
     resolve('src/components/onboarding/OnboardingImportWizard.tsx'),
     'utf8',
   )
-  assert(wizard.includes('buildOnboardingMappingUiState'), 'Wizard imports UI-state builder')
-  assert(
-    /applyParsed[\s\S]*buildOnboardingMappingUiState/.test(wizard),
-    'applyParsed uses buildOnboardingMappingUiState',
-  )
-  assert(wizard.includes('setMapping(ui.mapping)'), 'Wizard sets mapping from UI-state object')
+  assert(wizard.includes('runOnboardingParseToMappingStep'), 'Wizard calls runOnboardingParseToMappingStep')
+  assert(wizard.includes('setMapping(next.mapping)'), 'Wizard sets mapping from pipeline step')
   assert(wizard.includes('justOpened'), 'Wizard resets only on open transition (not mid-parse)')
 }
 
