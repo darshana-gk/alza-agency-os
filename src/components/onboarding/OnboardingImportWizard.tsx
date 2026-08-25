@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Upload, X } from 'lucide-react'
 import {
   listWorkbookSheets,
@@ -9,12 +9,15 @@ import {
 import {
   ONBOARDING_ENTITY_LABELS,
   ONBOARDING_FIELDS,
+  ONBOARDING_FILE_ACCEPT,
+  applyOnboardingMappingChange,
   buildOnboardingPreview,
   buildOnboardingResultLogCsv,
   canImportOnboardingEntity,
   executeOnboardingImport,
   formatOnboardingStatus,
   requiredFieldsMapped,
+  resolveUploadFileControlAction,
   suggestOnboardingMapping,
   type OnboardingEntity,
   type OnboardingImportResult,
@@ -61,6 +64,9 @@ export function OnboardingImportWizard(props: {
   const [result, setResult] = useState<OnboardingImportResult | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [dragOver, setDragOver] = useState(false)
+  /** Single shared file input — Upload file button and drop zone both open this picker. */
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     if (!props.open) return
@@ -77,7 +83,19 @@ export function OnboardingImportWizard(props: {
     setPreview(null)
     setResult(null)
     setError(null)
+    setDragOver(false)
+    if (fileInputRef.current) fileInputRef.current.value = ''
   }, [props.open, allowedEntities])
+
+  function openFilePicker() {
+    fileInputRef.current?.click()
+  }
+
+  function onUploadFileControlClick() {
+    const action = resolveUploadFileControlAction(inputMode)
+    setInputMode(action.nextMode)
+    if (action.openFilePicker) openFilePicker()
+  }
 
   async function handleFile(next: File | null) {
     setError(null)
@@ -87,7 +105,11 @@ export function OnboardingImportWizard(props: {
     setRows([])
     setMapping({})
     setPreview(null)
-    if (!next) return
+    setInputMode('file')
+    if (!next) {
+      if (fileInputRef.current) fileInputRef.current.value = ''
+      return
+    }
     try {
       const list = await listWorkbookSheets(next)
       setSheets(list)
@@ -95,6 +117,7 @@ export function OnboardingImportWizard(props: {
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Unable to read file.')
       setFile(null)
+      if (fileInputRef.current) fileInputRef.current.value = ''
     }
   }
 
@@ -232,7 +255,7 @@ export function OnboardingImportWizard(props: {
               <div className="flex gap-2">
                 <button
                   type="button"
-                  onClick={() => setInputMode('file')}
+                  onClick={onUploadFileControlClick}
                   className={`rounded-lg px-3 py-1.5 text-sm font-medium ${
                     inputMode === 'file' ? 'bg-alza-blue-700 text-white' : 'bg-slate-100 text-slate-700'
                   }`}
@@ -250,20 +273,66 @@ export function OnboardingImportWizard(props: {
                 </button>
               </div>
 
+              {/* One hidden input for both Upload file and the drop zone — never nest a second input. */}
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept={ONBOARDING_FILE_ACCEPT}
+                className="hidden"
+                data-onboarding-file-input="true"
+                onChange={(e) => void handleFile(e.target.files?.[0] ?? null)}
+              />
+
               {inputMode === 'file' ? (
-                <label className="flex cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed border-slate-300 bg-slate-50 px-6 py-12 text-center hover:border-alza-blue-400">
+                <div
+                  role="button"
+                  tabIndex={0}
+                  onClick={openFilePicker}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault()
+                      openFilePicker()
+                    }
+                  }}
+                  onDragEnter={(e) => {
+                    e.preventDefault()
+                    setDragOver(true)
+                  }}
+                  onDragOver={(e) => {
+                    e.preventDefault()
+                    setDragOver(true)
+                  }}
+                  onDragLeave={(e) => {
+                    e.preventDefault()
+                    setDragOver(false)
+                  }}
+                  onDrop={(e) => {
+                    e.preventDefault()
+                    setDragOver(false)
+                    const dropped = e.dataTransfer.files?.[0] ?? null
+                    void handleFile(dropped)
+                  }}
+                  className={`flex cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed px-6 py-12 text-center ${
+                    dragOver
+                      ? 'border-alza-blue-500 bg-alza-blue-50'
+                      : 'border-slate-300 bg-slate-50 hover:border-alza-blue-400'
+                  }`}
+                >
                   <Upload className="mb-2 h-8 w-8 text-slate-400" />
                   <p className="text-sm font-medium text-slate-800">
                     Drop a CSV, TXT, XLSX, or XLS file, or click to browse
                   </p>
-                  <p className="mt-1 text-xs text-slate-500">{file ? file.name : 'No file selected'}</p>
-                  <input
-                    type="file"
-                    accept=".csv,.txt,.xlsx,.xls,text/csv,text/plain,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                    className="hidden"
-                    onChange={(e) => void handleFile(e.target.files?.[0] ?? null)}
-                  />
-                </label>
+                  <p className="mt-2 text-sm text-slate-700">
+                    {file ? (
+                      <>
+                        Selected:{' '}
+                        <span className="font-semibold text-slate-900">{file.name}</span>
+                      </>
+                    ) : (
+                      <span className="text-slate-500">No file selected</span>
+                    )}
+                  </p>
+                </div>
               ) : (
                 <label className="block">
                   <span className="mb-1 block text-xs font-medium text-slate-500">
@@ -326,10 +395,13 @@ export function OnboardingImportWizard(props: {
                             className={selectClass}
                             value={mapping[f.key] ?? ''}
                             onChange={(e) =>
-                              setMapping((m) => ({
-                                ...m,
-                                [f.key]: e.target.value || undefined,
-                              }))
+                              setMapping((m) =>
+                                applyOnboardingMappingChange(
+                                  m,
+                                  f.key,
+                                  e.target.value || undefined,
+                                ),
+                              )
                             }
                           >
                             <option value="">— Not mapped —</option>

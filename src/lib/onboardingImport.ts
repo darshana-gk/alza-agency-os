@@ -121,126 +121,339 @@ export const ONBOARDING_FIELDS: Record<OnboardingEntity, OnboardingFieldDef[]> =
   ],
 }
 
-/** Header aliases → field key. Exact normalized match preferred; includes used only when unique. */
+/**
+ * Explicit approved header aliases per ALZA field (no fuzzy/includes matching).
+ * Matching uses normalizeHeaderMatchKey so spaces / underscores / hyphens / # collapse.
+ */
 const FIELD_ALIASES: Record<OnboardingEntity, Record<string, string[]>> = {
   clients: {
     business_name: [
       'business name',
+      'business_name',
+      'businessname',
       'client name',
+      'client_name',
+      'clientname',
       'insured',
       'named insured',
+      'named_insured',
       'customer',
       'account name',
+      'account_name',
       'company name',
+      'company_name',
     ],
-    client_number: ['client number', 'client #', 'account number'],
-    dba: ['dba', 'doing business as', 'trade name'],
-    fein: ['fein', 'tax id', 'ein', 'federal id'],
-    contact_name: ['contact name', 'contact', 'primary contact'],
-    email: ['email', 'e mail', 'email address'],
-    phone: ['phone', 'telephone', 'mobile', 'phone number'],
-    producer: ['producer', 'agent', 'producer name'],
-    csr: ['csr', 'account manager', 'csr name'],
-    status: ['status', 'client status'],
-    mailing_address: ['mailing address', 'mail address', 'address', 'street address'],
-    physical_address: ['physical address', 'location address'],
+    client_number: [
+      'client number',
+      'client_number',
+      'clientnumber',
+      'client #',
+      'client#',
+      'account number',
+      'account_number',
+      'accountnumber',
+    ],
+    dba: ['dba', 'doing business as', 'trade name', 'trade_name'],
+    fein: ['fein', 'tax id', 'tax_id', 'taxid', 'ein', 'federal id', 'federal_id'],
+    contact_name: [
+      'contact name',
+      'contact_name',
+      'contactname',
+      'contact',
+      'primary contact',
+      'primary_contact',
+    ],
+    email: ['email', 'e mail', 'e_mail', 'email address', 'email_address', 'emailaddress'],
+    phone: [
+      'phone',
+      'telephone',
+      'mobile',
+      'phone number',
+      'phone_number',
+      'phonenumber',
+    ],
+    producer: ['producer', 'agent', 'producer name', 'producer_name', 'producername', 'agent name'],
+    csr: ['csr', 'account manager', 'account_manager', 'csr name', 'csr_name', 'csrname'],
+    status: ['status', 'client status', 'client_status'],
+    mailing_address: [
+      'mailing address',
+      'mailing_address',
+      'mailingaddress',
+      'mail address',
+      'mail_address',
+      'address',
+      'street address',
+      'street_address',
+    ],
+    physical_address: [
+      'physical address',
+      'physical_address',
+      'physicaladdress',
+      'location address',
+      'location_address',
+    ],
     notes: ['notes', 'comments', 'remarks'],
   },
   policies: {
     client_name: [
       'client name',
+      'client_name',
+      'clientname',
       'insured',
       'named insured',
+      'named_insured',
       'customer',
       'business name',
+      'business_name',
       'account name',
+      'account_name',
     ],
-    policy_number: ['policy number', 'policy no', 'policy #', 'policy#', 'policynumber', 'policy'],
+    policy_number: [
+      'policy number',
+      'policy_number',
+      'policynumber',
+      'policy no',
+      'policy_no',
+      'policy #',
+      'policy#',
+      'policy',
+    ],
     policy_type: [
       'policy type',
+      'policy_type',
+      'policytype',
       'line of business',
+      'line_of_business',
       'lob',
       'type',
       'coverage type',
+      'coverage_type',
       'policy type line of business',
     ],
-    carrier: ['carrier', 'writing company', 'writing co', 'company', 'carrier name'],
-    mga: ['mga', 'wholesaler', 'broker', 'mga name'],
-    effective_date: ['effective date', 'eff date', 'eff', 'inception date', 'start date'],
-    expiration_date: ['expiration date', 'exp date', 'exp', 'expiry date', 'end date'],
+    carrier: [
+      'carrier',
+      'carrier name',
+      'carrier_name',
+      'carriername',
+      'writing company',
+      'writing_company',
+      'writing co',
+      'writing_co',
+      'company',
+    ],
+    mga: ['mga', 'mga name', 'mga_name', 'mganame', 'wholesaler', 'broker'],
+    effective_date: [
+      'effective date',
+      'effective_date',
+      'effectivedate',
+      'eff date',
+      'eff_date',
+      'eff',
+      'inception date',
+      'inception_date',
+      'start date',
+      'start_date',
+    ],
+    expiration_date: [
+      'expiration date',
+      'expiration_date',
+      'expirationdate',
+      'exp date',
+      'exp_date',
+      'exp',
+      'expiry date',
+      'expiry_date',
+      'end date',
+      'end_date',
+    ],
     reference_premium: [
       'current policy premium',
+      'current_policy_premium',
       'policy premium',
+      'policy_premium',
       'written premium',
+      'written_premium',
       'premium',
       'annual premium',
+      'annual_premium',
     ],
-    commission_type: ['commission type', 'comm type', 'basis'],
+    commission_type: [
+      'commission type',
+      'commission_type',
+      'commissiontype',
+      'comm type',
+      'comm_type',
+      'basis',
+    ],
     agency_commission_percentage: [
       'agency commission %',
       'agency commission percent',
+      'agency_commission_percentage',
+      'agency commission percentage',
       'agency comm %',
       'comm %',
       'commission %',
       'commission percent',
+      'commission percentage',
       'carrier commission %',
     ],
     agency_commission_amount: [
       'agency commission amount',
+      'agency_commission_amount',
       'agency commission',
       'flat commission',
       'commission amount',
+      'commission_amount',
     ],
-    producer: ['producer', 'agent', 'producer name'],
+    producer: ['producer', 'agent', 'producer name', 'producer_name', 'producername', 'agent name'],
     producer_split_percentage: [
       'producer split %',
       'producer split',
+      'producer_split',
+      'producer_split_percentage',
+      'producer split percentage',
+      'producersplit',
       'split %',
       'producer percent',
     ],
-    csr: ['csr', 'account manager', 'csr name'],
-    broker_fee: ['default broker fee', 'broker fee', 'fee'],
-    status: ['policy status', 'status'],
+    csr: ['csr', 'account manager', 'account_manager', 'csr name', 'csr_name', 'csrname'],
+    broker_fee: [
+      'default broker fee',
+      'default_broker_fee',
+      'broker fee',
+      'broker_fee',
+      'brokerfee',
+      'fee',
+    ],
+    status: ['policy status', 'policy_status', 'status'],
     notes: ['notes', 'comments', 'remarks'],
   },
   carriers: {
-    carrier_name: ['carrier name', 'carrier', 'company', 'writing company'],
-    naic: ['naic', 'naic code'],
-    status: ['status'],
-    appointment_status: ['appointment status', 'appointment'],
-    billing_type: ['billing type', 'billing', 'bill type'],
-    lines_of_business: ['lines of business', 'lob', 'lines'],
+    carrier_name: [
+      'carrier name',
+      'carrier_name',
+      'carriername',
+      'carrier',
+      'company',
+      'writing company',
+      'writing_company',
+      'writing co',
+      'writing_co',
+    ],
+    naic: [
+      'naic',
+      'naic code',
+      'naic_code',
+      'naiccode',
+      'naic number',
+      'naic_number',
+      'naicnumber',
+      'naic #',
+      'naic#',
+      'naic no',
+      'naic_no',
+    ],
+    status: ['status', 'carrier status', 'carrier_status'],
+    appointment_status: [
+      'appointment status',
+      'appointment_status',
+      'appointmentstatus',
+      'appointment',
+    ],
+    billing_type: [
+      'billing type',
+      'billing_type',
+      'billingtype',
+      'billing',
+      'bill type',
+      'bill_type',
+    ],
+    lines_of_business: [
+      'lines of business',
+      'lines_of_business',
+      'linesofbusiness',
+      'lob',
+      'lines',
+    ],
     notes: ['notes', 'comments'],
   },
   mgas: {
-    mga_name: ['mga name', 'mga', 'wholesaler', 'broker'],
-    contact_person: ['contact person', 'contact name', 'contact'],
-    email: ['email', 'e mail'],
-    phone: ['phone', 'telephone'],
-    status: ['status'],
+    mga_name: [
+      'mga name',
+      'mga_name',
+      'mganame',
+      'mga',
+      'wholesaler',
+      'broker',
+    ],
+    contact_person: [
+      'contact person',
+      'contact_person',
+      'contactperson',
+      'contact name',
+      'contact_name',
+      'contact',
+    ],
+    email: ['email', 'e mail', 'e_mail', 'email address', 'email_address'],
+    phone: ['phone', 'telephone', 'phone number', 'phone_number'],
+    status: ['status', 'mga status', 'mga_status'],
     states: ['states', 'state'],
-    lines_of_business: ['lines of business', 'lob', 'lines'],
+    lines_of_business: [
+      'lines of business',
+      'lines_of_business',
+      'linesofbusiness',
+      'lob',
+      'lines',
+    ],
     notes: ['notes', 'comments'],
   },
   producers: {
-    producer_name: ['producer name', 'producer', 'agent', 'agent name'],
-    email: ['email', 'e mail'],
-    phone: ['phone', 'telephone'],
-    license_number: ['license number', 'license', 'license #'],
+    producer_name: [
+      'producer name',
+      'producer_name',
+      'producername',
+      'producer',
+      'agent',
+      'agent name',
+      'agent_name',
+      'agentname',
+    ],
+    email: ['email', 'e mail', 'e_mail', 'email address', 'email_address'],
+    phone: ['phone', 'telephone', 'phone number', 'phone_number'],
+    license_number: [
+      'license number',
+      'license_number',
+      'licensenumber',
+      'license',
+      'license #',
+      'license#',
+    ],
     default_split_percentage: [
       'default split %',
-      'default producer split %',
-      'split %',
+      'default_split_percentage',
       'default split',
+      'default_split',
+      'default producer split %',
+      'default producer split',
+      'split %',
+      'split percent',
     ],
-    status: ['status'],
+    status: ['status', 'producer status', 'producer_status'],
     notes: ['notes', 'comments'],
   },
   csrs: {
-    csr_name: ['csr name', 'csr', 'account manager'],
-    email: ['email', 'e mail'],
-    phone: ['phone', 'telephone'],
-    status: ['status'],
+    csr_name: [
+      'csr name',
+      'csr_name',
+      'csrname',
+      'csr',
+      'account manager',
+      'account_manager',
+      'accountmanager',
+    ],
+    email: ['email', 'e mail', 'e_mail', 'email address', 'email_address'],
+    phone: ['phone', 'telephone', 'phone number', 'phone_number'],
+    status: ['status', 'csr status', 'csr_status'],
     notes: ['notes', 'comments'],
   },
 }
@@ -250,13 +463,55 @@ const REFERENCE_PREMIUM_DEFERRED_NOTE =
 
 export type OnboardingMapping = Record<string, string | undefined>
 
+/** Space-separated normalized header (trim, lowercase, collapse separators). */
 export function normalizeHeaderKey(value: string): string {
   return String(value ?? '')
+    .replace(/^\uFEFF/, '')
     .toLowerCase()
-    .replace(/[%#]/g, ' ')
+    .replace(/[%#./]/g, ' ')
     .replace(/[^a-z0-9]+/g, ' ')
     .trim()
     .replace(/\s+/g, ' ')
+}
+
+/**
+ * Compact match key: ignore spaces, underscores, hyphens, and harmless punctuation
+ * so Carrier Name / carrier_name / CarrierName all match.
+ */
+export function normalizeHeaderMatchKey(value: string): string {
+  return normalizeHeaderKey(value).replace(/\s+/g, '')
+}
+
+/** Single shared accept list for the onboarding file input (wizard must use one input only). */
+export const ONBOARDING_FILE_ACCEPT =
+  '.csv,.txt,.xlsx,.xls,text/csv,text/plain,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+
+/**
+ * Upload file control always switches to file mode and opens the shared file picker.
+ * Drop-zone clicks use the same picker; do not mount a second hidden input.
+ */
+export function resolveUploadFileControlAction(_currentMode: 'file' | 'paste'): {
+  nextMode: 'file'
+  openFilePicker: true
+} {
+  return { nextMode: 'file', openFilePicker: true }
+}
+
+/** Manual mapping override; clears the same spreadsheet column from other ALZA fields. */
+export function applyOnboardingMappingChange(
+  mapping: OnboardingMapping,
+  fieldKey: string,
+  header: string | undefined,
+): OnboardingMapping {
+  const next: OnboardingMapping = { ...mapping, [fieldKey]: header || undefined }
+  if (header) {
+    for (const key of Object.keys(next)) {
+      if (key !== fieldKey && next[key] === header) {
+        next[key] = undefined
+      }
+    }
+  }
+  return next
 }
 
 /** Owner/Admin only — CSR and Producer are blocked. */
@@ -316,23 +571,48 @@ function escalateStatus(
   return statusPriority(next) < statusPriority(current) ? next : current
 }
 
+function findHeaderMatch(
+  normalized: Array<{ raw: string; matchKey: string }>,
+  usedHeaders: Set<string>,
+  needles: string[],
+): { raw: string; matchKey: string } | undefined {
+  const compactNeedles = needles.map(normalizeHeaderMatchKey).filter(Boolean)
+  return normalized.find(
+    (h) =>
+      !usedHeaders.has(h.raw) &&
+      h.matchKey &&
+      compactNeedles.some((n) => n === h.matchKey),
+  )
+}
+
+/**
+ * Auto-map spreadsheet headers → ALZA fields.
+ * Priority per field: (1) exact canonical key/label match (2) explicit alias (3) leave unmapped.
+ * No fuzzy/includes matching. Each spreadsheet column maps to at most one ALZA field.
+ */
 export function suggestOnboardingMapping(
   entity: OnboardingEntity,
   headers: string[],
 ): OnboardingMapping {
   const mapping: OnboardingMapping = {}
   const aliases = FIELD_ALIASES[entity]
-  const normalized = headers.map((h) => ({ raw: h, key: normalizeHeaderKey(h) }))
+  const normalized = headers.map((h) => ({
+    raw: h,
+    matchKey: normalizeHeaderMatchKey(h),
+  }))
   const usedHeaders = new Set<string>()
 
   for (const field of ONBOARDING_FIELDS[entity]) {
-    const needles = (aliases[field.key] ?? [field.label]).map(normalizeHeaderKey)
-    const hit = normalized.find(
-      (h) => !usedHeaders.has(h.raw) && needles.some((n) => n && h.key === n),
-    )
-    if (hit) {
-      mapping[field.key] = hit.raw
-      usedHeaders.add(hit.raw)
+    const canonicalHit = findHeaderMatch(normalized, usedHeaders, [field.key, field.label])
+    if (canonicalHit) {
+      mapping[field.key] = canonicalHit.raw
+      usedHeaders.add(canonicalHit.raw)
+      continue
+    }
+    const aliasHit = findHeaderMatch(normalized, usedHeaders, aliases[field.key] ?? [])
+    if (aliasHit) {
+      mapping[field.key] = aliasHit.raw
+      usedHeaders.add(aliasHit.raw)
     }
   }
   return mapping
