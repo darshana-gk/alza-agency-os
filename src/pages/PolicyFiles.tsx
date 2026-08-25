@@ -13,10 +13,17 @@ import {
 import { AddPolicyModal } from '../components/policies/AddPolicyModal'
 import { SearchInput } from '../components/ui/SearchInput'
 import { ExportMenu } from '../components/ui/ExportMenu'
+import { SortableTh } from '../components/ui/SortableTh'
 import { useAuth } from '../lib/auth'
 import { fetchPolicyTransactionSummaries } from '../lib/commission'
 import { policyExportColumns } from '../lib/exportDefinitions'
 import { downloadTableExport } from '../lib/tableExport'
+import {
+  CREATED_AT_DESC,
+  nextTableSort,
+  sortRows,
+  type TableSortState,
+} from '../lib/tableSort'
 import {
   canManagePolicies,
   isProducerBookScoped,
@@ -46,6 +53,7 @@ interface PolicyRow {
   filePremium: number
   agencyCommissionPercentage: number | null
   status: PolicyStatus
+  createdAt: string
 }
 
 const PAGE_SIZE = 10
@@ -124,6 +132,21 @@ export function PolicyFiles() {
   const [actionSuccess, setActionSuccess] = useState<string | null>(null)
   const [addOpen, setAddOpen] = useState(false)
   const [page, setPage] = useState(1)
+  const [policySort, setPolicySort] = useState<
+    TableSortState<
+      | 'clientName'
+      | 'policyNumber'
+      | 'policyType'
+      | 'carrier'
+      | 'effectiveDate'
+      | 'expirationDate'
+      | 'producer'
+      | 'csr'
+      | 'premium'
+      | 'status'
+      | 'createdAt'
+    >
+  >(CREATED_AT_DESC)
 
   const loadPolicies = useCallback(async () => {
     setLoading(true)
@@ -146,6 +169,7 @@ export function PolicyFiles() {
         premium,
         agency_commission_percentage,
         status,
+        created_at,
         clients ( business_name )
       `,
       )
@@ -186,6 +210,7 @@ export function PolicyFiles() {
           return Number.isFinite(n) ? n : null
         })(),
         status: normalizeStatus(row.status as string | null),
+        createdAt: String(row.created_at ?? ''),
       }
     })
 
@@ -237,6 +262,7 @@ export function PolicyFiles() {
     csrFilter,
     effectiveYearFilter,
     expirationYearFilter,
+    policySort,
   ])
 
   function setParam(key: string, value: string) {
@@ -349,9 +375,37 @@ export function PolicyFiles() {
     return [...years].sort((a, b) => b.localeCompare(a))
   }, [policies])
 
-  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
+  const sorted = useMemo(
+    () =>
+      sortRows(
+        filtered,
+        policySort,
+        {
+          clientName: (p) => p.clientName,
+          policyNumber: (p) => p.policyNumber,
+          policyType: (p) => p.policyType,
+          carrier: (p) => p.carrier,
+          effectiveDate: (p) => p.effectiveDate,
+          expirationDate: (p) => p.expirationDate,
+          producer: (p) => p.producer,
+          csr: (p) => p.csr,
+          premium: (p) => p.premium,
+          status: (p) => p.status,
+          createdAt: (p) => p.createdAt,
+        },
+        {
+          effectiveDate: 'date',
+          expirationDate: 'date',
+          premium: 'number',
+          createdAt: 'date',
+        },
+      ),
+    [filtered, policySort],
+  )
+
+  const totalPages = Math.max(1, Math.ceil(sorted.length / PAGE_SIZE))
   const currentPage = Math.min(page, totalPages)
-  const paginated = filtered.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
+  const paginated = sorted.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
 
   const selectClassName =
     'h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-900 focus:border-alza-blue-500 focus:outline-none focus:ring-2 focus:ring-alza-blue-500/20'
@@ -489,8 +543,35 @@ export function PolicyFiles() {
           <table className="min-w-full">
             <thead>
               <tr className="border-b border-slate-200 bg-slate-50/80">
-                {['Client', 'Policy Number', 'Type', 'Carrier / MGA', 'Effective', 'Expiration', 'Producer', 'CSR', 'Current Policy Premium', 'Status'].map((col) => (
-                  <th key={col} className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">{col}</th>
+                {[
+                  ['clientName', 'Client'],
+                  ['policyNumber', 'Policy Number'],
+                  ['policyType', 'Type'],
+                  ['carrier', 'Carrier / MGA'],
+                  ['effectiveDate', 'Effective'],
+                  ['expirationDate', 'Expiration'],
+                  ['producer', 'Producer'],
+                  ['csr', 'CSR'],
+                  ['premium', 'Current Policy Premium'],
+                  ['status', 'Status'],
+                ].map(([key, col]) => (
+                  <SortableTh
+                    key={key}
+                    className="px-4"
+                    align={key === 'premium' ? 'right' : 'left'}
+                    active={policySort.key === key}
+                    direction={policySort.direction}
+                    onSort={() =>
+                      setPolicySort((s) =>
+                        nextTableSort(
+                          s,
+                          key as typeof policySort.key,
+                        ),
+                      )
+                    }
+                  >
+                    {col}
+                  </SortableTh>
                 ))}
               </tr>
             </thead>

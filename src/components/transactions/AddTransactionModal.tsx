@@ -22,6 +22,7 @@ import {
   fetchProducerDefaultSplit,
   resolveTransactionSplitSource,
 } from '../../lib/producerSplit'
+import { parseProducerSplitPercentage } from '../../lib/producerSplitValidation'
 import { fetchActiveReviewers, type ReviewerOption } from '../../lib/reviewers'
 import { supabase } from '../../lib/supabase'
 
@@ -305,12 +306,13 @@ export function AddTransactionModal({
   const derived = useMemo(() => {
     // Do not derive commissions until the user enters a transaction amount.
     if (!amountEntered) return null
+    const splitParsed = parseProducerSplitPercentage(form.producerSplitPercentage)
+    if (!splitParsed.ok) return null
     const premium = signedPremiumAmount
-    const splitPct = Number(form.producerSplitPercentage)
+    const splitPct = splitParsed.value
     const brokerFee = Number(form.brokerFee)
     const commissionType = normalizeCommissionType(form.commissionType)
-    if (!Number.isFinite(premium) || !Number.isFinite(splitPct) || splitPct < 0) return null
-    if (!Number.isFinite(brokerFee)) return null
+    if (!Number.isFinite(premium) || !Number.isFinite(brokerFee)) return null
     if (commissionType === 'percentage') {
       const agencyPct = Number(form.agencyCommissionPercentage)
       if (!Number.isFinite(agencyPct) || agencyPct < 0) return null
@@ -408,6 +410,11 @@ export function AddTransactionModal({
       setError(amountError)
       return
     }
+    const splitParsed = parseProducerSplitPercentage(form.producerSplitPercentage)
+    if (!splitParsed.ok) {
+      setError(splitParsed.error)
+      return
+    }
     const commissionType = normalizeCommissionType(form.commissionType)
     setSaving(true)
     setError(null)
@@ -432,7 +439,7 @@ export function AddTransactionModal({
       agencyCommissionAmount:
         commissionType === 'flat' ? Number(form.agencyCommissionAmount) : null,
       brokerFee: Number(form.brokerFee),
-      producerSplitPercentage: Number(form.producerSplitPercentage),
+      producerSplitPercentage: splitParsed.value,
       producerSplitSource: splitSource,
       reviewerUserId: form.reviewerUserId.trim() || null,
       originalTransactionId: null,
@@ -845,11 +852,14 @@ export function AddTransactionModal({
                 />
               </label>
               <label className="block">
-                <span className="mb-1.5 block text-xs font-medium text-slate-500">Producer Split %</span>
+                <span className="mb-1.5 block text-xs font-medium text-slate-500">
+                  Producer Split % <span className="text-red-500">*</span>
+                </span>
                 <input
                   required
                   type="number"
                   min="0"
+                  max="100"
                   step="0.01"
                   value={form.producerSplitPercentage}
                   onChange={(e) =>

@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { Headphones, ArrowLeft, Search } from 'lucide-react'
+import { SortableTh } from '../../components/ui/SortableTh'
 import { useAuth } from '../../lib/auth'
 import { canAccessAlzaSupportInbox, roleInputFromProfile } from '../../lib/permissions'
 import {
@@ -21,6 +22,7 @@ import {
   type SupportMessage,
   type SupportStatus,
 } from '../../lib/support'
+import { nextTableSort, sortRows, type TableSortState } from '../../lib/tableSort'
 
 const selectClass =
   'h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-900 focus:border-alza-blue-500 focus:outline-none focus:ring-2 focus:ring-alza-blue-500/20'
@@ -56,6 +58,9 @@ export function AlzaSupportInboxPage() {
   const [categoryFilter, setCategoryFilter] = useState<SupportCategory | 'all'>('all')
   const [search, setSearch] = useState('')
   const [rows, setRows] = useState<SupportConversation[]>([])
+  const [sort, setSort] = useState<
+    TableSortState<'agency' | 'subject' | 'category' | 'status' | 'updatedAt' | 'assigned'>
+  >({ key: 'updatedAt', direction: 'desc' })
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [selected, setSelected] = useState<SupportConversation | null>(null)
@@ -98,6 +103,24 @@ export function AlzaSupportInboxPage() {
     }
     void loadDetail(selectedId)
   }, [selectedId, loadDetail])
+
+  const sortedRows = useMemo(
+    () =>
+      sortRows(
+        rows,
+        sort,
+        {
+          agency: (r) => r.agencyName,
+          subject: (r) => r.subject,
+          category: (r) => r.category,
+          status: (r) => r.status,
+          updatedAt: (r) => r.updatedAt,
+          assigned: (r) => r.assignedToName,
+        },
+        { updatedAt: 'date' },
+      ),
+    [rows, sort],
+  )
 
   function openConversation(id: string | null) {
     if (!id) {
@@ -390,13 +413,52 @@ export function AlzaSupportInboxPage() {
         <table className="min-w-full text-sm">
           <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
             <tr>
-              <th className="px-4 py-3">Agency</th>
-              <th className="px-4 py-3">Subject</th>
-              <th className="px-4 py-3">Category</th>
-              <th className="px-4 py-3">Status</th>
-              <th className="px-4 py-3">Last Message</th>
-              <th className="px-4 py-3">Age</th>
-              <th className="px-4 py-3">Assigned</th>
+              <SortableTh
+                active={sort.key === 'agency'}
+                direction={sort.direction}
+                onSort={() => setSort((s) => nextTableSort(s, 'agency'))}
+              >
+                Agency
+              </SortableTh>
+              <SortableTh
+                active={sort.key === 'subject'}
+                direction={sort.direction}
+                onSort={() => setSort((s) => nextTableSort(s, 'subject'))}
+              >
+                Subject
+              </SortableTh>
+              <SortableTh
+                active={sort.key === 'category'}
+                direction={sort.direction}
+                onSort={() => setSort((s) => nextTableSort(s, 'category'))}
+              >
+                Category
+              </SortableTh>
+              <SortableTh
+                active={sort.key === 'status'}
+                direction={sort.direction}
+                onSort={() => setSort((s) => nextTableSort(s, 'status'))}
+              >
+                Status
+              </SortableTh>
+              <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">
+                Last Message
+              </th>
+              <SortableTh
+                active={sort.key === 'updatedAt'}
+                direction={sort.direction}
+                onSort={() => setSort((s) => nextTableSort(s, 'updatedAt'))}
+                label="age"
+              >
+                Age
+              </SortableTh>
+              <SortableTh
+                active={sort.key === 'assigned'}
+                direction={sort.direction}
+                onSort={() => setSort((s) => nextTableSort(s, 'assigned'))}
+              >
+                Assigned
+              </SortableTh>
             </tr>
           </thead>
           <tbody>
@@ -414,7 +476,7 @@ export function AlzaSupportInboxPage() {
                 </td>
               </tr>
             )}
-            {rows.map((row) => (
+            {sortedRows.map((row) => (
               <tr
                 key={row.id}
                 className="cursor-pointer border-t border-slate-100 hover:bg-slate-50"

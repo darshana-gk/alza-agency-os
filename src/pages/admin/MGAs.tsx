@@ -4,10 +4,17 @@ import { useSearchParams } from 'react-router-dom'
 import { Building2, ChevronLeft, ChevronRight, Plus, Search, X } from 'lucide-react'
 import { ExportMenu } from '../../components/ui/ExportMenu'
 import { SearchInput } from '../../components/ui/SearchInput'
+import { SortableTh } from '../../components/ui/SortableTh'
 import { useAuth } from '../../lib/auth'
 import { archiveMga, createMga, isAdminDirectoryRole, updateMga } from '../../lib/directory'
 import { mgaExportColumns } from '../../lib/exportDefinitions'
 import { downloadTableExport } from '../../lib/tableExport'
+import {
+  DIRECTORY_NAME_SORT,
+  nextTableSort,
+  sortRows,
+  type TableSortState,
+} from '../../lib/tableSort'
 import { supabase } from '../../lib/supabase'
 
 type MGAStatus = 'active' | 'inactive' | 'pending'
@@ -59,6 +66,9 @@ export function MGAs() {
   const search = searchParams.get('search') ?? ''
   const statusFilter = searchParams.get('status') ?? ALL
   const [page, setPage] = useState(1)
+  const [sort, setSort] = useState<TableSortState<'name' | 'contact' | 'email' | 'states' | 'status'>>(
+    DIRECTORY_NAME_SORT,
+  )
   const [rows, setRows] = useState<MGA[]>([])
   const [loading, setLoading] = useState(true)
   const [fetchError, setFetchError] = useState<string | null>(null)
@@ -114,7 +124,7 @@ export function MGAs() {
 
   useEffect(() => {
     setPage(1)
-  }, [search, statusFilter])
+  }, [search, statusFilter, sort])
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase()
@@ -131,9 +141,21 @@ export function MGAs() {
     })
   }, [rows, search, statusFilter])
 
-  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
+  const sorted = useMemo(
+    () =>
+      sortRows(filtered, sort, {
+        name: (r) => r.name,
+        contact: (r) => r.contactPerson,
+        email: (r) => r.email,
+        states: (r) => r.states,
+        status: (r) => r.status,
+      }),
+    [filtered, sort],
+  )
+
+  const totalPages = Math.max(1, Math.ceil(sorted.length / PAGE_SIZE))
   const currentPage = Math.min(page, totalPages)
-  const paginated = filtered.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
+  const paginated = sorted.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
   const activeCount = rows.filter((r) => r.status === 'active').length
 
   function setParam(key: string, value: string) {
@@ -324,10 +346,24 @@ export function MGAs() {
           <table className="min-w-full">
             <thead>
               <tr className="border-b border-slate-200 bg-slate-50/80">
-                {['MGA', 'Contact', 'Email', 'States', 'Status'].map((col) => (
-                  <th key={col} className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">
+                {(
+                  [
+                    ['name', 'MGA'],
+                    ['contact', 'Contact'],
+                    ['email', 'Email'],
+                    ['states', 'States'],
+                    ['status', 'Status'],
+                  ] as const
+                ).map(([key, col]) => (
+                  <SortableTh
+                    key={key}
+                    className="px-6"
+                    active={sort.key === key}
+                    direction={sort.direction}
+                    onSort={() => setSort((s) => nextTableSort(s, key))}
+                  >
                     {col}
-                  </th>
+                  </SortableTh>
                 ))}
               </tr>
             </thead>

@@ -5,6 +5,7 @@ import {
   type CommissionType,
 } from './commission'
 import { isAdminDirectoryRole, isOpsMutatorRole, rejectUnlessRole } from './permissions'
+import { validateProducerSplitPercentage } from './producerSplitValidation'
 
 export { isAdminDirectoryRole, isOpsMutatorRole } from './permissions'
 
@@ -445,8 +446,9 @@ export async function createPolicy(input: CreatePolicyInput) {
   if (!Number.isFinite(brokerFee)) {
     return err('Enter a valid default broker fee (0, positive, or negative).', 'policies', 'validate')
   }
-  if (!Number.isFinite(input.producerSplitPercentage) || input.producerSplitPercentage < 0) {
-    return err('Producer split % must be zero or greater.', 'policies', 'validate')
+  const splitError = validateProducerSplitPercentage(input.producerSplitPercentage)
+  if (splitError) {
+    return err(splitError, 'policies', 'validate')
   }
 
   const policyNumber = input.policyNumber.trim()
@@ -618,6 +620,10 @@ export async function updatePolicy(input: UpdatePolicyInput) {
   if (input.unlockFinancials) {
     const commissionType = normalizeCommissionType(input.commissionType)
     const brokerFee = Number(input.brokerFee)
+    const splitError = validateProducerSplitPercentage(input.producerSplitPercentage)
+    if (splitError) {
+      return err(splitError, 'policies', 'validate')
+    }
     const splitPct = Number(input.producerSplitPercentage)
     if (commissionType === 'percentage') {
       const agencyPct = Number(input.agencyCommissionPercentage)
@@ -639,9 +645,6 @@ export async function updatePolicy(input: UpdatePolicyInput) {
     }
     if (!Number.isFinite(brokerFee)) {
       return err('Enter a valid default broker fee.', 'policies', 'validate')
-    }
-    if (!Number.isFinite(splitPct) || splitPct < 0) {
-      return err('Producer split % must be zero or greater.', 'policies', 'validate')
     }
     payload.commission_type = commissionType
     payload.broker_fee = roundMoney(brokerFee)

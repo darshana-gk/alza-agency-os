@@ -76,6 +76,15 @@ import {
   type CommissionType,
 } from '../lib/commission'
 import { useAuth } from '../lib/auth'
+import { parseProducerSplitPercentage } from '../lib/producerSplitValidation'
+import { nextTableSort } from '../lib/tableSort'
+import {
+  DEFAULT_TRANSACTION_TABLE_SORT,
+  TRANSACTION_PAGE_SIZE,
+  paginateTransactionTableRows,
+  sortTransactionTableRows,
+} from '../lib/transactionsTable'
+import { SortableTh } from '../components/ui/SortableTh'
 import { transactionExportColumns } from '../lib/exportDefinitions'
 import { downloadTableExport } from '../lib/tableExport'
 import { ExportMenu } from '../components/ui/ExportMenu'
@@ -109,7 +118,7 @@ import { SupportingDocumentsPanel } from '../components/activity/SupportingDocum
 import { AddTransactionModal } from '../components/transactions/AddTransactionModal'
 import { supabase } from '../lib/supabase'
 
-const PAGE_SIZE = 10
+const PAGE_SIZE = TRANSACTION_PAGE_SIZE
 const ALL = 'all'
 
 const selectClassName =
@@ -197,6 +206,7 @@ export function Transactions() {
   const [dateFrom, setDateFrom] = useState(searchParams.get('dateFrom') || '')
   const [dateTo, setDateTo] = useState(searchParams.get('dateTo') || '')
   const [page, setPage] = useState(1)
+  const [txnSort, setTxnSort] = useState(DEFAULT_TRANSACTION_TABLE_SORT)
   const [selectedId, setSelectedId] = useState<string | null>(routeTxnId ?? null)
   const [recoveries, setRecoveries] = useState<RecoverySummary[]>([])
   const [recoveriesLoading, setRecoveriesLoading] = useState(false)
@@ -443,6 +453,7 @@ export function Transactions() {
     correctionFilter,
     dateFrom,
     dateTo,
+    txnSort,
   ])
 
   // If client changes and selected policy belongs to a different client, reset policy.
@@ -659,16 +670,23 @@ export function Transactions() {
     }
   }, [filteredTransactions])
 
-  const totalPages = Math.max(1, Math.ceil(filteredTransactions.length / PAGE_SIZE))
-  const currentPage = Math.min(page, totalPages)
-  const paginatedTransactions = useMemo(() => {
-    const start = (currentPage - 1) * PAGE_SIZE
-    return filteredTransactions.slice(start, start + PAGE_SIZE)
-  }, [filteredTransactions, currentPage])
+  const sortedTransactions = useMemo(
+    () =>
+      sortTransactionTableRows(filteredTransactions, txnSort, (tx) =>
+        getTransactionWorkflowStatus(tx),
+      ),
+    [filteredTransactions, txnSort],
+  )
 
-  const rangeStart =
-    filteredTransactions.length === 0 ? 0 : (currentPage - 1) * PAGE_SIZE + 1
-  const rangeEnd = Math.min(currentPage * PAGE_SIZE, filteredTransactions.length)
+  const pagedTransactions = useMemo(
+    () => paginateTransactionTableRows(sortedTransactions, page, PAGE_SIZE),
+    [sortedTransactions, page],
+  )
+  const totalPages = pagedTransactions.totalPages
+  const currentPage = pagedTransactions.currentPage
+  const paginatedTransactions = pagedTransactions.rows
+  const rangeStart = pagedTransactions.rangeStart
+  const rangeEnd = pagedTransactions.rangeEnd
 
   const confirmVariance = useMemo(() => {
     if (!selected) return 0
@@ -1040,13 +1058,22 @@ export function Transactions() {
   async function handleEditTransaction(e: FormEvent) {
     e.preventDefault()
     if (!selected) return
-    setSaving(true)
-    setActionError(null)
     const unlockCommission = canEditTransactionCommission(selected, roleInput, {
       id: profile?.id,
       fullName: profile?.fullName,
       email: profile?.email,
     })
+    let splitValue: number | undefined
+    if (unlockCommission) {
+      const splitParsed = parseProducerSplitPercentage(editProducerSplit)
+      if (!splitParsed.ok) {
+        setActionError(splitParsed.error)
+        return
+      }
+      splitValue = splitParsed.value
+    }
+    setSaving(true)
+    setActionError(null)
     const commissionType = normalizeCommissionType(editCommissionType)
     const result = await updateTransactionMetadata({
       transactionId: selected.id,
@@ -1070,7 +1097,7 @@ export function Transactions() {
       agencyCommissionAmount:
         unlockCommission && commissionType === 'flat' ? Number(editAgencyAmount) : null,
       brokerFee: unlockCommission ? Number(editBrokerFee) : undefined,
-      producerSplitPercentage: unlockCommission ? Number(editProducerSplit) : undefined,
+      producerSplitPercentage: splitValue,
     })
     setSaving(false)
     if (result.error) {
@@ -1278,10 +1305,12 @@ export function Transactions() {
   const editCommissionPreview = useMemo(() => {
     if (!showCommissionEdit) return null
     const premium = Number(editPremiumAmount)
-    const split = Number(editProducerSplit)
+    const splitParsed = parseProducerSplitPercentage(editProducerSplit)
+    if (!splitParsed.ok) return null
+    const split = splitParsed.value
     const brokerFee = Number(editBrokerFee)
     const commissionType = normalizeCommissionType(editCommissionType)
-    if (!Number.isFinite(premium) || !Number.isFinite(split) || split < 0 || !Number.isFinite(brokerFee)) {
+    if (!Number.isFinite(premium) || !Number.isFinite(brokerFee)) {
       return null
     }
     if (commissionType === 'percentage') {
@@ -1536,13 +1565,65 @@ export function Transactions() {
           <table className="min-w-[1080px] w-full text-sm">
             <thead>
               <tr className="border-b border-slate-200 bg-slate-50/70">
-                <th className="min-w-[170px] px-5 py-3.5 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">Transaction</th>
-                <th className="min-w-[170px] px-5 py-3.5 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">Client / Policy</th>
-                <th className="min-w-[140px] px-5 py-3.5 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">Policy Term</th>
-                <th className="min-w-[120px] px-5 py-3.5 text-right text-xs font-semibold uppercase tracking-wider text-slate-500">Amount</th>
-                <th className="min-w-[140px] px-5 py-3.5 text-right text-xs font-semibold uppercase tracking-wider text-slate-500">Agency Commission</th>
-                <th className="min-w-[150px] px-5 py-3.5 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">Producer</th>
-                <th className="min-w-[140px] px-5 py-3.5 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">Workflow</th>
+                <SortableTh
+                  className="min-w-[170px] px-5 py-3.5"
+                  active={txnSort.key === 'createdAt'}
+                  direction={txnSort.direction}
+                  onSort={() => setTxnSort((s) => nextTableSort(s, 'createdAt'))}
+                  label="created date"
+                >
+                  Transaction
+                </SortableTh>
+                <SortableTh
+                  className="min-w-[170px] px-5 py-3.5"
+                  active={txnSort.key === 'clientName'}
+                  direction={txnSort.direction}
+                  onSort={() => setTxnSort((s) => nextTableSort(s, 'clientName'))}
+                >
+                  Client / Policy
+                </SortableTh>
+                <SortableTh
+                  className="min-w-[140px] px-5 py-3.5"
+                  active={txnSort.key === 'policyEffectiveDate'}
+                  direction={txnSort.direction}
+                  onSort={() => setTxnSort((s) => nextTableSort(s, 'policyEffectiveDate'))}
+                >
+                  Policy Term
+                </SortableTh>
+                <SortableTh
+                  className="min-w-[120px] px-5 py-3.5"
+                  align="right"
+                  active={txnSort.key === 'amount'}
+                  direction={txnSort.direction}
+                  onSort={() => setTxnSort((s) => nextTableSort(s, 'amount'))}
+                >
+                  Amount
+                </SortableTh>
+                <SortableTh
+                  className="min-w-[140px] px-5 py-3.5"
+                  align="right"
+                  active={txnSort.key === 'agencyCommission'}
+                  direction={txnSort.direction}
+                  onSort={() => setTxnSort((s) => nextTableSort(s, 'agencyCommission'))}
+                >
+                  Agency Commission
+                </SortableTh>
+                <SortableTh
+                  className="min-w-[150px] px-5 py-3.5"
+                  active={txnSort.key === 'producer'}
+                  direction={txnSort.direction}
+                  onSort={() => setTxnSort((s) => nextTableSort(s, 'producer'))}
+                >
+                  Producer
+                </SortableTh>
+                <SortableTh
+                  className="min-w-[140px] px-5 py-3.5"
+                  active={txnSort.key === 'workflow'}
+                  direction={txnSort.direction}
+                  onSort={() => setTxnSort((s) => nextTableSort(s, 'workflow'))}
+                >
+                  Workflow
+                </SortableTh>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -2721,8 +2802,8 @@ export function Transactions() {
                   <Field label="Broker Fee">
                     <input type="number" step="0.01" value={editBrokerFee} onChange={(e) => setEditBrokerFee(e.target.value)} className={inputClassName} />
                   </Field>
-                  <Field label="Producer Split %">
-                    <input type="number" min="0" step="0.01" value={editProducerSplit} onChange={(e) => setEditProducerSplit(e.target.value)} className={inputClassName} />
+                  <Field label="Producer Split % *">
+                    <input type="number" min="0" max="100" step="0.01" value={editProducerSplit} onChange={(e) => setEditProducerSplit(e.target.value)} className={inputClassName} />
                   </Field>
                 </div>
                 <DetailGrid

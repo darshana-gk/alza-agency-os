@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
 import { Plus, Search, UserCircle, X } from 'lucide-react'
 import { ExportMenu } from '../../components/ui/ExportMenu'
+import { SortableTh } from '../../components/ui/SortableTh'
 import { useAuth } from '../../lib/auth'
 import {
   AGENCY_ASSIGNABLE_ROLES,
@@ -16,6 +17,11 @@ import {
 import { syncProducerDirectoryForUser, fetchProducerLinkOptions, suggestProducerLinkId, type ProducerLinkOption } from '../../lib/directory'
 import { userExportColumns } from '../../lib/exportDefinitions'
 import { downloadTableExport } from '../../lib/tableExport'
+import {
+  nextTableSort,
+  sortRows,
+  type TableSortState,
+} from '../../lib/tableSort'
 import { supabase } from '../../lib/supabase'
 
 type UserStatus = 'active' | 'inactive'
@@ -175,6 +181,10 @@ export function UsersPage() {
   const canManage = canManageUsers(profile?.role)
   const actorRole = normalizeAppRole(profile?.role)
   const [rows, setRows] = useState<ManagedUser[]>([])
+  const [sort, setSort] = useState<TableSortState<'name' | 'email' | 'roles' | 'status'>>({
+    key: 'name',
+    direction: 'asc',
+  })
   const [loading, setLoading] = useState(true)
   const [fetchError, setFetchError] = useState<string | null>(null)
   const [search, setSearch] = useState('')
@@ -303,6 +313,17 @@ export function UsersPage() {
         String(u.role).toLowerCase().includes(q),
     )
   }, [rows, search])
+
+  const sortedUsers = useMemo(
+    () =>
+      sortRows(filtered, sort, {
+        name: (u) => u.fullName,
+        email: (u) => u.email,
+        roles: (u) => String(u.role ?? ''),
+        status: (u) => u.status,
+      }),
+    [filtered, sort],
+  )
 
   const assignableRoles = useMemo(() => {
     if (actorRole === 'admin') {
@@ -736,12 +757,44 @@ export function UsersPage() {
           <table className="min-w-full">
             <thead>
               <tr className="border-b border-slate-200 bg-slate-50/80 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">
-                <th className="px-6 py-3">Name</th>
-                <th className="px-6 py-3">Email</th>
-                <th className="px-6 py-3">Roles</th>
-                <th className="px-6 py-3">Status</th>
-                <th className="px-6 py-3">Auth link / invite</th>
-                <th className="px-6 py-3">Actions</th>
+                <SortableTh
+                  className="px-6"
+                  active={sort.key === 'name'}
+                  direction={sort.direction}
+                  onSort={() => setSort((s) => nextTableSort(s, 'name'))}
+                >
+                  Name
+                </SortableTh>
+                <SortableTh
+                  className="px-6"
+                  active={sort.key === 'email'}
+                  direction={sort.direction}
+                  onSort={() => setSort((s) => nextTableSort(s, 'email'))}
+                >
+                  Email
+                </SortableTh>
+                <SortableTh
+                  className="px-6"
+                  active={sort.key === 'roles'}
+                  direction={sort.direction}
+                  onSort={() => setSort((s) => nextTableSort(s, 'roles'))}
+                >
+                  Roles
+                </SortableTh>
+                <SortableTh
+                  className="px-6"
+                  active={sort.key === 'status'}
+                  direction={sort.direction}
+                  onSort={() => setSort((s) => nextTableSort(s, 'status'))}
+                >
+                  Status
+                </SortableTh>
+                <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">
+                  Auth link / invite
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">
+                  Actions
+                </th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -758,7 +811,7 @@ export function UsersPage() {
                   </td>
                 </tr>
               ) : (
-                filtered.map((user) => {
+                sortedUsers.map((user) => {
                   const role = normalizeAppRole(user.role) ?? user.role
                   const lockedForAdmin = actorRole === 'admin' && normalizeAppRole(user.role) === 'owner'
                   const linkLabel = authLinkLabel(user)

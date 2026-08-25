@@ -65,7 +65,21 @@ import {
   canConfirmReceipts,
   canMutateFinancialPayments,
 } from '../lib/permissions'
+import { SortableTh } from '../components/ui/SortableTh'
 import { supabase } from '../lib/supabase'
+import {
+  DEFAULT_PRODUCER_PAYMENT_SORT,
+  nextProducerPaymentSort,
+  sortProducerPaymentBatches,
+  type ProducerPaymentSort,
+  type ProducerPaymentSortKey,
+} from '../lib/producerPaymentTable'
+import {
+  compareIsoDate,
+  nextTableSort,
+  sortRows,
+  type TableSortState,
+} from '../lib/tableSort'
 
 type FinancialsTab = FinancialsTabId
 
@@ -206,6 +220,7 @@ interface Recovery {
 
 interface PaymentBatch {
   id: string
+  createdAt: string
   batchNumber: string
   producer: string
   paymentDate: string | null
@@ -353,6 +368,7 @@ function mapBatch(row: PaymentBatchRow): PaymentBatch {
   }
   return {
     id: row.id,
+    createdAt: row.created_at,
     batchNumber: row.batch_number?.trim() || '—',
     producer: row.producer?.trim() || '—',
     paymentDate: row.payment_date,
@@ -449,6 +465,23 @@ export function Financials() {
   const [paymentMethod, setPaymentMethod] = useState('')
   const [paymentReference, setPaymentReference] = useState('')
   const [paymentNotes, setPaymentNotes] = useState('')
+  const [paymentSort, setPaymentSort] = useState<ProducerPaymentSort>(DEFAULT_PRODUCER_PAYMENT_SORT)
+  const [receiptSort, setReceiptSort] = useState<
+    TableSortState<'settlement' | 'client' | 'policy' | 'transaction' | 'status'>
+  >({ key: 'settlement', direction: 'desc' })
+  const [recoverySort, setRecoverySort] = useState<
+    TableSortState<
+      | 'recoveryNumber'
+      | 'createdAt'
+      | 'producer'
+      | 'amount'
+      | 'applied'
+      | 'remaining'
+      | 'status'
+      | 'settlement'
+      | 'transaction'
+    >
+  >({ key: 'createdAt', direction: 'desc' })
   const [saving, setSaving] = useState(false)
 
   const [recoveryOpen, setRecoveryOpen] = useState(false)
@@ -827,9 +860,27 @@ export function Financials() {
     })
   }, [receipts, search, statusFilter, clientFilter, policyFilter, producerFilter, yearFilter, dateFrom, dateTo])
 
+  const sortedReceipts = useMemo(
+    () =>
+      sortRows(
+        filteredReceipts,
+        receiptSort,
+        {
+          settlement: (row) => row.settlementDate || row.importedAt,
+          client: (row) => row.clientName,
+          policy: (row) => row.policyNumber,
+          transaction: (row) => row.transactionNumber,
+          status: (row) => row.reconciliationStatus,
+        },
+        { settlement: 'date' },
+        (a, b) => compareIsoDate(a.importedAt, b.importedAt, 'desc'),
+      ),
+    [filteredReceipts, receiptSort],
+  )
+
   const filteredBatches = useMemo(() => {
     const query = search.trim().toLowerCase()
-    return batches.filter((row) => {
+    const filtered = batches.filter((row) => {
       if (statusFilter !== ALL && row.status !== statusFilter) return false
       if (producerFilter !== ALL && row.producer !== producerFilter) return false
       if (!matchesYearAndRange(row.paymentDate)) return false
@@ -840,7 +891,12 @@ export function Financials() {
         row.paymentReference.toLowerCase().includes(query)
       )
     })
-  }, [batches, search, statusFilter, producerFilter, yearFilter, dateFrom, dateTo])
+    return sortProducerPaymentBatches(filtered, paymentSort)
+  }, [batches, search, statusFilter, producerFilter, yearFilter, dateFrom, dateTo, paymentSort])
+
+  function handlePaymentSort(key: ProducerPaymentSortKey) {
+    setPaymentSort((current) => nextProducerPaymentSort(current, key))
+  }
 
   const filteredRecoveries = useMemo(() => {
     const query = search.trim().toLowerCase()
@@ -857,6 +913,32 @@ export function Financials() {
       )
     })
   }, [recoveries, search, statusFilter, producerFilter, yearFilter, dateFrom, dateTo])
+
+  const sortedRecoveries = useMemo(
+    () =>
+      sortRows(
+        filteredRecoveries,
+        recoverySort,
+        {
+          recoveryNumber: (row) => row.recoveryNumber,
+          createdAt: (row) => row.createdAt,
+          producer: (row) => row.producer,
+          amount: (row) => row.amount,
+          applied: (row) => row.appliedAmount,
+          remaining: (row) => row.remainingAmount,
+          status: (row) => row.status,
+          settlement: (row) => row.settlementMethod,
+          transaction: (row) => row.transactionNumber,
+        },
+        {
+          createdAt: 'date',
+          amount: 'number',
+          applied: 'number',
+          remaining: 'number',
+        },
+      ),
+    [filteredRecoveries, recoverySort],
+  )
 
   function toggleReadyId(id: string) {
     if (!canPay) return
@@ -1673,20 +1755,55 @@ export function Financials() {
             <table className="min-w-full">
               <thead>
                 <tr className="border-b border-slate-200 bg-slate-50/80">
-                  <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">Settlement / Imported</th>
-                  <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">Client</th>
-                  <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">Policy</th>
-                  <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">Transaction</th>
-                  <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">Status</th>
+                  <SortableTh
+                    className="px-6"
+                    active={receiptSort.key === 'settlement'}
+                    direction={receiptSort.direction}
+                    onSort={() => setReceiptSort((s) => nextTableSort(s, 'settlement'))}
+                  >
+                    Settlement / Imported
+                  </SortableTh>
+                  <SortableTh
+                    className="px-6"
+                    active={receiptSort.key === 'client'}
+                    direction={receiptSort.direction}
+                    onSort={() => setReceiptSort((s) => nextTableSort(s, 'client'))}
+                  >
+                    Client
+                  </SortableTh>
+                  <SortableTh
+                    className="px-6"
+                    active={receiptSort.key === 'policy'}
+                    direction={receiptSort.direction}
+                    onSort={() => setReceiptSort((s) => nextTableSort(s, 'policy'))}
+                  >
+                    Policy
+                  </SortableTh>
+                  <SortableTh
+                    className="px-6"
+                    active={receiptSort.key === 'transaction'}
+                    direction={receiptSort.direction}
+                    onSort={() => setReceiptSort((s) => nextTableSort(s, 'transaction'))}
+                  >
+                    Transaction
+                  </SortableTh>
+                  <SortableTh
+                    className="px-6"
+                    active={receiptSort.key === 'status'}
+                    direction={receiptSort.direction}
+                    onSort={() => setReceiptSort((s) => nextTableSort(s, 'status'))}
+                  >
+                    Status
+                  </SortableTh>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {loading ? (
                   <EmptyOrLoading colSpan={5} loading label="Loading agency commission receipts..." />
-                ) : filteredReceipts.length === 0 ? (
+                ) : sortedReceipts.length === 0 ? (
                   <EmptyOrLoading colSpan={5} title="No agency commission receipts recorded yet." subtitle="Confirm commission received from a transaction to create the first receipt." />
                 ) : (
-                  filteredReceipts.map((row) => (
+                  sortedReceipts.map((row) => (
                     <tr key={row.id} className="hover:bg-alza-blue-50/60">
                       <td className="whitespace-nowrap px-6 py-4 text-sm text-slate-700">
                         <p className="font-medium text-slate-900">{formatDate(row.settlementDate)}</p>
@@ -1740,14 +1857,31 @@ export function Financials() {
             <table className="min-w-full">
               <thead>
                 <tr className="border-b border-slate-200 bg-slate-50/80">
-                  <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">Batch</th>
-                  <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">Producer</th>
-                  <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">Payment Date</th>
-                  <th className="px-6 py-3 text-right text-xs font-semibold uppercase tracking-wider text-slate-500">Gross</th>
-                  <th className="px-6 py-3 text-right text-xs font-semibold uppercase tracking-wider text-slate-500">Net</th>
-                  <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">Status</th>
-                  <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">Payment Details</th>
-                  <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">Actions</th>
+                  {(
+                    [
+                      ['batchNumber', 'Batch', 'left'],
+                      ['producer', 'Producer', 'left'],
+                      ['paymentDate', 'Payment Date', 'left'],
+                      ['grossCommission', 'Gross', 'right'],
+                      ['netPayment', 'Net', 'right'],
+                      ['status', 'Status', 'left'],
+                      ['paymentMethod', 'Payment Details', 'left'],
+                    ] as const
+                  ).map(([key, label, align]) => (
+                    <SortableTh
+                      key={key}
+                      className="px-6"
+                      align={align}
+                      active={paymentSort.key === key}
+                      direction={paymentSort.direction}
+                      onSort={() => handlePaymentSort(key)}
+                    >
+                      {label}
+                    </SortableTh>
+                  ))}
+                  <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">
+                    Actions
+                  </th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -1858,27 +1992,48 @@ export function Financials() {
             <table className="min-w-full">
               <thead>
                 <tr className="border-b border-slate-200 bg-slate-50/80">
-                  <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">Recovery #</th>
-                  <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">Created</th>
-                  <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">Producer</th>
-                  <th className="px-6 py-3 text-right text-xs font-semibold uppercase tracking-wider text-slate-500">Original</th>
-                  <th className="px-6 py-3 text-right text-xs font-semibold uppercase tracking-wider text-slate-500">Applied</th>
-                  <th className="px-6 py-3 text-right text-xs font-semibold uppercase tracking-wider text-slate-500">Remaining</th>
-                  <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">Status</th>
-                  <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">Settlement</th>
-                  <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">Transaction</th>
-                  <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">Receipt</th>
-                  <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">Notes</th>
-                  <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">Actions</th>
+                  {(
+                    [
+                      ['recoveryNumber', 'Recovery #', 'left'],
+                      ['createdAt', 'Created', 'left'],
+                      ['producer', 'Producer', 'left'],
+                      ['amount', 'Original', 'right'],
+                      ['applied', 'Applied', 'right'],
+                      ['remaining', 'Remaining', 'right'],
+                      ['status', 'Status', 'left'],
+                      ['settlement', 'Settlement', 'left'],
+                      ['transaction', 'Transaction', 'left'],
+                    ] as const
+                  ).map(([key, label, align]) => (
+                    <SortableTh
+                      key={key}
+                      className="px-6"
+                      align={align}
+                      active={recoverySort.key === key}
+                      direction={recoverySort.direction}
+                      onSort={() => setRecoverySort((s) => nextTableSort(s, key))}
+                    >
+                      {label}
+                    </SortableTh>
+                  ))}
+                  <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">
+                    Receipt
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">
+                    Notes
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">
+                    Actions
+                  </th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {loading ? (
                   <EmptyOrLoading colSpan={12} loading label="Loading commission recoveries..." />
-                ) : filteredRecoveries.length === 0 ? (
+                ) : sortedRecoveries.length === 0 ? (
                   <EmptyOrLoading colSpan={12} title="No commission recoveries recorded yet." subtitle="Record recoveries explicitly from Financials or a transaction detail panel." />
                 ) : (
-                  filteredRecoveries.map((row) => (
+                  sortedRecoveries.map((row) => (
                     <tr key={row.id} className="hover:bg-alza-blue-50/60">
                       <td className="whitespace-nowrap px-6 py-4 text-sm font-medium text-slate-900">
                         {row.recoveryNumber || '—'}

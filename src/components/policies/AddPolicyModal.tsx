@@ -8,6 +8,7 @@ import {
   type PolicyStatusValue,
 } from '../../lib/directory'
 import { fetchProducerDefaultSplit } from '../../lib/producerSplit'
+import { parseProducerSplitPercentage } from '../../lib/producerSplitValidation'
 import {
   formatCommissionTypeLabel,
   normalizeCommissionType,
@@ -110,7 +111,12 @@ export function AddPolicyModal({
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault()
-    const splitPct = Number(form.producerSplitPercentage)
+    const splitParsed = parseProducerSplitPercentage(form.producerSplitPercentage)
+    if (!splitParsed.ok) {
+      setError(splitParsed.error)
+      return
+    }
+    const splitPct = splitParsed.value
     const commissionType = normalizeCommissionType(form.commissionType)
     if (!form.clientId.trim()) {
       setError('Select a client.')
@@ -118,10 +124,6 @@ export function AddPolicyModal({
     }
     if (!form.policyNumber.trim()) {
       setError('Policy number is required.')
-      return
-    }
-    if (!Number.isFinite(splitPct) || splitPct < 0) {
-      setError('Producer split % must be zero or greater.')
       return
     }
 
@@ -311,8 +313,10 @@ export function AddPolicyModal({
                 </label>
               )}
               <label className="block">
-                <span className="mb-1.5 block text-xs font-medium text-slate-500">Producer Split %</span>
-                <input type="number" min="0" step="0.01" value={form.producerSplitPercentage} onChange={(e) => setForm((p) => ({ ...p, producerSplitPercentage: e.target.value }))} className={inputClassName} />
+                <span className="mb-1.5 block text-xs font-medium text-slate-500">
+                  Producer Split % <span className="text-red-500">*</span>
+                </span>
+                <input type="number" min="0" max="100" step="0.01" value={form.producerSplitPercentage} onChange={(e) => setForm((p) => ({ ...p, producerSplitPercentage: e.target.value }))} className={inputClassName} />
               </label>
             </div>
             <label className="mt-3 flex items-center gap-2 text-sm text-slate-700">

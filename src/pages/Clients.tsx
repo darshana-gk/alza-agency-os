@@ -10,11 +10,18 @@ import {
 } from 'lucide-react'
 import { DirectoryNameSelect } from '../components/directory/DirectoryNameSelect'
 import { ExportMenu } from '../components/ui/ExportMenu'
+import { SortableTh } from '../components/ui/SortableTh'
 import { useAuth } from '../lib/auth'
 import { formatCurrency } from '../lib/commission'
 import { createClient } from '../lib/directory'
 import { clientExportColumns } from '../lib/exportDefinitions'
 import { downloadTableExport } from '../lib/tableExport'
+import {
+  DIRECTORY_NAME_SORT,
+  nextTableSort,
+  sortRows,
+  type TableSortState,
+} from '../lib/tableSort'
 import {
   canManageClients,
   isProducerBookScoped,
@@ -216,6 +223,9 @@ export function Clients() {
   const producerFilter = searchParams.get('producer') ?? ALL
   const csrFilter = searchParams.get('csr') ?? ALL
   const [page, setPage] = useState(1)
+  const [clientSort, setClientSort] = useState<TableSortState<'name' | 'contact' | 'status' | 'producer' | 'policies' | 'premium'>>(
+    DIRECTORY_NAME_SORT,
+  )
   const [clients, setClients] = useState<Client[]>([])
   const [loading, setLoading] = useState(true)
   const [fetchError, setFetchError] = useState<string | null>(null)
@@ -316,7 +326,7 @@ export function Clients() {
 
   useEffect(() => {
     setPage(1)
-  }, [search, statusFilter, producerFilter, csrFilter])
+  }, [search, statusFilter, producerFilter, csrFilter, clientSort])
 
   const producerOptions = useMemo(
     () => [...new Set(clients.map((c) => c.producer).filter(Boolean))].sort((a, b) => a.localeCompare(b)),
@@ -339,17 +349,33 @@ export function Clients() {
     })
   }, [search, clients, statusFilter, producerFilter, csrFilter])
 
-  const totalPages = Math.max(1, Math.ceil(filteredClients.length / PAGE_SIZE))
+  const sortedClients = useMemo(
+    () =>
+      sortRows(filteredClients, clientSort, {
+        name: (c) => c.name,
+        contact: (c) => c.contact,
+        status: (c) => c.status,
+        producer: (c) => c.producer,
+        policies: (c) => c.policies,
+        premium: (c) => c.totalPremium,
+      }, {
+        policies: 'number',
+        premium: 'number',
+      }),
+    [filteredClients, clientSort],
+  )
+
+  const totalPages = Math.max(1, Math.ceil(sortedClients.length / PAGE_SIZE))
   const currentPage = Math.min(page, totalPages)
 
   const paginatedClients = useMemo(() => {
     const start = (currentPage - 1) * PAGE_SIZE
-    return filteredClients.slice(start, start + PAGE_SIZE)
-  }, [filteredClients, currentPage])
+    return sortedClients.slice(start, start + PAGE_SIZE)
+  }, [sortedClients, currentPage])
 
   const rangeStart =
-    filteredClients.length === 0 ? 0 : (currentPage - 1) * PAGE_SIZE + 1
-  const rangeEnd = Math.min(currentPage * PAGE_SIZE, filteredClients.length)
+    sortedClients.length === 0 ? 0 : (currentPage - 1) * PAGE_SIZE + 1
+  const rangeEnd = Math.min(currentPage * PAGE_SIZE, sortedClients.length)
 
   function setParam(key: string, value: string) {
     setSearchParams(
@@ -571,24 +597,56 @@ export function Clients() {
           <table className="min-w-full">
             <thead>
               <tr className="border-b border-slate-200 bg-slate-50/80">
-                <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">
+                <SortableTh
+                  className="px-6"
+                  active={clientSort.key === 'name'}
+                  direction={clientSort.direction}
+                  onSort={() => setClientSort((s) => nextTableSort(s, 'name'))}
+                >
                   Client
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">
+                </SortableTh>
+                <SortableTh
+                  className="px-6"
+                  active={clientSort.key === 'contact'}
+                  direction={clientSort.direction}
+                  onSort={() => setClientSort((s) => nextTableSort(s, 'contact'))}
+                >
                   Contact
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">
+                </SortableTh>
+                <SortableTh
+                  className="px-6"
+                  active={clientSort.key === 'status'}
+                  direction={clientSort.direction}
+                  onSort={() => setClientSort((s) => nextTableSort(s, 'status'))}
+                >
                   Status
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">
+                </SortableTh>
+                <SortableTh
+                  className="px-6"
+                  active={clientSort.key === 'producer'}
+                  direction={clientSort.direction}
+                  onSort={() => setClientSort((s) => nextTableSort(s, 'producer'))}
+                >
                   Producer
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">
+                </SortableTh>
+                <SortableTh
+                  className="px-6"
+                  align="right"
+                  active={clientSort.key === 'policies'}
+                  direction={clientSort.direction}
+                  onSort={() => setClientSort((s) => nextTableSort(s, 'policies'))}
+                >
                   Policies
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">
+                </SortableTh>
+                <SortableTh
+                  className="px-6"
+                  align="right"
+                  active={clientSort.key === 'premium'}
+                  direction={clientSort.direction}
+                  onSort={() => setClientSort((s) => nextTableSort(s, 'premium'))}
+                >
                   Total Premium
-                </th>
+                </SortableTh>
               </tr>
             </thead>
 

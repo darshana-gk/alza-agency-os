@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { History, Search } from 'lucide-react'
 import { ExportMenu } from '../components/ui/ExportMenu'
+import { SortableTh } from '../components/ui/SortableTh'
 import { fetchActivityHistory, type ActivityHistoryRow } from '../lib/activity'
 import {
   formatActivityActionLabel,
@@ -9,6 +10,12 @@ import {
 } from '../lib/activityPresentation'
 import { activityExportColumns, activityRowForExport } from '../lib/exportDefinitions'
 import { downloadTableExport } from '../lib/tableExport'
+import {
+  CREATED_AT_DESC,
+  nextTableSort,
+  sortRows,
+  type TableSortState,
+} from '../lib/tableSort'
 import { supabase } from '../lib/supabase'
 
 const inputClassName =
@@ -25,6 +32,9 @@ function formatWhen(iso: string): string {
 
 export function ActivityHistoryPage() {
   const [rows, setRows] = useState<ActivityHistoryRow[]>([])
+  const [sort, setSort] = useState<TableSortState<'createdAt' | 'user' | 'action' | 'entity' | 'record'>>(
+    CREATED_AT_DESC,
+  )
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [users, setUsers] = useState<Array<{ id: string; name: string }>>([])
@@ -82,6 +92,23 @@ export function ActivityHistoryPage() {
     const set = new Set(rows.map((r) => r.action).filter(Boolean))
     return [...set].sort()
   }, [rows])
+
+  const sortedRows = useMemo(
+    () =>
+      sortRows(
+        rows,
+        sort,
+        {
+          createdAt: (r) => r.createdAt,
+          user: (r) => r.actorName,
+          action: (r) => r.action,
+          entity: (r) => r.entityType,
+          record: (r) => r.recordReference,
+        },
+        { createdAt: 'date' },
+      ),
+    [rows, sort],
+  )
 
   return (
     <div className="space-y-6">
@@ -231,16 +258,48 @@ export function ActivityHistoryPage() {
           <table className="min-w-full divide-y divide-slate-200 text-sm">
             <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
               <tr>
-                <th className="px-4 py-3">Date/Time</th>
-                <th className="px-4 py-3">User</th>
-                <th className="px-4 py-3">Action</th>
-                <th className="px-4 py-3">Entity</th>
-                <th className="px-4 py-3">Record</th>
-                <th className="px-4 py-3">Details / Changes</th>
+                <SortableTh
+                  active={sort.key === 'createdAt'}
+                  direction={sort.direction}
+                  onSort={() => setSort((s) => nextTableSort(s, 'createdAt'))}
+                >
+                  Date/Time
+                </SortableTh>
+                <SortableTh
+                  active={sort.key === 'user'}
+                  direction={sort.direction}
+                  onSort={() => setSort((s) => nextTableSort(s, 'user'))}
+                >
+                  User
+                </SortableTh>
+                <SortableTh
+                  active={sort.key === 'action'}
+                  direction={sort.direction}
+                  onSort={() => setSort((s) => nextTableSort(s, 'action'))}
+                >
+                  Action
+                </SortableTh>
+                <SortableTh
+                  active={sort.key === 'entity'}
+                  direction={sort.direction}
+                  onSort={() => setSort((s) => nextTableSort(s, 'entity'))}
+                >
+                  Entity
+                </SortableTh>
+                <SortableTh
+                  active={sort.key === 'record'}
+                  direction={sort.direction}
+                  onSort={() => setSort((s) => nextTableSort(s, 'record'))}
+                >
+                  Record
+                </SortableTh>
+                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">
+                  Details / Changes
+                </th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {rows.map((row) => (
+              {sortedRows.map((row) => (
                 <tr key={row.id} className="align-top hover:bg-slate-50/80">
                   <td className="whitespace-nowrap px-4 py-3 text-slate-600">
                     {formatWhen(row.createdAt)}

@@ -37,6 +37,7 @@ import {
   type CommissionTransaction,
   type CommissionType,
 } from '../lib/commission'
+import { parseProducerSplitPercentage } from '../lib/producerSplitValidation'
 import { supabase } from '../lib/supabase'
 
 type PolicyStatus = PolicyStatusValue
@@ -360,6 +361,11 @@ export function PolicyDetails() {
   async function handleSave(e: FormEvent) {
     e.preventDefault()
     if (!policy || !canEdit || saving) return
+    const splitParsed = parseProducerSplitPercentage(form.producerSplitPercentage)
+    if (!splitParsed.ok) {
+      setFormError(splitParsed.error)
+      return
+    }
     setSaving(true)
     setFormError(null)
     const commissionType = normalizeCommissionType(form.commissionType)
@@ -382,7 +388,7 @@ export function PolicyDetails() {
       agencyCommissionAmount:
         commissionType === 'flat' ? Number(form.agencyCommissionAmount) : null,
       brokerFee: Number(form.brokerFee),
-      producerSplitPercentage: Number(form.producerSplitPercentage),
+      producerSplitPercentage: splitParsed.value,
       overrideSplit: form.overrideSplit,
     })
     setSaving(false)
@@ -802,8 +808,10 @@ export function PolicyDetails() {
                     <input type="number" step="0.01" value={form.brokerFee} onChange={(e) => setForm((p) => ({ ...p, brokerFee: e.target.value }))} className={inputClassName} />
                   </label>
                   <label className="block">
-                    <span className="mb-1.5 block text-xs font-medium text-slate-500">Producer Split %</span>
-                    <input type="number" min="0" step="0.01" value={form.producerSplitPercentage} onChange={(e) => setForm((p) => ({ ...p, producerSplitPercentage: e.target.value }))} className={inputClassName} />
+                    <span className="mb-1.5 block text-xs font-medium text-slate-500">
+                      Producer Split % <span className="text-red-500">*</span>
+                    </span>
+                    <input type="number" min="0" max="100" step="0.01" value={form.producerSplitPercentage} onChange={(e) => setForm((p) => ({ ...p, producerSplitPercentage: e.target.value }))} className={inputClassName} />
                   </label>
                 </div>
                 <label className="mt-3 flex items-center gap-2 text-sm text-slate-700">

@@ -24,6 +24,7 @@ import {
 } from 'lucide-react'
 import { ExportMenu } from '../../components/ui/ExportMenu'
 import { SearchInput } from '../../components/ui/SearchInput'
+import { SortableTh } from '../../components/ui/SortableTh'
 import { useAuth } from '../../lib/auth'
 import {
   archiveProducer,
@@ -38,6 +39,12 @@ import {
 } from '../../lib/commission'
 import { producerExportColumns } from '../../lib/exportDefinitions'
 import { downloadTableExport } from '../../lib/tableExport'
+import {
+  DIRECTORY_NAME_SORT,
+  nextTableSort,
+  sortRows,
+  type TableSortState,
+} from '../../lib/tableSort'
 import { supabase } from '../../lib/supabase'
 
 type ProducerStatus = 'active' | 'inactive'
@@ -272,6 +279,9 @@ export function Producers() {
   const statusFilter = searchParams.get('status') ?? ALL
   const revenueYear = Number(searchParams.get('revenueYear') || currentYear()) || currentYear()
   const [page, setPage] = useState(1)
+  const [sort, setSort] = useState<
+    TableSortState<'name' | 'email' | 'phone' | 'split' | 'month' | 'year' | 'earned' | 'status'>
+  >(DIRECTORY_NAME_SORT)
   const [rows, setRows] = useState<Producer[]>([])
   const [transactions, setTransactions] = useState<CommissionTransaction[]>([])
   const [loading, setLoading] = useState(true)
@@ -340,7 +350,7 @@ export function Producers() {
 
   useEffect(() => {
     setPage(1)
-  }, [search, statusFilter])
+  }, [search, statusFilter, sort])
 
   const revenueByProducer = useMemo(() => buildListRevenueMap(transactions), [transactions])
 
@@ -362,9 +372,34 @@ export function Producers() {
     })
   }, [rows, search, statusFilter])
 
-  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
+  const sorted = useMemo(
+    () =>
+      sortRows(
+        filtered,
+        sort,
+        {
+          name: (p) => p.name,
+          email: (p) => p.email,
+          phone: (p) => p.phone,
+          split: (p) => p.defaultSplitPercentage,
+          month: (p) => listRevenueFor(p.name).currentMonth,
+          year: (p) => listRevenueFor(p.name).currentYear,
+          earned: (p) => listRevenueFor(p.name).totalEarned,
+          status: (p) => p.status,
+        },
+        {
+          split: 'number',
+          month: 'number',
+          year: 'number',
+          earned: 'number',
+        },
+      ),
+    [filtered, sort, revenueByProducer],
+  )
+
+  const totalPages = Math.max(1, Math.ceil(sorted.length / PAGE_SIZE))
   const currentPage = Math.min(page, totalPages)
-  const paginated = filtered.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
+  const paginated = sorted.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
   const activeCount = rows.filter((p) => p.status === 'active').length
 
   const kpiRevenue = useMemo(() => {
@@ -600,15 +635,28 @@ export function Producers() {
           <table className="min-w-[1100px] w-full">
             <thead>
               <tr className="border-b border-slate-200 bg-slate-50/80">
-                {['Producer', 'Email', 'Phone', 'Split %', 'Current Month', 'Current Year', 'Total Earned', 'Status'].map((col) => (
-                  <th
-                    key={col}
-                    className={`px-4 py-3 text-xs font-semibold uppercase tracking-wider text-slate-500 ${
-                      ['Current Month', 'Current Year', 'Total Earned', 'Split %'].includes(col) ? 'text-right' : 'text-left'
-                    }`}
+                {(
+                  [
+                    ['name', 'Producer', 'left'],
+                    ['email', 'Email', 'left'],
+                    ['phone', 'Phone', 'left'],
+                    ['split', 'Split %', 'right'],
+                    ['month', 'Current Month', 'right'],
+                    ['year', 'Current Year', 'right'],
+                    ['earned', 'Total Earned', 'right'],
+                    ['status', 'Status', 'left'],
+                  ] as const
+                ).map(([key, col, align]) => (
+                  <SortableTh
+                    key={key}
+                    className="px-4"
+                    align={align}
+                    active={sort.key === key}
+                    direction={sort.direction}
+                    onSort={() => setSort((s) => nextTableSort(s, key))}
                   >
                     {col}
-                  </th>
+                  </SortableTh>
                 ))}
               </tr>
             </thead>

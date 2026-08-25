@@ -4,10 +4,17 @@ import { useSearchParams } from 'react-router-dom'
 import { Building2, ChevronLeft, ChevronRight, Plus, Search, X } from 'lucide-react'
 import { ExportMenu } from '../../components/ui/ExportMenu'
 import { SearchInput } from '../../components/ui/SearchInput'
+import { SortableTh } from '../../components/ui/SortableTh'
 import { useAuth } from '../../lib/auth'
 import { archiveCarrier, createCarrier, isAdminDirectoryRole, updateCarrier } from '../../lib/directory'
 import { carrierExportColumns } from '../../lib/exportDefinitions'
 import { downloadTableExport } from '../../lib/tableExport'
+import {
+  DIRECTORY_NAME_SORT,
+  nextTableSort,
+  sortRows,
+  type TableSortState,
+} from '../../lib/tableSort'
 import { supabase } from '../../lib/supabase'
 
 type CarrierStatus = 'active' | 'inactive'
@@ -59,6 +66,9 @@ export function Carriers() {
   const search = searchParams.get('search') ?? ''
   const statusFilter = searchParams.get('status') ?? ALL
   const [page, setPage] = useState(1)
+  const [sort, setSort] = useState<
+    TableSortState<'name' | 'naic' | 'lines' | 'billing' | 'appointment' | 'status'>
+  >(DIRECTORY_NAME_SORT)
   const [rows, setRows] = useState<Carrier[]>([])
   const [loading, setLoading] = useState(true)
   const [fetchError, setFetchError] = useState<string | null>(null)
@@ -112,7 +122,7 @@ export function Carriers() {
 
   useEffect(() => {
     setPage(1)
-  }, [search, statusFilter])
+  }, [search, statusFilter, sort])
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase()
@@ -128,9 +138,22 @@ export function Carriers() {
     })
   }, [rows, search, statusFilter])
 
-  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
+  const sorted = useMemo(
+    () =>
+      sortRows(filtered, sort, {
+        name: (r) => r.name,
+        naic: (r) => r.naic,
+        lines: (r) => r.linesOfBusiness,
+        billing: (r) => r.billingType,
+        appointment: (r) => r.appointmentStatus,
+        status: (r) => r.status,
+      }),
+    [filtered, sort],
+  )
+
+  const totalPages = Math.max(1, Math.ceil(sorted.length / PAGE_SIZE))
   const currentPage = Math.min(page, totalPages)
-  const paginated = filtered.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
+  const paginated = sorted.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
   const activeCount = rows.filter((r) => r.status === 'active').length
 
   function setParam(key: string, value: string) {
@@ -317,10 +340,25 @@ export function Carriers() {
           <table className="min-w-full">
             <thead>
               <tr className="border-b border-slate-200 bg-slate-50/80">
-                {['Carrier', 'NAIC', 'Lines', 'Billing', 'Appointment', 'Status'].map((col) => (
-                  <th key={col} className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">
+                {(
+                  [
+                    ['name', 'Carrier'],
+                    ['naic', 'NAIC'],
+                    ['lines', 'Lines'],
+                    ['billing', 'Billing'],
+                    ['appointment', 'Appointment'],
+                    ['status', 'Status'],
+                  ] as const
+                ).map(([key, col]) => (
+                  <SortableTh
+                    key={key}
+                    className="px-6"
+                    active={sort.key === key}
+                    direction={sort.direction}
+                    onSort={() => setSort((s) => nextTableSort(s, key))}
+                  >
                     {col}
-                  </th>
+                  </SortableTh>
                 ))}
               </tr>
             </thead>

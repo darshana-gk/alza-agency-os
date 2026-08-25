@@ -4,10 +4,17 @@ import { useSearchParams } from 'react-router-dom'
 import { ChevronLeft, ChevronRight, Headphones, Plus, Search, Users, X } from 'lucide-react'
 import { ExportMenu } from '../../components/ui/ExportMenu'
 import { SearchInput } from '../../components/ui/SearchInput'
+import { SortableTh } from '../../components/ui/SortableTh'
 import { useAuth } from '../../lib/auth'
 import { archiveCsr, createCsr, isAdminDirectoryRole, updateCsr } from '../../lib/directory'
 import { csrExportColumns } from '../../lib/exportDefinitions'
 import { downloadTableExport } from '../../lib/tableExport'
+import {
+  DIRECTORY_NAME_SORT,
+  nextTableSort,
+  sortRows,
+  type TableSortState,
+} from '../../lib/tableSort'
 import { supabase } from '../../lib/supabase'
 
 type CSRStatus = 'active' | 'inactive'
@@ -52,6 +59,9 @@ export function CSRs() {
   const search = searchParams.get('search') ?? ''
   const statusFilter = searchParams.get('status') ?? ALL
   const [page, setPage] = useState(1)
+  const [sort, setSort] = useState<TableSortState<'name' | 'email' | 'phone' | 'status'>>(
+    DIRECTORY_NAME_SORT,
+  )
   const [rows, setRows] = useState<CSR[]>([])
   const [loading, setLoading] = useState(true)
   const [fetchError, setFetchError] = useState<string | null>(null)
@@ -101,7 +111,7 @@ export function CSRs() {
 
   useEffect(() => {
     setPage(1)
-  }, [search, statusFilter])
+  }, [search, statusFilter, sort])
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase()
@@ -117,9 +127,20 @@ export function CSRs() {
     })
   }, [rows, search, statusFilter])
 
-  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
+  const sorted = useMemo(
+    () =>
+      sortRows(filtered, sort, {
+        name: (r) => r.name,
+        email: (r) => r.email,
+        phone: (r) => r.phone,
+        status: (r) => r.status,
+      }),
+    [filtered, sort],
+  )
+
+  const totalPages = Math.max(1, Math.ceil(sorted.length / PAGE_SIZE))
   const currentPage = Math.min(page, totalPages)
-  const paginated = filtered.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
+  const paginated = sorted.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
   const activeCount = rows.filter((r) => r.status === 'active').length
 
   function setParam(key: string, value: string) {
@@ -282,10 +303,23 @@ export function CSRs() {
           <table className="min-w-full">
             <thead>
               <tr className="border-b border-slate-200 bg-slate-50/80">
-                {['CSR', 'Email', 'Phone', 'Status'].map((col) => (
-                  <th key={col} className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">
+                {(
+                  [
+                    ['name', 'CSR'],
+                    ['email', 'Email'],
+                    ['phone', 'Phone'],
+                    ['status', 'Status'],
+                  ] as const
+                ).map(([key, col]) => (
+                  <SortableTh
+                    key={key}
+                    className="px-6"
+                    active={sort.key === key}
+                    direction={sort.direction}
+                    onSort={() => setSort((s) => nextTableSort(s, key))}
+                  >
                     {col}
-                  </th>
+                  </SortableTh>
                 ))}
               </tr>
             </thead>

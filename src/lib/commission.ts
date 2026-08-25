@@ -16,6 +16,8 @@ import {
   toAppRoles,
   type RoleInput,
 } from './permissions'
+import { validateProducerSplitPercentage } from './producerSplitValidation'
+import { mapCreatedAtValue } from './createdFirstSort'
 
 export { isOpsMutatorRole } from './permissions'
 
@@ -915,6 +917,7 @@ export interface TransactionCommissionRow {
 export interface CommissionTransaction {
   id: string
   transactionNumber: string
+  createdAt: string
   type: string
   transactionDate: string
   status: string
@@ -993,6 +996,7 @@ export function mapCommissionTransaction(row: TransactionCommissionRow): Commiss
   return {
     id: row.id,
     transactionNumber: row.transaction_number ?? '',
+    createdAt: mapCreatedAtValue(row.created_at),
     type: row.transaction_type,
     transactionDate: row.transaction_date,
     status: (row.status ?? 'pending').toLowerCase(),
@@ -1401,10 +1405,11 @@ export async function createTransaction(input: CreateTransactionInput) {
       error: { message: 'Enter a valid broker fee (0, positive, or negative).', table: 'transactions', operation: 'validate' },
     }
   }
-  if (!Number.isFinite(input.producerSplitPercentage) || input.producerSplitPercentage < 0) {
+  const splitError = validateProducerSplitPercentage(input.producerSplitPercentage)
+  if (splitError) {
     return {
       error: {
-        message: 'Producer split % must be zero or greater.',
+        message: splitError,
         table: 'transactions',
         operation: 'validate',
       },
@@ -2107,6 +2112,16 @@ export async function updateTransactionMetadata(input: EditTransactionMetadataIn
     let premiumAmount = Number(input.premiumAmount)
     const commissionType = normalizeCommissionType(input.commissionType)
     const brokerFee = Number(input.brokerFee)
+    const splitError = validateProducerSplitPercentage(input.producerSplitPercentage)
+    if (splitError) {
+      return {
+        error: {
+          message: splitError,
+          table: 'transactions',
+          operation: 'edit_validation',
+        },
+      }
+    }
     const split = Number(input.producerSplitPercentage)
 
     if (!Number.isFinite(premiumAmount)) {
@@ -2162,16 +2177,6 @@ export async function updateTransactionMetadata(input: EditTransactionMetadataIn
         },
       }
     }
-    if (!Number.isFinite(split) || split < 0) {
-      return {
-        error: {
-          message: 'Producer split % must be zero or greater.',
-          table: 'transactions',
-          operation: 'edit_validation',
-        },
-      }
-    }
-
     const derived = deriveCommission({
       commissionType,
       baseAmount: premiumAmount,
