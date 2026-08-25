@@ -69,8 +69,11 @@ import { SortableTh } from '../components/ui/SortableTh'
 import { supabase } from '../lib/supabase'
 import {
   DEFAULT_PRODUCER_PAYMENT_SORT,
+  buildProducerPaymentRenderedRows,
+  isProducerPaymentHeaderActive,
+  mapProducerPaymentCreatedAt,
   nextProducerPaymentSort,
-  sortProducerPaymentBatches,
+  producerPaymentHeaderDirection,
   type ProducerPaymentSort,
   type ProducerPaymentSortKey,
 } from '../lib/producerPaymentTable'
@@ -368,7 +371,7 @@ function mapBatch(row: PaymentBatchRow): PaymentBatch {
   }
   return {
     id: row.id,
-    createdAt: row.created_at,
+    createdAt: mapProducerPaymentCreatedAt(row.created_at),
     batchNumber: row.batch_number?.trim() || '—',
     producer: row.producer?.trim() || '—',
     paymentDate: row.payment_date,
@@ -525,8 +528,8 @@ export function Financials() {
         supabase
           .from('producer_payment_batches')
           .select(BATCH_SELECT_WITH_AUDIT)
-          .order('payment_date', { ascending: false, nullsFirst: false })
-          .order('created_at', { ascending: false }),
+          .order('created_at', { ascending: false })
+          .order('batch_number', { ascending: false }),
         supabase
           .from('producer_commission_recoveries')
           .select(
@@ -549,8 +552,8 @@ export function Financials() {
       batchesResult = await supabase
         .from('producer_payment_batches')
         .select(BATCH_SELECT_LEGACY)
-        .order('payment_date', { ascending: false, nullsFirst: false })
         .order('created_at', { ascending: false })
+        .order('batch_number', { ascending: false })
     }
 
     if (receiptsResult.error) {
@@ -813,7 +816,7 @@ export function Financials() {
         add(row.importedAt)
       }
     } else if (tab === 'payments') {
-      for (const row of batches) add(row.paymentDate)
+      for (const row of batches) add(row.createdAt)
     } else {
       for (const row of recoveries) add(row.createdAt)
     }
@@ -879,19 +882,16 @@ export function Financials() {
   )
 
   const filteredBatches = useMemo(() => {
-    const query = search.trim().toLowerCase()
-    const filtered = batches.filter((row) => {
-      if (statusFilter !== ALL && row.status !== statusFilter) return false
-      if (producerFilter !== ALL && row.producer !== producerFilter) return false
-      if (!matchesYearAndRange(row.paymentDate)) return false
-      if (!query) return true
-      return (
-        row.batchNumber.toLowerCase().includes(query) ||
-        row.producer.toLowerCase().includes(query) ||
-        row.paymentReference.toLowerCase().includes(query)
-      )
+    const { sorted } = buildProducerPaymentRenderedRows(batches, {
+      filter: {
+        search,
+        statusFilter,
+        producerFilter,
+        matchesYearAndRange,
+      },
+      sort: paymentSort,
     })
-    return sortProducerPaymentBatches(filtered, paymentSort)
+    return sorted
   }, [batches, search, statusFilter, producerFilter, yearFilter, dateFrom, dateTo, paymentSort])
 
   function handlePaymentSort(key: ProducerPaymentSortKey) {
@@ -1872,8 +1872,8 @@ export function Financials() {
                       key={key}
                       className="px-6"
                       align={align}
-                      active={paymentSort.key === key}
-                      direction={paymentSort.direction}
+                      active={isProducerPaymentHeaderActive(paymentSort, key)}
+                      direction={producerPaymentHeaderDirection(paymentSort, key)}
                       onSort={() => handlePaymentSort(key)}
                     >
                       {label}

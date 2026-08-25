@@ -1,5 +1,7 @@
 /** Client-side Producer Payments table sort. Uses underlying values, not labels. */
 
+import { compareNewestCreatedThenCode, mapCreatedAtValue } from './createdFirstSort'
+
 export type ProducerPaymentSortKey =
   | 'createdAt'
   | 'batchNumber'
@@ -23,6 +25,17 @@ export const DEFAULT_PRODUCER_PAYMENT_SORT: ProducerPaymentSort = {
   direction: 'desc',
 }
 
+/** Header keys shown on the Producer Payments table (no dedicated Created column). */
+export const PRODUCER_PAYMENT_TABLE_SORT_KEYS: readonly ProducerPaymentSortKey[] = [
+  'batchNumber',
+  'producer',
+  'paymentDate',
+  'grossCommission',
+  'netPayment',
+  'status',
+  'paymentMethod',
+] as const
+
 export interface ProducerPaymentSortableRow {
   createdAt: string
   batchNumber: string
@@ -43,6 +56,26 @@ export function nextProducerPaymentSort(
     return { key: clicked, direction: current.direction === 'asc' ? 'desc' : 'asc' }
   }
   return { key: clicked, direction: 'asc' }
+}
+
+/**
+ * Default sort is createdAt DESC, but the table has no Created column.
+ * Surface that state on the Batch header so the active arrow is visible.
+ */
+export function isProducerPaymentHeaderActive(
+  sort: ProducerPaymentSort,
+  headerKey: ProducerPaymentSortKey,
+): boolean {
+  if (sort.key === headerKey) return true
+  return headerKey === 'batchNumber' && sort.key === 'createdAt'
+}
+
+export function producerPaymentHeaderDirection(
+  sort: ProducerPaymentSort,
+  headerKey: ProducerPaymentSortKey,
+): SortDirection {
+  if (isProducerPaymentHeaderActive(sort, headerKey)) return sort.direction
+  return 'asc'
 }
 
 function cmpString(a: string, b: string): number {
@@ -74,7 +107,9 @@ function compareKey(
 ): number {
   switch (key) {
     case 'createdAt':
-      return cmpString(a.createdAt, b.createdAt)
+      // Date.parse (not localeCompare) — Postgres timestamptz strings must rank by time.
+      return compareNewestCreatedThenCode(a.createdAt, b.createdAt, a.batchNumber, b.batchNumber) *
+        (direction === 'asc' ? -1 : 1)
     case 'batchNumber':
       return cmpString(a.batchNumber, b.batchNumber)
     case 'producer':
@@ -104,6 +139,10 @@ export function sortProducerPaymentBatches<T extends ProducerPaymentSortableRow>
   const copy = [...rows]
   const dir = sort.direction === 'asc' ? 1 : -1
   copy.sort((a, b) => {
+    if (sort.key === 'createdAt') {
+      // compareKey already encodes direction + batch_number tie-break via compareNewestCreatedThenCode.
+      return compareKey(a, b, 'createdAt', sort.direction)
+    }
     let result = compareKey(a, b, sort.key, sort.direction)
     if (sort.key === 'paymentDate') {
       // cmpNullableDate already encodes direction for empties; only flip non-empty order.
@@ -114,9 +153,65 @@ export function sortProducerPaymentBatches<T extends ProducerPaymentSortableRow>
       result *= dir
     }
     if (result !== 0) return result
-    const created = cmpString(a.createdAt, b.createdAt)
-    if (created !== 0) return -created
-    return -cmpString(a.batchNumber, b.batchNumber)
+    return compareNewestCreatedThenCode(a.createdAt, b.createdAt, a.batchNumber, b.batchNumber)
   })
   return copy
+}
+
+export interface ProducerPaymentFilterInput {
+  search?: string
+  statusFilter?: string
+  producerFilter?: string
+  /** ISO date or timestamptz used for year/range matching (Financials uses createdAt). */
+  matchesYearAndRange: (dateValue: string | null | undefined) => boolean
+}
+
+const ALL = 'all'
+
+/** Same filter Financials applies before sorting Producer Payments. */
+export function filterProducerPaymentBatches<T extends ProducerPaymentSortableRow>(
+  rows: T[],
+  input: ProducerPaymentFilterInput,
+): T[] {
+  const query = (input.search ?? '').trim().toLowerCase()
+  const statusFilter = input.statusFilter ?? ALL
+  const producerFilter = input.producerFilter ?? ALL
+  return rows.filter((row) => {
+    if (statusFilter !== ALL && row.status !== statusFilter) return false
+    if (producerFilter !== ALL && row.producer !== producerFilter) return false
+    // Year/range must use createdAt — paymentDate is NULL for unpaid/newest drafts.
+    if (!input.matchesYearAndRange(row.createdAt)) return false
+    if (!query) return true
+    return (
+      row.batchNumber.toLowerCase().includes(query) ||
+      row.producer.toLowerCase().includes(query) ||
+      (row.paymentReference ?? '').toLowerCase().includes(query)
+    )
+  })
+}
+
+/**
+ * Financials Producer Payments tbody pipeline: filter → sort.
+ * Call with rows already mapped (including mapCreatedAtValue on created_at).
+ */
+export function buildProducerPaymentRenderedRows<T extends ProducerPaymentSortableRow>(
+  mappedRows: T[],
+  options?: {
+    filter?: ProducerPaymentFilterInput
+    sort?: ProducerPaymentSort
+  },
+): { filtered: T[]; sorted: T[] } {
+  const filtered = options?.filter
+    ? filterProducerPaymentBatches(mappedRows, options.filter)
+    : mappedRows
+  const sorted = sortProducerPaymentBatches(
+    filtered,
+    options?.sort ?? DEFAULT_PRODUCER_PAYMENT_SORT,
+  )
+  return { filtered, sorted }
+}
+
+/** Map DB created_at onto sortable string (never null/undefined). */
+export function mapProducerPaymentCreatedAt(value: unknown): string {
+  return mapCreatedAtValue(value)
 }
