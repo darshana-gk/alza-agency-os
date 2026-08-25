@@ -618,6 +618,25 @@ export function suggestOnboardingMapping(
   return mapping
 }
 
+/**
+ * Exact UI-state contract after parse: headers + rows + auto-mapping object
+ * that OnboardingImportWizard feeds into the mapping <select>s.
+ */
+export function buildOnboardingMappingUiState(
+  entity: OnboardingEntity,
+  parsed: { headers: string[]; rows: Record<string, unknown>[] },
+): {
+  headers: string[]
+  rows: Record<string, unknown>[]
+  mapping: OnboardingMapping
+} {
+  return {
+    headers: parsed.headers,
+    rows: parsed.rows,
+    mapping: suggestOnboardingMapping(entity, parsed.headers),
+  }
+}
+
 export function requiredFieldsMapped(
   entity: OnboardingEntity,
   mapping: OnboardingMapping,

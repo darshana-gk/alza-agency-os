@@ -17,14 +17,22 @@ export interface WorkbookSheetInfo {
 
 function cellToString(value: unknown): string {
   if (value == null) return ''
+  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+    return String(value)
+  }
   if (value instanceof Date && !Number.isNaN(value.getTime())) {
     return value.toISOString().slice(0, 10)
   }
-  if (typeof value === 'object' && value && 'text' in value) {
-    return String((value as { text?: unknown }).text ?? '')
-  }
-  if (typeof value === 'object' && value && 'result' in value) {
-    return cellToString((value as { result?: unknown }).result)
+  if (typeof value === 'object') {
+    const v = value as Record<string, unknown>
+    // Excel often stores bold/styled headers as richText — must not String(object).
+    if (Array.isArray(v.richText)) {
+      return (v.richText as Array<{ text?: unknown }>)
+        .map((part) => String(part?.text ?? ''))
+        .join('')
+    }
+    if ('result' in v) return cellToString(v.result)
+    if ('text' in v && v.text != null) return String(v.text)
   }
   return String(value)
 }

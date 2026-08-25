@@ -18,7 +18,7 @@ import {
   formatOnboardingStatus,
   requiredFieldsMapped,
   resolveUploadFileControlAction,
-  suggestOnboardingMapping,
+  buildOnboardingMappingUiState,
   type OnboardingEntity,
   type OnboardingImportResult,
   type OnboardingMapping,
@@ -68,8 +68,12 @@ export function OnboardingImportWizard(props: {
   /** Single shared file input — Upload file button and drop zone both open this picker. */
   const fileInputRef = useRef<HTMLInputElement>(null)
 
+  const prevOpenRef = useRef(false)
+
   useEffect(() => {
-    if (!props.open) return
+    const justOpened = props.open && !prevOpenRef.current
+    prevOpenRef.current = props.open
+    if (!justOpened) return
     setStep(1)
     setInputMode('file')
     setPasteText('')
@@ -85,6 +89,11 @@ export function OnboardingImportWizard(props: {
     setError(null)
     setDragOver(false)
     if (fileInputRef.current) fileInputRef.current.value = ''
+  }, [props.open, allowedEntities])
+
+  useEffect(() => {
+    if (!props.open || allowedEntities.length === 0) return
+    setEntity((current) => (allowedEntities.includes(current) ? current : allowedEntities[0]))
   }, [props.open, allowedEntities])
 
   function openFilePicker() {
@@ -122,9 +131,10 @@ export function OnboardingImportWizard(props: {
   }
 
   function applyParsed(parsed: { headers: string[]; rows: Record<string, unknown>[] }) {
-    setHeaders(parsed.headers)
-    setRows(parsed.rows)
-    setMapping(suggestOnboardingMapping(entity, parsed.headers))
+    const ui = buildOnboardingMappingUiState(entity, parsed)
+    setHeaders(ui.headers)
+    setRows(ui.rows)
+    setMapping(ui.mapping)
     setStep(3)
   }
 
