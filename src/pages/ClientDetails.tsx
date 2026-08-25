@@ -27,7 +27,7 @@ import {
   formatTypeLabel,
 } from '../lib/commission'
 import { updateClient } from '../lib/directory'
-import { resolveCurrentPolicyPremium } from '../lib/policyPremium'
+import { resolveCurrentPolicyPremium, sumClientCurrentPremium } from '../lib/policyPremium'
 import {
   canManageClients,
   canManagePolicies,
@@ -376,8 +376,13 @@ export function ClientDetails() {
     })
 
     const clientTxns = txRes.data.filter((tx) => tx.clientId === id && !tx.archived)
-    // Align with Policy Summary Current Policy Premium (opening + signed txns), not txn-only.
-    const totalPremium = policies.reduce((sum, p) => sum + p.totalPremium, 0)
+    // Same SoT as Clients browse: SUM(resolveCurrentPolicyPremium) across policies.
+    const totalPremium = sumClientCurrentPremium(
+      policies.map((p) => ({
+        policyPremium: p.writtenPremium,
+        transactionPremiumSum: summaryRes.data[p.id]?.totalPremium ?? 0,
+      })),
+    )
     const agencyCommission = clientTxns.reduce((sum, tx) => sum + tx.agencyCommissionAmount, 0)
     const producerCommission = clientTxns.reduce((sum, tx) => sum + tx.producerCommissionAmount, 0)
     const outstandingAgencyCommission = clientTxns

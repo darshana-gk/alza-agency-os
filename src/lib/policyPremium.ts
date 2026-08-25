@@ -40,3 +40,67 @@ export function sumTransactionPremiumAmounts(
 ): number {
   return roundPolicyPremiumMoney(amounts.reduce<number>((sum, a) => sum + toFiniteMoney(a), 0))
 }
+
+/**
+ * Client Total Premium = SUM(resolveCurrentPolicyPremium) across that client's
+ * non-archived policies. Same SoT as Policy Files / Policy Details / Client Details.
+ */
+export function sumClientCurrentPremium(
+  policies: Array<{
+    policyPremium: number | null | undefined
+    transactionPremiumSum: number | null | undefined
+  }>,
+): number {
+  return roundPolicyPremiumMoney(
+    policies.reduce(
+      (sum, p) =>
+        sum +
+        resolveCurrentPolicyPremium({
+          policyPremium: p.policyPremium,
+          transactionPremiumSum: p.transactionPremiumSum,
+        }),
+      0,
+    ),
+  )
+}
+
+/**
+ * Build per-client Total Premium maps from policy rows + per-policy txn sums.
+ * Archived policies/transactions must be excluded by the caller before passing data.
+ */
+export function buildClientTotalPremiumByClientId(input: {
+  policies: Array<{
+    id: string
+    clientId: string
+    premium: number | null | undefined
+  }>
+  /** SUM(amount) by policy_id for non-archived transactions only. */
+  transactionPremiumSumByPolicyId: Map<string, number> | Record<string, number>
+}): Map<string, number> {
+  const txnMap =
+    input.transactionPremiumSumByPolicyId instanceof Map
+      ? input.transactionPremiumSumByPolicyId
+      : new Map(Object.entries(input.transactionPremiumSumByPolicyId))
+
+  const byClient = new Map<
+    string,
+    Array<{ policyPremium: number; transactionPremiumSum: number }>
+  >()
+  for (const policy of input.policies) {
+    const clientId = String(policy.clientId ?? '').trim()
+    if (!clientId) continue
+    const list = byClient.get(clientId) ?? []
+    list.push({
+      policyPremium: toFiniteMoney(policy.premium),
+      transactionPremiumSum: toFiniteMoney(txnMap.get(policy.id) ?? 0),
+    })
+    byClient.set(clientId, list)
+  }
+
+  const totals = new Map<string, number>()
+  for (const [clientId, policies] of byClient) {
+    totals.set(clientId, sumClientCurrentPremium(policies))
+  }
+  return totals
+}
+

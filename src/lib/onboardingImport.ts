@@ -1707,14 +1707,16 @@ export async function executeOnboardingImport(input: {
   if (entity === 'clients') {
     const needGenerated = ready.filter((r) => !String(r.payload.clientNumber ?? '').trim())
     let generated: string[] = []
-    try {
-      generated = input.deps?.allocateClientNumbers
-        ? await input.deps.allocateClientNumbers(needGenerated.length)
-        : await nextClientNumbers(needGenerated.length)
-    } catch (e) {
-      return {
-        data: null,
-        error: e instanceof Error ? e.message : 'Unable to allocate client numbers.',
+    if (needGenerated.length > 0) {
+      try {
+        generated = input.deps?.allocateClientNumbers
+          ? await input.deps.allocateClientNumbers(needGenerated.length)
+          : await nextClientNumbers(needGenerated.length)
+      } catch (e) {
+        return {
+          data: null,
+          error: e instanceof Error ? e.message : 'Unable to allocate client numbers.',
+        }
       }
     }
     let genIdx = 0

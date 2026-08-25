@@ -15,6 +15,7 @@ import { useAuth } from '../lib/auth'
 import { formatCurrency } from '../lib/commission'
 import { createClient } from '../lib/directory'
 import { clientExportColumns } from '../lib/exportDefinitions'
+import { buildClientTotalPremiumByClientId } from '../lib/policyPremium'
 import { downloadTableExport } from '../lib/tableExport'
 import {
   DIRECTORY_NAME_SORT,
@@ -241,8 +242,14 @@ export function Clients() {
 
     const [clientsRes, policiesRes, txRes] = await Promise.all([
       supabase.from('clients').select('*').order('business_name'),
-      supabase.from('policies').select('id, client_id, archived_at').is('archived_at', null),
-      supabase.from('transactions').select('client_id, amount').is('archived_at', null),
+      supabase
+        .from('policies')
+        .select('id, client_id, premium, archived_at')
+        .is('archived_at', null),
+      supabase
+        .from('transactions')
+        .select('policy_id, amount, archived_at')
+        .is('archived_at', null),
     ])
 
     if (clientsRes.error) {
@@ -270,25 +277,39 @@ export function Clients() {
     }
 
     const policyCountByClient = new Map<string, number>()
+    const policiesForPremium: Array<{ id: string; clientId: string; premium: number }> = []
     for (const row of policiesRes.data ?? []) {
       const clientId = String(row.client_id ?? '')
-      if (!clientId) continue
+      const policyId = String(row.id ?? '')
+      if (!clientId || !policyId) continue
       policyCountByClient.set(clientId, (policyCountByClient.get(clientId) ?? 0) + 1)
+      const premiumRaw = row.premium
+      const premium =
+        typeof premiumRaw === 'number' ? premiumRaw : Number(premiumRaw ?? 0)
+      policiesForPremium.push({
+        id: policyId,
+        clientId,
+        premium: Number.isFinite(premium) ? premium : 0,
+      })
     }
 
-    const premiumByClient = new Map<string, number>()
+    const transactionPremiumSumByPolicyId = new Map<string, number>()
     for (const row of txRes.data ?? []) {
-      const clientId = String(row.client_id ?? '')
-      if (!clientId) continue
+      const policyId = String(row.policy_id ?? '')
+      if (!policyId) continue
       const amount =
-        typeof row.amount === 'number'
-          ? row.amount
-          : Number(row.amount ?? 0)
-      premiumByClient.set(
-        clientId,
-        (premiumByClient.get(clientId) ?? 0) + (Number.isFinite(amount) ? amount : 0),
+        typeof row.amount === 'number' ? row.amount : Number(row.amount ?? 0)
+      if (!Number.isFinite(amount)) continue
+      transactionPremiumSumByPolicyId.set(
+        policyId,
+        (transactionPremiumSumByPolicyId.get(policyId) ?? 0) + amount,
       )
     }
+
+    const premiumByClient = buildClientTotalPremiumByClientId({
+      policies: policiesForPremium,
+      transactionPremiumSumByPolicyId,
+    })
 
     const mapped = ((clientsRes.data as SupabaseClientRow[] | null) ?? []).map((row) => {
       const base = mapRowToClient(row)
