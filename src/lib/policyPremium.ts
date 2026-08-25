@@ -13,7 +13,10 @@
 
 function toFiniteMoney(value: unknown): number {
   if (value === null || value === undefined || value === '') return 0
-  const n = typeof value === 'number' ? value : Number(value)
+  if (typeof value === 'number') return Number.isFinite(value) ? value : 0
+  // Currency-ish strings ("12,000", "$12000") — Number() alone yields NaN.
+  const cleaned = String(value).trim().replace(/[$,\s]/g, '')
+  const n = Number(cleaned)
   return Number.isFinite(n) ? n : 0
 }
 
