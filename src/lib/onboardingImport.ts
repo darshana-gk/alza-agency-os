@@ -25,6 +25,7 @@ export type OnboardingEntity =
   | 'mgas'
   | 'producers'
   | 'csrs'
+  | 'master_agency'
 
 export type OnboardingRowStatus =
   | 'ready'
@@ -47,6 +48,7 @@ export const ONBOARDING_ENTITY_LABELS: Record<OnboardingEntity, string> = {
   mgas: 'MGAs',
   producers: 'Producers',
   csrs: 'CSRs',
+  master_agency: 'Master Agency Data',
 }
 
 export const ONBOARDING_FIELDS: Record<OnboardingEntity, OnboardingFieldDef[]> = {
@@ -119,13 +121,33 @@ export const ONBOARDING_FIELDS: Record<OnboardingEntity, OnboardingFieldDef[]> =
     { key: 'status', label: 'Status', required: false },
     { key: 'notes', label: 'Notes', required: false },
   ],
+  // Master Agency Data uses the same column contract as Policies (book-of-business sheet).
+  master_agency: [
+    { key: 'client_name', label: 'Client Name', required: true },
+    { key: 'policy_number', label: 'Policy Number', required: true },
+    { key: 'policy_type', label: 'Policy Type / Line of Business', required: false },
+    { key: 'carrier', label: 'Carrier', required: false },
+    { key: 'mga', label: 'MGA', required: false },
+    { key: 'effective_date', label: 'Effective Date', required: false },
+    { key: 'expiration_date', label: 'Expiration Date', required: false },
+    { key: 'reference_premium', label: 'Current Policy Premium', required: false },
+    { key: 'commission_type', label: 'Commission Type', required: false },
+    { key: 'agency_commission_percentage', label: 'Agency Commission %', required: false },
+    { key: 'agency_commission_amount', label: 'Agency Commission Amount', required: false },
+    { key: 'producer', label: 'Producer', required: false },
+    { key: 'producer_split_percentage', label: 'Producer Split %', required: true },
+    { key: 'csr', label: 'CSR', required: false },
+    { key: 'broker_fee', label: 'Default Broker Fee', required: false },
+    { key: 'status', label: 'Policy Status', required: false },
+    { key: 'notes', label: 'Notes', required: false },
+  ],
 }
 
 /**
  * Explicit approved header aliases per ALZA field (no fuzzy/includes matching).
  * Matching uses normalizeHeaderMatchKey so spaces / underscores / hyphens / # collapse.
  */
-const FIELD_ALIASES: Record<OnboardingEntity, Record<string, string[]>> = {
+const FIELD_ALIASES: Record<Exclude<OnboardingEntity, 'master_agency'>, Record<string, string[]>> = {
   clients: {
     business_name: [
       'business name',
@@ -476,6 +498,11 @@ const FIELD_ALIASES: Record<OnboardingEntity, Record<string, string[]>> = {
   },
 }
 
+const FIELD_ALIASES_FULL: Record<OnboardingEntity, Record<string, string[]>> = {
+  ...FIELD_ALIASES,
+  master_agency: FIELD_ALIASES.policies,
+}
+
 const REFERENCE_PREMIUM_PERSIST_NOTE =
   'Current Policy Premium is saved on policies.premium. UI Current Policy Premium = policies.premium + SUM(related transaction amounts); no synthetic opening transaction is created.'
 
@@ -613,7 +640,7 @@ export function suggestOnboardingMapping(
   headers: string[],
 ): OnboardingMapping {
   const mapping: OnboardingMapping = {}
-  const aliases = FIELD_ALIASES[entity]
+  const aliases = FIELD_ALIASES_FULL[entity]
   const normalized = headers.map((h) => ({
     raw: h,
     matchKey: normalizeHeaderMatchKey(h),
@@ -729,6 +756,11 @@ function normalizeName(value: string | null | undefined): string {
     .trim()
     .toLowerCase()
     .replace(/\s+/g, ' ')
+}
+
+/** Exported for Master Agency Data provisional cache seeding / tests. */
+export function normalizeOnboardingName(value: string | null | undefined): string {
+  return normalizeName(value)
 }
 
 function normalizeEmail(value: string | null | undefined): string {
@@ -876,6 +908,11 @@ async function loadLookupCaches(): Promise<OnboardingLookupCaches> {
   return caches
 }
 
+/** Public cache loader for Master Agency Data preview/execute. */
+export async function loadOnboardingLookupCaches(): Promise<OnboardingLookupCaches> {
+  return loadLookupCaches()
+}
+
 function resolveUniqueName(
   map: Map<string, string[]>,
   value: string,
@@ -933,6 +970,10 @@ export function evaluateOnboardingRows(input: {
   mapping: OnboardingMapping
   caches: OnboardingLookupCaches
 }): OnboardingPreviewResult {
+  if (input.entity === 'master_agency') {
+    return countPreview([], 'master_agency')
+  }
+
   const previewRows: OnboardingPreviewRow[] = []
   const seenInFile = new Set<string>()
 
@@ -1425,6 +1466,13 @@ export async function buildOnboardingPreview(input: {
   rows: Record<string, unknown>[]
   mapping: OnboardingMapping
 }): Promise<{ data: OnboardingPreviewResult | null; error: string | null }> {
+  if (input.entity === 'master_agency') {
+    return {
+      data: null,
+      error: 'Use Master Agency Data preview for this import type.',
+    }
+  }
+
   const authz = await rejectUnlessRole(
     (role) => canImportOnboardingEntity(role, input.entity),
     'You do not have permission to import this data type.',
@@ -1512,6 +1560,39 @@ export type OnboardingInsertDeps = {
     linesOfBusiness: string
     notes: string
   }) => Promise<OnboardingWriteResult>
+  createProducer?: (input: {
+    producerName: string
+    email: string
+    phone: string
+    status: string
+    notes: string
+    licenseNumber: string
+    defaultSplitPercentage: number | null
+  }) => Promise<OnboardingWriteResult>
+  createCsr?: (input: {
+    csrName: string
+    email: string
+    phone: string
+    status: string
+    notes: string
+  }) => Promise<OnboardingWriteResult>
+  createClient?: (input: {
+    clientNumber: string
+    businessName: string
+    dba: string
+    fein: string
+    contactName: string
+    email: string
+    phone: string
+    mailingAddress: string
+    physicalAddress: string
+    producer: string
+    csr: string
+    status: string
+    renewalMonth: number | null
+    renewalDay: number | null
+    notes: string
+  }) => Promise<OnboardingWriteResult>
   createPolicy?: (input: {
     clientId: string
     policyNumber: string
@@ -1531,6 +1612,8 @@ export type OnboardingInsertDeps = {
     brokerFee?: number
     premium?: number | null
   }) => Promise<OnboardingWriteResult>
+  /** Test-only: supply client numbers instead of querying Supabase. */
+  allocateClientNumbers?: (count: number) => Promise<string[]>
 }
 
 function writeErrorMessage(result: OnboardingWriteResult): string {
@@ -1579,6 +1662,12 @@ export async function executeOnboardingImport(input: {
 }): Promise<{ data: OnboardingImportResult | null; error: string | null }> {
   // Preview entity is the source of truth — prevents carrier writes when UI says MGAs.
   const entity = input.preview.entity
+  if (entity === 'master_agency') {
+    return {
+      data: null,
+      error: 'Use Master Agency Data import for this import type.',
+    }
+  }
   if (input.entity !== entity) {
     return {
       data: null,
@@ -1610,13 +1699,18 @@ export async function executeOnboardingImport(input: {
 
   const createMgaFn = input.deps?.createMga ?? createMga
   const createCarrierFn = input.deps?.createCarrier ?? createCarrier
+  const createProducerFn = input.deps?.createProducer ?? createProducer
+  const createCsrFn = input.deps?.createCsr ?? createCsr
+  const createClientFn = input.deps?.createClient ?? createClient
   const createPolicyFn = input.deps?.createPolicy ?? createPolicy
 
   if (entity === 'clients') {
     const needGenerated = ready.filter((r) => !String(r.payload.clientNumber ?? '').trim())
     let generated: string[] = []
     try {
-      generated = await nextClientNumbers(needGenerated.length)
+      generated = input.deps?.allocateClientNumbers
+        ? await input.deps.allocateClientNumbers(needGenerated.length)
+        : await nextClientNumbers(needGenerated.length)
     } catch (e) {
       return {
         data: null,
@@ -1630,7 +1724,7 @@ export async function executeOnboardingImport(input: {
         const p = row.payload
         const provided = String(p.clientNumber ?? '').trim()
         const clientNumber = provided || generated[genIdx++]
-        const result = await createClient({
+        const result = await createClientFn({
           clientNumber,
           businessName: String(p.businessName ?? ''),
           dba: String(p.dba ?? ''),
@@ -1647,9 +1741,9 @@ export async function executeOnboardingImport(input: {
           renewalDay: null,
           notes: String(p.notes ?? ''),
         })
-        if (result.error) {
+        if (!countSuccessfulWrite(result) || result.error) {
           failed += 1
-          const message = result.error.message
+          const message = result.error?.message || writeErrorMessage(result)
           errors.push(`Row ${row.rowIndex}: ${message}`)
           rowResults.push({ rowIndex: row.rowIndex, status: 'failed', message })
         } else {
@@ -1731,7 +1825,7 @@ export async function executeOnboardingImport(input: {
   if (entity === 'producers') {
     for (const row of ready) {
       const p = row.payload
-      const result = await createProducer({
+      const result = await createProducerFn({
         producerName: String(p.producerName ?? ''),
         email: String(p.email ?? ''),
         phone: String(p.phone ?? ''),
@@ -1743,9 +1837,9 @@ export async function executeOnboardingImport(input: {
             ? null
             : Number(p.defaultSplitPercentage),
       })
-      if (result.error) {
+      if (!countSuccessfulWrite(result) || result.error) {
         failed += 1
-        const message = result.error.message
+        const message = result.error?.message || writeErrorMessage(result)
         errors.push(`Row ${row.rowIndex}: ${message}`)
         rowResults.push({ rowIndex: row.rowIndex, status: 'failed', message })
       } else {
@@ -1762,16 +1856,16 @@ export async function executeOnboardingImport(input: {
   if (entity === 'csrs') {
     for (const row of ready) {
       const p = row.payload
-      const result = await createCsr({
+      const result = await createCsrFn({
         csrName: String(p.csrName ?? ''),
         email: String(p.email ?? ''),
         phone: String(p.phone ?? ''),
         status: String(p.status ?? 'active'),
         notes: String(p.notes ?? ''),
       })
-      if (result.error) {
+      if (!countSuccessfulWrite(result) || result.error) {
         failed += 1
-        const message = result.error.message
+        const message = result.error?.message || writeErrorMessage(result)
         errors.push(`Row ${row.rowIndex}: ${message}`)
         rowResults.push({ rowIndex: row.rowIndex, status: 'failed', message })
       } else {

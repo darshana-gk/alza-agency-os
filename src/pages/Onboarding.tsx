@@ -24,9 +24,10 @@ export function Onboarding() {
         <div>
           <h1 className="text-2xl font-semibold text-slate-900">Onboarding Import</h1>
           <p className="mt-1 max-w-3xl text-sm text-slate-500">
-            Import Carriers, MGAs, Producers, CSRs, Clients, or Policies from CSV, TXT, XLSX, XLS, or a
-            pasted table. Map columns, preview validation, then insert only ready rows. Existing ALZA
-            data wins — duplicates are skipped, never overwritten.
+            Import Master Agency Data (one book-of-business file), or individual Carriers, MGAs, Producers,
+            CSRs, Clients, or Policies from CSV, TXT, XLSX, XLS, or a pasted table. Map columns, preview
+            validation, then insert only ready rows. Existing ALZA data wins — duplicates are skipped, never
+            overwritten.
           </p>
         </div>
         <button
@@ -42,7 +43,9 @@ export function Onboarding() {
       <div className="rounded-xl border border-slate-200 bg-white p-5 text-sm text-slate-600 shadow-sm">
         <p className="font-medium text-slate-800">Import order tip</p>
         <p className="mt-1">
-          Import directory data first (Carriers, MGAs, Producers, CSRs), then Clients, then Policies so
+          Prefer <span className="font-medium">Master Agency Data</span> when the agency provides one
+          spreadsheet covering carriers, MGAs, producers, CSRs, clients, and policies. Otherwise import
+          directory data first (Carriers, MGAs, Producers, CSRs), then Clients, then Policies so
           relationships can resolve cleanly.
         </p>
         <p className="mt-3">

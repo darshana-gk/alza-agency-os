@@ -25,6 +25,13 @@ import {
   type OnboardingMapping,
   type OnboardingPreviewResult,
 } from '../../lib/onboardingImport'
+import {
+  buildMasterAgencyPreview,
+  buildMasterAgencyResultLogCsv,
+  executeMasterAgencyImport,
+  type MasterAgencyImportResult,
+  type MasterAgencyPreviewResult,
+} from '../../lib/onboardingMasterImport'
 import { roleInputFromProfile } from '../../lib/permissions'
 import { useAuth } from '../../lib/auth'
 
@@ -32,6 +39,7 @@ const selectClass =
   'h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-900 focus:border-alza-blue-500 focus:outline-none focus:ring-2 focus:ring-alza-blue-500/20'
 
 const ENTITIES: OnboardingEntity[] = [
+  'master_agency',
   'carriers',
   'mgas',
   'producers',
@@ -62,7 +70,9 @@ export function OnboardingImportWizard(props: {
   const [rows, setRows] = useState<Record<string, unknown>[]>([])
   const [mapping, setMapping] = useState<OnboardingMapping>({})
   const [preview, setPreview] = useState<OnboardingPreviewResult | null>(null)
+  const [masterPreview, setMasterPreview] = useState<MasterAgencyPreviewResult | null>(null)
   const [result, setResult] = useState<OnboardingImportResult | null>(null)
+  const [masterResult, setMasterResult] = useState<MasterAgencyImportResult | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [dragOver, setDragOver] = useState(false)
@@ -70,6 +80,7 @@ export function OnboardingImportWizard(props: {
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const prevOpenRef = useRef(false)
+  const isMaster = entity === 'master_agency'
 
   useEffect(() => {
     const justOpened = props.open && !prevOpenRef.current
@@ -86,7 +97,9 @@ export function OnboardingImportWizard(props: {
     setRows([])
     setMapping({})
     setPreview(null)
+    setMasterPreview(null)
     setResult(null)
+    setMasterResult(null)
     setError(null)
     setDragOver(false)
     if (fileInputRef.current) fileInputRef.current.value = ''
@@ -100,7 +113,9 @@ export function OnboardingImportWizard(props: {
   function changeEntity(next: OnboardingEntity) {
     setEntity(next)
     setPreview(null)
+    setMasterPreview(null)
     setResult(null)
+    setMasterResult(null)
     setError(null)
     if (headers.length > 0) {
       setMapping(suggestOnboardingMapping(next, headers))
@@ -127,6 +142,7 @@ export function OnboardingImportWizard(props: {
     setRows([])
     setMapping({})
     setPreview(null)
+    setMasterPreview(null)
     setInputMode('file')
     if (!next) {
       if (fileInputRef.current) fileInputRef.current.value = ''
@@ -194,6 +210,18 @@ export function OnboardingImportWizard(props: {
     }
     setBusy(true)
     setError(null)
+    if (entity === 'master_agency') {
+      const out = await buildMasterAgencyPreview({ rows, mapping })
+      setBusy(false)
+      if (out.error) {
+        setError(out.error)
+        return
+      }
+      setMasterPreview(out.data)
+      setPreview(null)
+      setStep(4)
+      return
+    }
     const out = await buildOnboardingPreview({ entity, rows, mapping })
     setBusy(false)
     if (out.error) {
@@ -201,13 +229,29 @@ export function OnboardingImportWizard(props: {
       return
     }
     setPreview(out.data)
+    setMasterPreview(null)
     setStep(4)
   }
 
   async function runImport() {
-    if (!preview) return
     setBusy(true)
     setError(null)
+    if (isMaster && masterPreview) {
+      const out = await executeMasterAgencyImport({ preview: masterPreview })
+      setBusy(false)
+      if (out.error) {
+        setError(out.error)
+        return
+      }
+      setMasterResult(out.data)
+      setResult(null)
+      setStep(5)
+      return
+    }
+    if (!preview) {
+      setBusy(false)
+      return
+    }
     const out = await executeOnboardingImport({ entity: preview.entity, preview })
     setBusy(false)
     if (out.error) {
@@ -215,10 +259,22 @@ export function OnboardingImportWizard(props: {
       return
     }
     setResult(out.data)
+    setMasterResult(null)
     setStep(5)
   }
 
   function downloadResultLog() {
+    if (masterPreview && masterResult) {
+      const csv = buildMasterAgencyResultLogCsv(masterPreview, masterResult)
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = 'onboarding_master_agency_result_log.csv'
+      a.click()
+      URL.revokeObjectURL(url)
+      return
+    }
     if (!preview || !result) return
     const csv = buildOnboardingResultLogCsv(preview, result)
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' })
@@ -235,6 +291,7 @@ export function OnboardingImportWizard(props: {
   const mappingSelects = buildOnboardingMappingSelectModel(entity, mapping, headers)
   const canContinueFile = Boolean(file) && allowedEntities.length > 0
   const canContinuePaste = pasteText.trim().length > 0 && allowedEntities.length > 0
+  const importReadyCount = isMaster ? (masterPreview?.totalNew ?? 0) : (preview?.ready ?? 0)
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
@@ -261,6 +318,7 @@ export function OnboardingImportWizard(props: {
           <div className="mb-4 rounded-lg border border-alza-blue-200 bg-alza-blue-50 px-3 py-2 text-sm text-alza-blue-900">
             Importing: <span className="font-semibold">{ONBOARDING_ENTITY_LABELS[entity]}</span>
             {preview ? ` · Preview built for ${ONBOARDING_ENTITY_LABELS[preview.entity]}` : ''}
+            {masterPreview ? ' · Master preview ready' : ''}
           </div>
 
           {step === 1 && (
@@ -279,6 +337,13 @@ export function OnboardingImportWizard(props: {
                   ))}
                 </select>
               </label>
+              {isMaster && (
+                <p className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">
+                  Master Agency Data accepts one book-of-business spreadsheet. ALZA extracts unique Carriers,
+                  MGAs, Producers, CSRs, Clients, and Policies, then imports in dependency order. Existing ALZA
+                  records are never overwritten. No transactions are created.
+                </p>
+              )}
 
               <div className="flex gap-2">
                 <button
@@ -451,7 +516,70 @@ export function OnboardingImportWizard(props: {
             </div>
           )}
 
-          {step === 4 && preview && (
+          {step === 4 && masterPreview && (
+            <div className="space-y-4">
+              <p className="text-sm font-medium text-slate-800">
+                Master Import Preview · {masterPreview.sourceRowCount} source rows
+              </p>
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                {masterPreview.entities.map((e) => (
+                  <div key={e.entity} className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+                    <p className="text-sm font-semibold text-slate-900">{e.label}</p>
+                    <dl className="mt-2 space-y-1 text-sm text-slate-600">
+                      <div className="flex justify-between gap-2">
+                        <dt>New</dt>
+                        <dd className="font-semibold text-emerald-700">{e.newCount}</dd>
+                      </div>
+                      <div className="flex justify-between gap-2">
+                        <dt>Existing/Skipped</dt>
+                        <dd className="font-semibold text-slate-800">{e.existingSkipped}</dd>
+                      </div>
+                      <div className="flex justify-between gap-2">
+                        <dt>Invalid</dt>
+                        <dd className="font-semibold text-rose-700">{e.invalid}</dd>
+                      </div>
+                    </dl>
+                  </div>
+                ))}
+              </div>
+              <div className="max-h-80 overflow-auto rounded-lg border border-slate-200">
+                <table className="min-w-full text-xs">
+                  <thead className="sticky top-0 bg-slate-50 text-left font-semibold text-slate-500">
+                    <tr>
+                      <th className="px-3 py-2">Entity</th>
+                      <th className="px-3 py-2">Row</th>
+                      <th className="px-3 py-2">Status</th>
+                      <th className="px-3 py-2">Details</th>
+                      <th className="px-3 py-2">Notes</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {masterPreview.entities.flatMap((e) =>
+                      e.preview.rows.slice(0, 40).map((r) => (
+                        <tr key={`${e.entity}-${r.rowIndex}`} className="border-t border-slate-100">
+                          <td className="px-3 py-1.5">{e.label}</td>
+                          <td className="px-3 py-1.5">{r.rowIndex}</td>
+                          <td className="px-3 py-1.5">{formatOnboardingStatus(r.status)}</td>
+                          <td className="px-3 py-1.5">
+                            {Object.entries(r.display)
+                              .map(([k, v]) => `${k}: ${v || '—'}`)
+                              .join(' · ')}
+                          </td>
+                          <td className="px-3 py-1.5 text-slate-600">{r.reasons.join(' ') || '—'}</td>
+                        </tr>
+                      )),
+                    )}
+                  </tbody>
+                </table>
+              </div>
+              <p className="text-sm text-slate-600">
+                Only <span className="font-medium">New</span> rows will be inserted, in order: Carriers → MGAs →
+                Producers → CSRs → Clients → Policies. Existing ALZA data wins. No transactions are created.
+              </p>
+            </div>
+          )}
+
+          {step === 4 && preview && !masterPreview && (
             <div className="space-y-4">
               <p className="text-sm font-medium text-slate-800">
                 Preview for {ONBOARDING_ENTITY_LABELS[preview.entity]}
@@ -507,7 +635,56 @@ export function OnboardingImportWizard(props: {
             </div>
           )}
 
-          {step === 5 && result && (
+          {step === 5 && masterResult && (
+            <div className="space-y-3">
+              <p className="text-sm text-slate-700">Master Agency Data import finished.</p>
+              <ul className="list-inside list-disc text-sm text-slate-700">
+                <li>Inserted (all entities): {masterResult.imported}</li>
+                <li>Skipped duplicate: {masterResult.skippedDuplicate}</li>
+                <li>Skipped validation: {masterResult.skippedValidation}</li>
+                <li>Failed: {masterResult.failed}</li>
+                <li>Transactions created: {masterResult.createdTransactions}</li>
+              </ul>
+              <div className="overflow-x-auto rounded-lg border border-slate-200">
+                <table className="min-w-full text-sm">
+                  <thead className="bg-slate-50 text-left text-xs font-semibold uppercase text-slate-500">
+                    <tr>
+                      <th className="px-3 py-2">Entity</th>
+                      <th className="px-3 py-2">Inserted</th>
+                      <th className="px-3 py-2">Skipped duplicate</th>
+                      <th className="px-3 py-2">Failed</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {masterResult.entities.map((e) => (
+                      <tr key={e.entity} className="border-t border-slate-100">
+                        <td className="px-3 py-2">{e.label}</td>
+                        <td className="px-3 py-2">{e.imported}</td>
+                        <td className="px-3 py-2">{e.skippedDuplicate}</td>
+                        <td className="px-3 py-2">{e.failed}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              {masterResult.errors.length > 0 && (
+                <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                  {masterResult.errors.slice(0, 20).map((errMsg) => (
+                    <p key={errMsg}>{errMsg}</p>
+                  ))}
+                </div>
+              )}
+              <button
+                type="button"
+                onClick={downloadResultLog}
+                className="rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+              >
+                Download CSV result log
+              </button>
+            </div>
+          )}
+
+          {step === 5 && result && !masterResult && (
             <div className="space-y-3">
               <p className="text-sm text-slate-700">
                 Import finished for {ONBOARDING_ENTITY_LABELS[preview?.entity ?? entity]}.
@@ -595,11 +772,15 @@ export function OnboardingImportWizard(props: {
             {step === 4 && (
               <button
                 type="button"
-                disabled={busy || !preview || preview.ready === 0}
+                disabled={busy || importReadyCount === 0}
                 onClick={() => void runImport()}
                 className="rounded-lg bg-alza-blue-700 px-4 py-2 text-sm font-medium text-white hover:bg-alza-blue-800 disabled:opacity-40"
               >
-                {busy ? 'Importing…' : `Import ${preview?.ready ?? 0} ready rows`}
+                {busy
+                  ? 'Importing…'
+                  : isMaster
+                    ? `Import ${importReadyCount} new records`
+                    : `Import ${importReadyCount} ready rows`}
               </button>
             )}
             {step === 5 && (
