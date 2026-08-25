@@ -50,9 +50,11 @@ export function Onboarding() {
           explicitly when no producer commission applies — blank values are rejected.
         </p>
         <p className="mt-3">
-          Current Policy Premium is saved on the policy record (<span className="font-mono text-xs">policies.premium</span>
-          ), the same column <span className="font-medium">Add Policy</span> writes (as 0 when blank). Policy Details
-          Financial Totals still sum related transactions for the live premium total.
+          Current Policy Premium is saved on the policy record (
+          <span className="font-mono text-xs">policies.premium</span>), the same column{' '}
+          <span className="font-medium">Add Policy</span> writes (as 0 when blank). Screens show Current
+          Policy Premium as <span className="font-medium">policies.premium + related transaction amounts</span>
+          {' '}so onboarded opening premium appears even with zero transactions.
         </p>
       </div>
 

@@ -184,8 +184,8 @@ export function AddPolicyModal({
           <div>
             <h3 className="text-lg font-semibold text-slate-900">Add Policy</h3>
             <p className="mt-1 text-sm text-slate-500">
-              Creates a policy with commission defaults. Current Policy Premium and commission totals come
-              from transactions after they are booked.
+              Creates a policy with commission defaults (Current Policy Premium starts at 0 on the policy
+              record). Live Current Policy Premium is policies.premium plus booked transaction amounts.
             </p>
           </div>
           <button type="button" disabled={saving} onClick={onClose} className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600">

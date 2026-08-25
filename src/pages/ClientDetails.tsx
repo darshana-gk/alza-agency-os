@@ -27,6 +27,7 @@ import {
   formatTypeLabel,
 } from '../lib/commission'
 import { updateClient } from '../lib/directory'
+import { resolveCurrentPolicyPremium } from '../lib/policyPremium'
 import {
   canManageClients,
   canManagePolicies,
@@ -47,10 +48,11 @@ interface ClientPolicy {
   mga: string
   effectiveDate: string
   expirationDate: string
-  /** Original policies.premium (written) — not used for summary Total Premium column. */
+  /** Original policies.premium (opening / stored reference). */
   writtenPremium: number
   status: PolicyStatus
   transactionCount: number
+  /** Current Policy Premium = policies.premium + SUM(txn amounts). */
   totalPremium: number
   latestTransactionDate: string | null
 }
@@ -365,13 +367,17 @@ export function ClientDetails() {
       return {
         ...policy,
         transactionCount: summary?.transactionCount ?? 0,
-        totalPremium: summary?.totalPremium ?? 0,
+        totalPremium: resolveCurrentPolicyPremium({
+          policyPremium: policy.writtenPremium,
+          transactionPremiumSum: summary?.totalPremium ?? 0,
+        }),
         latestTransactionDate: summary?.latestTransactionDate ?? null,
       }
     })
 
     const clientTxns = txRes.data.filter((tx) => tx.clientId === id && !tx.archived)
-    const totalPremium = clientTxns.reduce((sum, tx) => sum + tx.amount, 0)
+    // Align with Policy Summary Current Policy Premium (opening + signed txns), not txn-only.
+    const totalPremium = policies.reduce((sum, p) => sum + p.totalPremium, 0)
     const agencyCommission = clientTxns.reduce((sum, tx) => sum + tx.agencyCommissionAmount, 0)
     const producerCommission = clientTxns.reduce((sum, tx) => sum + tx.producerCommissionAmount, 0)
     const outstandingAgencyCommission = clientTxns

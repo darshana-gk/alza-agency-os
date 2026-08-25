@@ -17,6 +17,7 @@ import { SortableTh } from '../components/ui/SortableTh'
 import { useAuth } from '../lib/auth'
 import { fetchPolicyTransactionSummaries } from '../lib/commission'
 import { policyExportColumns } from '../lib/exportDefinitions'
+import { resolveCurrentPolicyPremium } from '../lib/policyPremium'
 import { downloadTableExport } from '../lib/tableExport'
 import {
   CREATED_AT_DESC,
@@ -47,9 +48,9 @@ interface PolicyRow {
   expirationDate: string
   producer: string
   csr: string
-  /** On-screen Current Policy Premium (transaction-derived SoT). */
+  /** On-screen Current Policy Premium = policies.premium + SUM(txn amounts). */
   premium: number
-  /** Raw policies.premium for export. */
+  /** Raw policies.premium (opening / stored reference). */
   filePremium: number
   agencyCommissionPercentage: number | null
   status: PolicyStatus
@@ -197,7 +198,7 @@ export function PolicyFiles() {
         expirationDate: String(row.expiration_date ?? ''),
         producer: String(row.producer ?? '—'),
         csr: String(row.csr ?? '—'),
-        // filePremium = policies.premium; on-screen premium filled from transaction SoT below.
+        // filePremium = policies.premium; on-screen premium resolved after txn summaries load.
         premium: 0,
         filePremium: (() => {
           if (row.premium == null || row.premium === '') return 0
@@ -224,7 +225,10 @@ export function PolicyFiles() {
 
     const mapped = mappedBase.map((policy) => ({
       ...policy,
-      premium: summaryRes.data[policy.id]?.totalPremium ?? 0,
+      premium: resolveCurrentPolicyPremium({
+        policyPremium: policy.filePremium,
+        transactionPremiumSum: summaryRes.data[policy.id]?.totalPremium ?? 0,
+      }),
     }))
 
     if (isProducerBookScoped(roleInput)) {

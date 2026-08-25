@@ -72,7 +72,7 @@ export const policyExportColumns: ExportColumn<{
   },
   {
     header: 'Current Policy Premium',
-    value: (r) => (r.filePremium != null ? r.filePremium : r.premium),
+    value: (r) => r.premium,
     type: 'currency',
   },
 ]

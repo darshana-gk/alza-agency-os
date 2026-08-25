@@ -22,6 +22,7 @@ import {
   producerKeysMatch,
   roleInputFromProfile,
 } from '../lib/permissions'
+import { resolveCurrentPolicyPremium } from '../lib/policyPremium'
 import {
   fetchCommissionTransactionsByPolicy,
   formatCommissionTypeLabel,
@@ -310,28 +311,33 @@ export function PolicyDetails() {
   }, [policy])
 
   const financialTotals = useMemo(() => {
-    let currentPolicyPremium = 0
+    let transactionPremiumSum = 0
     let totalBrokerFees = 0
     let totalAgencyCommission = 0
     let totalProducerCommission = 0
     let totalAgencyNet = 0
     for (const tx of transactions) {
-      currentPolicyPremium += tx.amount
+      transactionPremiumSum += tx.amount
       totalBrokerFees += tx.brokerFee
       totalAgencyCommission += tx.agencyCommissionAmount
       totalProducerCommission += tx.producerCommissionAmount
       totalAgencyNet += tx.agencyNetCommission
     }
     const totalCommissionPool = totalAgencyCommission + totalBrokerFees
+    const currentPolicyPremium = resolveCurrentPolicyPremium({
+      policyPremium: policy?.premium ?? 0,
+      transactionPremiumSum,
+    })
     return {
       currentPolicyPremium,
+      transactionPremiumSum,
       totalBrokerFees,
       totalAgencyCommission,
       totalCommissionPool,
       totalProducerCommission,
       totalAgencyNet,
     }
-  }, [transactions])
+  }, [transactions, policy?.premium])
 
   function openEdit() {
     if (!policy || !canEdit) return
