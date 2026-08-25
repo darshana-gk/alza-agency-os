@@ -412,6 +412,11 @@ export interface CreatePolicyInput {
   overrideSplit?: boolean
   /** Optional default broker fee inherited by new transactions (defaults to 0). */
   brokerFee?: number
+  /**
+   * Optional reference premium written to policies.premium (same column createPolicy already sets).
+   * Add Policy UI does not collect this — defaults to 0. Ledger totals remain on transactions.
+   */
+  premium?: number | null
 }
 
 export async function createPolicy(input: CreatePolicyInput) {
@@ -473,8 +478,17 @@ export async function createPolicy(input: CreatePolicyInput) {
     )
   }
 
-  // Money totals live on transactions. Policy stores defaults only — do not invent ledger
-  // amounts from a policy premium (premium is no longer collected on create).
+  // Money ledger totals live on transactions. policies.premium is a reference field on the
+  // policy row (Add Policy leaves it at 0; onboarding may supply the imported value).
+  const premiumRaw = input.premium
+  const premium =
+    premiumRaw === null || premiumRaw === undefined
+      ? 0
+      : Number(premiumRaw)
+  if (!Number.isFinite(premium) || premium < 0) {
+    return err('Policy premium must be zero or greater.', 'policies', 'validate')
+  }
+
   const payload = {
     client_id: clientId,
     policy_number: policyNumber,
@@ -485,7 +499,7 @@ export async function createPolicy(input: CreatePolicyInput) {
     csr: input.csr.trim() || null,
     effective_date: input.effectiveDate.trim() || null,
     expiration_date: input.expirationDate.trim() || null,
-    premium: 0,
+    premium: roundMoney(premium),
     status: input.status,
     notes: input.notes?.trim() || null,
     commission_type: commissionType,

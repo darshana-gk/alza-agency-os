@@ -375,7 +375,7 @@ console.log('Mapping checks')
   }
 }
 
-console.log('referencePremium deferred note does not block ready row')
+console.log('referencePremium persists to policies.premium via payload.premium')
 {
   const headers = [
     'Client Name',
@@ -391,14 +391,19 @@ console.log('referencePremium deferred note does not block ready row')
     mapping,
     caches: seedDirectoryCaches(),
   })
-  assert(preview.ready === 1, 'valid deferred premium still ready')
+  assert(preview.ready === 1, 'valid premium still ready')
+  assert(preview.rows[0]?.payload.premium === 1500, 'payload.premium = 1500')
   assert(
-    preview.rows[0]?.reasons.some((r) => /deferred|unsupported/i.test(r)),
-    'deferred/unsupported note present',
+    preview.rows[0]?.display['Current Policy Premium'] === '1500',
+    'preview shows Current Policy Premium',
   )
   assert(
-    !('referencePremium' in (preview.rows[0]?.payload ?? {})),
-    'referencePremium not in create payload keys (deferred only)',
+    preview.rows[0]?.reasons.some((r) => /policies\.premium/i.test(r)),
+    'persist note present (not deferred/unsupported)',
+  )
+  assert(
+    !preview.rows[0]?.reasons.some((r) => /deferred|unsupported/i.test(r)),
+    'no deferred/unsupported discard note',
   )
 }
 

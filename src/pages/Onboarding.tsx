@@ -50,8 +50,9 @@ export function Onboarding() {
           explicitly when no producer commission applies — blank values are rejected.
         </p>
         <p className="mt-3">
-          Current Policy Premium can be mapped for review, but it is not persisted in the production
-          schema (policy money lives on transactions). It is reported as deferred/unsupported.
+          Current Policy Premium is saved on the policy record (<span className="font-mono text-xs">policies.premium</span>
+          ), the same column <span className="font-medium">Add Policy</span> writes (as 0 when blank). Policy Details
+          Financial Totals still sum related transactions for the live premium total.
         </p>
       </div>
 

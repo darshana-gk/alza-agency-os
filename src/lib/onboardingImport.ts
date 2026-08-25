@@ -200,6 +200,7 @@ const FIELD_ALIASES: Record<OnboardingEntity, Record<string, string[]>> = {
       'client name',
       'client_name',
       'clientname',
+      'client',
       'insured',
       'named insured',
       'named_insured',
@@ -270,6 +271,7 @@ const FIELD_ALIASES: Record<OnboardingEntity, Record<string, string[]>> = {
     reference_premium: [
       'current policy premium',
       'current_policy_premium',
+      'currentpolicypremium',
       'policy premium',
       'policy_premium',
       'written premium',
@@ -290,13 +292,20 @@ const FIELD_ALIASES: Record<OnboardingEntity, Record<string, string[]>> = {
       'agency commission %',
       'agency commission percent',
       'agency_commission_percentage',
+      'agency_commission_percent',
       'agency commission percentage',
+      'agency commission percent',
+      'agencycommpercent',
       'agency comm %',
       'comm %',
       'commission %',
       'commission percent',
       'commission percentage',
       'carrier commission %',
+      'carrier commission percent',
+      'carrier_commission_percent',
+      'carrier_commission_percentage',
+      'carriercommissionpercent',
     ],
     agency_commission_amount: [
       'agency commission amount',
@@ -311,10 +320,14 @@ const FIELD_ALIASES: Record<OnboardingEntity, Record<string, string[]>> = {
       'producer split %',
       'producer split',
       'producer_split',
+      'producer_split_percent',
       'producer_split_percentage',
+      'producer split percent',
       'producer split percentage',
       'producersplit',
+      'producersplitpercent',
       'split %',
+      'split percent',
       'producer percent',
     ],
     csr: ['csr', 'account manager', 'account_manager', 'csr name', 'csr_name', 'csrname'],
@@ -463,8 +476,8 @@ const FIELD_ALIASES: Record<OnboardingEntity, Record<string, string[]>> = {
   },
 }
 
-const REFERENCE_PREMIUM_DEFERRED_NOTE =
-  'Current Policy Premium is deferred/unsupported in production schema and will not be persisted.'
+const REFERENCE_PREMIUM_PERSIST_NOTE =
+  'Current Policy Premium will be saved on policies.premium (same column createPolicy writes). Policy Details Financial Totals still sum related transactions.'
 
 export type OnboardingMapping = Record<string, string | undefined>
 
@@ -1140,8 +1153,6 @@ export function evaluateOnboardingRows(input: {
     if (input.entity === 'policies') {
       const clientName = text(row, input.mapping, 'client_name')
       const policyNumber = text(row, input.mapping, 'policy_number')
-      display['Client Name'] = clientName
-      display['Policy Number'] = policyNumber
 
       if (!clientName) {
         mark(state, 'missing_required', 'Client Name is required.')
@@ -1216,18 +1227,22 @@ export function evaluateOnboardingRows(input: {
         mark(state, 'invalid', 'Expiration Date is invalid.')
       }
 
-      // referencePremium: validate if present, note deferred — never fail solely for valid deferred value.
+      // Current Policy Premium → policies.premium via createPolicy (Add Policy leaves 0).
       const premiumRaw = cell(row, input.mapping, 'reference_premium')
       const premiumText = text(row, input.mapping, 'reference_premium')
-      let referencePremiumNote: number | null = null
-      if (premiumText || typeof premiumRaw === 'number') {
+      const premiumMapped = Boolean(input.mapping.reference_premium)
+      let policyPremium: number | null = null
+      if (premiumMapped && (premiumText || typeof premiumRaw === 'number')) {
         const parsed = parseMoney(premiumRaw)
         if (parsed === null || parsed < 0) {
           mark(state, 'invalid', 'Current Policy Premium is invalid.')
         } else {
-          referencePremiumNote = parsed
-          state.reasons.push(REFERENCE_PREMIUM_DEFERRED_NOTE)
+          policyPremium = parsed
+          state.reasons.push(REFERENCE_PREMIUM_PERSIST_NOTE)
         }
+      } else if (premiumMapped && !premiumText && !(typeof premiumRaw === 'number')) {
+        // Mapped but blank — treat as 0 reference, still optional.
+        policyPremium = 0
       }
 
       const pctMapped = Boolean(input.mapping.agency_commission_percentage)
@@ -1347,32 +1362,50 @@ export function evaluateOnboardingRows(input: {
         seenInFile.add(fileKey)
       }
 
+      const policyType = text(row, input.mapping, 'policy_type')
+      const notes = text(row, input.mapping, 'notes')
+
       payload.clientId = clientId
       payload.clientName = clientName
       payload.policyNumber = policyNumber
-      payload.policyType = text(row, input.mapping, 'policy_type')
+      payload.policyType = policyType
       payload.carrier = carrier
       payload.mga = mga
       payload.producer = producer
       payload.csr = csr
       payload.effectiveDate = effectiveDate ?? ''
       payload.expirationDate = expirationDate ?? ''
-      // Do NOT put referencePremium in createPolicy payload path — keep note-only if needed for logs.
-      if (referencePremiumNote !== null) {
-        payload.referencePremiumDeferred = referencePremiumNote
-      }
+      payload.premium = policyPremium
       payload.commissionType = commissionType
       payload.agencyCommissionPercentage = pct
       payload.agencyCommissionAmount = amt
       payload.producerSplitPercentage = producerSplitPercentage
       payload.brokerFee = brokerFee
       payload.status = status
-      payload.notes = text(row, input.mapping, 'notes')
+      payload.notes = notes
+
+      display['Client'] = clientName
+      display['Policy Number'] = policyNumber
+      display['Policy Type'] = policyType
       display['Carrier'] = carrier || carrierRaw
       display['MGA'] = mga || mgaRaw
+      display['Effective Date'] = effectiveDate ?? ''
+      display['Expiration Date'] = expirationDate ?? ''
+      if (policyPremium !== null) {
+        display['Current Policy Premium'] = String(policyPremium)
+      }
+      if (commissionType === 'percentage' && pct !== null) {
+        display['Agency Commission %'] = String(pct)
+      } else if (commissionType === 'flat' && amt !== null) {
+        display['Agency Commission Amount'] = String(amt)
+      }
+      display['Producer'] = producer || producerRaw
       if (producerSplitPercentage !== null) {
         display['Producer Split %'] = String(producerSplitPercentage)
       }
+      display['CSR'] = csr || csrRaw
+      display['Status'] = status
+      if (notes) display['Notes'] = notes
     }
 
     previewRows.push({
@@ -1479,6 +1512,25 @@ export type OnboardingInsertDeps = {
     linesOfBusiness: string
     notes: string
   }) => Promise<OnboardingWriteResult>
+  createPolicy?: (input: {
+    clientId: string
+    policyNumber: string
+    policyType: string
+    carrier: string
+    mga: string
+    producer: string
+    csr: string
+    effectiveDate: string
+    expirationDate: string
+    status: PolicyStatusValue
+    notes?: string
+    commissionType: 'percentage' | 'flat'
+    agencyCommissionPercentage: number | null
+    agencyCommissionAmount: number | null
+    producerSplitPercentage: number
+    brokerFee?: number
+    premium?: number | null
+  }) => Promise<OnboardingWriteResult>
 }
 
 function writeErrorMessage(result: OnboardingWriteResult): string {
@@ -1558,6 +1610,7 @@ export async function executeOnboardingImport(input: {
 
   const createMgaFn = input.deps?.createMga ?? createMga
   const createCarrierFn = input.deps?.createCarrier ?? createCarrier
+  const createPolicyFn = input.deps?.createPolicy ?? createPolicy
 
   if (entity === 'clients') {
     const needGenerated = ready.filter((r) => !String(r.payload.clientNumber ?? '').trim())
@@ -1740,8 +1793,16 @@ export async function executeOnboardingImport(input: {
         rowResults.push({ rowIndex: row.rowIndex, status: 'failed', message })
         continue
       }
-      // Do not pass referencePremium — CreatePolicyInput has no such field; premium forced to 0 in createPolicy.
-      const result = await createPolicy({
+      if (!String(p.clientId ?? '').trim()) {
+        failed += 1
+        const message = 'Client could not be resolved to a production client id.'
+        errors.push(`Row ${row.rowIndex}: ${message}`)
+        rowResults.push({ rowIndex: row.rowIndex, status: 'failed', message })
+        continue
+      }
+      const premium =
+        p.premium === null || p.premium === undefined ? null : Number(p.premium)
+      const result = await createPolicyFn({
         clientId: String(p.clientId ?? ''),
         policyNumber: String(p.policyNumber ?? ''),
         policyType: String(p.policyType ?? ''),
@@ -1760,10 +1821,11 @@ export async function executeOnboardingImport(input: {
           commissionType === 'flat' ? Number(p.agencyCommissionAmount) : null,
         producerSplitPercentage: split,
         brokerFee: Number(p.brokerFee ?? 0),
+        premium,
       })
-      if (result.error) {
+      if (!countSuccessfulWrite(result)) {
         failed += 1
-        const message = result.error.message
+        const message = writeErrorMessage(result)
         errors.push(`Row ${row.rowIndex}: ${message}`)
         rowResults.push({ rowIndex: row.rowIndex, status: 'failed', message })
       } else {
