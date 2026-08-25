@@ -1,3 +1,4 @@
+import { useMemo, useState } from 'react'
 import { NavLink, Link } from 'react-router-dom'
 import {
   LayoutDashboard,
@@ -20,11 +21,33 @@ import {
   LifeBuoy,
   Inbox,
   Upload,
+  type LucideIcon,
 } from 'lucide-react'
-import { useMemo, useState } from 'react'
 import type { NavGroup } from '@/types'
 import { useAuth } from '@/lib/auth'
 import { getNavVisibility, rolesOf } from '@/lib/permissions'
+import { buildSidebarNavItems } from '@/lib/sidebarNav'
+
+const ICONS: Record<string, LucideIcon> = {
+  '/': LayoutDashboard,
+  '/clients': Users,
+  '/policy-files': FileText,
+  '/transactions': ArrowLeftRight,
+  '/financials': DollarSign,
+  '/reconciliation': Scale,
+  '/reports': BarChart3,
+  '/activity': History,
+  '/support': LifeBuoy,
+  '/admin/support-inbox': Inbox,
+  '/onboarding': Upload,
+  '/admin/producers': UserCog,
+  '/admin/csrs': Headphones,
+  '/admin/mgas': Building2,
+  '/admin/carriers': Truck,
+  '/admin/users': UserCircle,
+  '/admin/agency-settings': Settings,
+  '/admin/subscription-billing': CreditCard,
+}
 
 function NavSection({ group }: { group: NavGroup }) {
   const [expanded, setExpanded] = useState(true)
@@ -75,44 +98,22 @@ export function Sidebar() {
   const { profile } = useAuth()
   const nav = getNavVisibility(rolesOf(profile))
 
-  const mainNav = useMemo<NavGroup>(() => {
-    const items = []
-    if (nav.dashboard) items.push({ label: 'Dashboard', path: '/', icon: LayoutDashboard })
-    if (nav.clients) items.push({ label: 'Clients', path: '/clients', icon: Users })
-    if (nav.policyFiles) items.push({ label: 'Policy Files', path: '/policy-files', icon: FileText })
-    if (nav.transactions) items.push({ label: 'Transactions', path: '/transactions', icon: ArrowLeftRight })
-    if (nav.financials) items.push({ label: 'Financials', path: '/financials', icon: DollarSign })
-    if (nav.reconciliation) items.push({ label: 'Reconciliation', path: '/reconciliation', icon: Scale })
-    if (nav.reports) items.push({ label: 'Reports', path: '/reports', icon: BarChart3 })
-    if (nav.activityHistory) items.push({ label: 'Activity History', path: '/activity', icon: History })
-    if (nav.onboardingImport) {
-      items.push({ label: 'Onboarding Import', path: '/onboarding', icon: Upload })
+  const { mainNav, adminNav } = useMemo(() => {
+    const specs = buildSidebarNavItems(nav)
+    const toGroup = (section: 'main' | 'administration', title?: string): NavGroup => ({
+      title,
+      items: specs
+        .filter((item) => item.section === section)
+        .map((item) => ({
+          label: item.label,
+          path: item.path,
+          icon: ICONS[item.path] ?? FileText,
+        })),
+    })
+    return {
+      mainNav: toGroup('main'),
+      adminNav: toGroup('administration', 'Administration'),
     }
-    if (nav.support) items.push({ label: 'Help & Support', path: '/support', icon: LifeBuoy })
-    if (nav.alzaSupportInbox) {
-      items.push({ label: 'ALZA Support Inbox', path: '/admin/support-inbox', icon: Inbox })
-    }
-    return { items }
-  }, [nav])
-
-  const adminNav = useMemo<NavGroup>(() => {
-    const items = []
-    if (nav.producers) items.push({ label: 'Producers', path: '/admin/producers', icon: UserCog })
-    if (nav.csrs) items.push({ label: 'CSRs', path: '/admin/csrs', icon: Headphones })
-    if (nav.mgas) items.push({ label: 'MGAs', path: '/admin/mgas', icon: Building2 })
-    if (nav.carriers) items.push({ label: 'Carriers', path: '/admin/carriers', icon: Truck })
-    if (nav.users) items.push({ label: 'Users', path: '/admin/users', icon: UserCircle })
-    if (nav.agencySettings) {
-      items.push({ label: 'Agency Settings', path: '/admin/agency-settings', icon: Settings })
-    }
-    if (nav.subscriptionBilling) {
-      items.push({
-        label: 'Subscription & Billing',
-        path: '/admin/subscription-billing',
-        icon: CreditCard,
-      })
-    }
-    return { title: 'Administration', items }
   }, [nav])
 
   return (
