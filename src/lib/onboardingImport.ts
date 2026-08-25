@@ -1449,15 +1449,98 @@ export interface OnboardingImportResult {
 
 const BATCH = 40
 
+export type OnboardingWriteResult = {
+  data?: { id: string } | null
+  error?: { message: string } | null
+}
+
+/** Injectable writers for regression tests (production uses directory create*). */
+export type OnboardingInsertDeps = {
+  /** Test-only: skip Supabase role check. */
+  bypassAuth?: boolean
+  /** Test-only: skip activity log write. */
+  skipActivity?: boolean
+  createMga?: (input: {
+    mgaName: string
+    contactPerson: string
+    email: string
+    phone: string
+    status: string
+    states: string
+    linesOfBusiness: string
+    notes: string
+  }) => Promise<OnboardingWriteResult>
+  createCarrier?: (input: {
+    carrierName: string
+    naic: string
+    status: string
+    appointmentStatus: string
+    billingType: string
+    linesOfBusiness: string
+    notes: string
+  }) => Promise<OnboardingWriteResult>
+}
+
+function writeErrorMessage(result: OnboardingWriteResult): string {
+  return result.error?.message || 'Insert returned no row id.'
+}
+
+function countSuccessfulWrite(result: OnboardingWriteResult): boolean {
+  return Boolean(result.data?.id) && !result.error
+}
+
+/** Directory list shape for an MGA row (matches Administration > MGAs mapping). */
+export function toMgaDirectoryRow(input: {
+  id: string
+  mgaName: string
+  contactPerson?: string
+  email?: string
+  phone?: string
+  states?: string
+  linesOfBusiness?: string
+  status?: string
+  notes?: string
+  archivedAt?: string | null
+}) {
+  return {
+    id: input.id,
+    name: String(input.mgaName ?? '').trim() || '—',
+    contactPerson: String(input.contactPerson ?? '').trim(),
+    email: String(input.email ?? '').trim(),
+    phone: String(input.phone ?? '').trim(),
+    states: String(input.states ?? '').trim(),
+    linesOfBusiness: String(input.linesOfBusiness ?? '').trim(),
+    status: String(input.status ?? 'active').trim() || 'active',
+    notes: String(input.notes ?? '').trim(),
+    archivedAt: input.archivedAt ?? null,
+  }
+}
+
+export function isMgaDirectoryVisible(row: { archivedAt?: string | null }): boolean {
+  return row.archivedAt == null
+}
+
 export async function executeOnboardingImport(input: {
   entity: OnboardingEntity
   preview: OnboardingPreviewResult
+  deps?: OnboardingInsertDeps
 }): Promise<{ data: OnboardingImportResult | null; error: string | null }> {
-  const authz = await rejectUnlessRole(
-    (role) => canImportOnboardingEntity(role, input.entity),
-    'You do not have permission to import this data type.',
-  )
-  if (!authz.ok) return { data: null, error: authz.message }
+  // Preview entity is the source of truth — prevents carrier writes when UI says MGAs.
+  const entity = input.preview.entity
+  if (input.entity !== entity) {
+    return {
+      data: null,
+      error: `Import entity mismatch: selected “${ONBOARDING_ENTITY_LABELS[input.entity]}” but preview was built for “${ONBOARDING_ENTITY_LABELS[entity]}”. Re-run Preview & validate.`,
+    }
+  }
+
+  if (!input.deps?.bypassAuth) {
+    const authz = await rejectUnlessRole(
+      (role) => canImportOnboardingEntity(role, entity),
+      'You do not have permission to import this data type.',
+    )
+    if (!authz.ok) return { data: null, error: authz.message }
+  }
 
   const ready = planOnboardingInsert(input.preview)
   const skippedDuplicate = input.preview.rows.filter(
@@ -1473,7 +1556,10 @@ export async function executeOnboardingImport(input: {
   let imported = 0
   let failed = 0
 
-  if (input.entity === 'clients') {
+  const createMgaFn = input.deps?.createMga ?? createMga
+  const createCarrierFn = input.deps?.createCarrier ?? createCarrier
+
+  if (entity === 'clients') {
     const needGenerated = ready.filter((r) => !String(r.payload.clientNumber ?? '').trim())
     let generated: string[] = []
     try {
@@ -1525,10 +1611,17 @@ export async function executeOnboardingImport(input: {
     }
   }
 
-  if (input.entity === 'carriers') {
+  if (entity === 'carriers') {
     for (const row of ready) {
       const p = row.payload
-      const result = await createCarrier({
+      if (!String(p.carrierName ?? '').trim()) {
+        failed += 1
+        const message = 'Carrier Name missing from ready payload (entity/mapping mismatch).'
+        errors.push(`Row ${row.rowIndex}: ${message}`)
+        rowResults.push({ rowIndex: row.rowIndex, status: 'failed', message })
+        continue
+      }
+      const result = await createCarrierFn({
         carrierName: String(p.carrierName ?? ''),
         naic: String(p.naic ?? ''),
         status: String(p.status ?? 'active'),
@@ -1537,9 +1630,9 @@ export async function executeOnboardingImport(input: {
         linesOfBusiness: String(p.linesOfBusiness ?? ''),
         notes: String(p.notes ?? ''),
       })
-      if (result.error) {
+      if (!countSuccessfulWrite(result)) {
         failed += 1
-        const message = result.error.message
+        const message = writeErrorMessage(result)
         errors.push(`Row ${row.rowIndex}: ${message}`)
         rowResults.push({ rowIndex: row.rowIndex, status: 'failed', message })
       } else {
@@ -1549,10 +1642,18 @@ export async function executeOnboardingImport(input: {
     }
   }
 
-  if (input.entity === 'mgas') {
+  if (entity === 'mgas') {
     for (const row of ready) {
       const p = row.payload
-      const result = await createMga({
+      if (!String(p.mgaName ?? '').trim()) {
+        failed += 1
+        const message =
+          'MGA Name missing from ready payload (entity/mapping mismatch). Re-select MGAs and re-run Preview.'
+        errors.push(`Row ${row.rowIndex}: ${message}`)
+        rowResults.push({ rowIndex: row.rowIndex, status: 'failed', message })
+        continue
+      }
+      const result = await createMgaFn({
         mgaName: String(p.mgaName ?? ''),
         contactPerson: String(p.contactPerson ?? ''),
         email: String(p.email ?? ''),
@@ -1562,9 +1663,9 @@ export async function executeOnboardingImport(input: {
         linesOfBusiness: String(p.linesOfBusiness ?? ''),
         notes: String(p.notes ?? ''),
       })
-      if (result.error) {
+      if (!countSuccessfulWrite(result)) {
         failed += 1
-        const message = result.error.message
+        const message = writeErrorMessage(result)
         errors.push(`Row ${row.rowIndex}: ${message}`)
         rowResults.push({ rowIndex: row.rowIndex, status: 'failed', message })
       } else {
@@ -1574,7 +1675,7 @@ export async function executeOnboardingImport(input: {
     }
   }
 
-  if (input.entity === 'producers') {
+  if (entity === 'producers') {
     for (const row of ready) {
       const p = row.payload
       const result = await createProducer({
@@ -1605,7 +1706,7 @@ export async function executeOnboardingImport(input: {
     }
   }
 
-  if (input.entity === 'csrs') {
+  if (entity === 'csrs') {
     for (const row of ready) {
       const p = row.payload
       const result = await createCsr({
@@ -1627,7 +1728,7 @@ export async function executeOnboardingImport(input: {
     }
   }
 
-  if (input.entity === 'policies') {
+  if (entity === 'policies') {
     for (const row of ready) {
       const p = row.payload
       const commissionType = (p.commissionType as 'percentage' | 'flat') || 'percentage'
@@ -1672,19 +1773,21 @@ export async function executeOnboardingImport(input: {
     }
   }
 
-  await recordActivity({
-    action: 'onboarding_bulk_import',
-    entityType: 'onboarding',
-    entityId: input.entity,
-    recordReference: input.entity,
-    newValue: {
-      imported,
-      skippedDuplicate,
-      skippedValidation,
-      failed,
-      total: input.preview.total,
-    },
-  })
+  if (!input.deps?.skipActivity) {
+    await recordActivity({
+      action: 'onboarding_bulk_import',
+      entityType: 'onboarding',
+      entityId: entity,
+      recordReference: entity,
+      newValue: {
+        imported,
+        skippedDuplicate,
+        skippedValidation,
+        failed,
+        total: input.preview.total,
+      },
+    })
+  }
 
   return {
     data: {

@@ -19,6 +19,7 @@ import {
   resolveUploadFileControlAction,
   buildOnboardingMappingSelectModel,
   runOnboardingParseToMappingStep,
+  suggestOnboardingMapping,
   type OnboardingEntity,
   type OnboardingImportResult,
   type OnboardingMapping,
@@ -95,6 +96,18 @@ export function OnboardingImportWizard(props: {
     if (!props.open || allowedEntities.length === 0) return
     setEntity((current) => (allowedEntities.includes(current) ? current : allowedEntities[0]))
   }, [props.open, allowedEntities])
+
+  function changeEntity(next: OnboardingEntity) {
+    setEntity(next)
+    setPreview(null)
+    setResult(null)
+    setError(null)
+    if (headers.length > 0) {
+      setMapping(suggestOnboardingMapping(next, headers))
+    } else {
+      setMapping({})
+    }
+  }
 
   function openFilePicker() {
     fileInputRef.current?.click()
@@ -195,7 +208,7 @@ export function OnboardingImportWizard(props: {
     if (!preview) return
     setBusy(true)
     setError(null)
-    const out = await executeOnboardingImport({ entity, preview })
+    const out = await executeOnboardingImport({ entity: preview.entity, preview })
     setBusy(false)
     if (out.error) {
       setError(out.error)
@@ -245,6 +258,11 @@ export function OnboardingImportWizard(props: {
             </div>
           )}
 
+          <div className="mb-4 rounded-lg border border-alza-blue-200 bg-alza-blue-50 px-3 py-2 text-sm text-alza-blue-900">
+            Importing: <span className="font-semibold">{ONBOARDING_ENTITY_LABELS[entity]}</span>
+            {preview ? ` · Preview built for ${ONBOARDING_ENTITY_LABELS[preview.entity]}` : ''}
+          </div>
+
           {step === 1 && (
             <div className="space-y-4">
               <label className="block">
@@ -252,7 +270,7 @@ export function OnboardingImportWizard(props: {
                 <select
                   className={selectClass}
                   value={entity}
-                  onChange={(e) => setEntity(e.target.value as OnboardingEntity)}
+                  onChange={(e) => changeEntity(e.target.value as OnboardingEntity)}
                 >
                   {allowedEntities.map((e) => (
                     <option key={e} value={e}>
@@ -435,6 +453,9 @@ export function OnboardingImportWizard(props: {
 
           {step === 4 && preview && (
             <div className="space-y-4">
+              <p className="text-sm font-medium text-slate-800">
+                Preview for {ONBOARDING_ENTITY_LABELS[preview.entity]}
+              </p>
               <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-6">
                 {[
                   { label: 'Total', value: preview.total },
@@ -489,7 +510,7 @@ export function OnboardingImportWizard(props: {
           {step === 5 && result && (
             <div className="space-y-3">
               <p className="text-sm text-slate-700">
-                Import finished for {ONBOARDING_ENTITY_LABELS[entity]}.
+                Import finished for {ONBOARDING_ENTITY_LABELS[preview?.entity ?? entity]}.
               </p>
               <ul className="list-inside list-disc text-sm text-slate-700">
                 <li>Inserted: {result.imported}</li>
