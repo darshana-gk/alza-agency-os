@@ -33,6 +33,7 @@ import {
   type BillingUserBandKey,
 } from '../../lib/billingCatalog'
 import { legacyPlanDisplayNote } from '../../lib/billingEntitlements'
+import { formatBuildFingerprint, getBuildInfo } from '../../lib/buildInfo'
 import { formatDate } from '../../lib/commission'
 
 function choiceClass(selected: boolean, disabled = false) {
@@ -136,6 +137,8 @@ export function SubscriptionBillingPage() {
   const showCatalog = shouldShowBillingCatalog()
   const showCancel = canCancelSubscription(status)
   const bands = billingUserBands(product)
+  const buildInfo = getBuildInfo()
+  const buildFingerprint = formatBuildFingerprint(buildInfo)
   const primaryAction = billingCatalogPrimaryAction({
     status,
     planKey: billing?.planKey,
@@ -229,6 +232,15 @@ export function SubscriptionBillingPage() {
         <h1 className="text-2xl font-semibold text-slate-900">Subscription &amp; Billing</h1>
         <p className="mt-1 text-sm text-slate-500">
           ALZA Flow commission operations platform subscription for your agency.
+        </p>
+        <p
+          className="mt-2 inline-flex rounded-md border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-900"
+          data-billing-ui-version={buildInfo.billingCatalogUiVersion}
+          data-build-ref={buildInfo.commitRef}
+          data-build-sha={buildInfo.commitSha}
+        >
+          {buildFingerprint}
+          {buildInfo.isVercelPreview ? ' · Preview' : ''}
         </p>
       </div>
 

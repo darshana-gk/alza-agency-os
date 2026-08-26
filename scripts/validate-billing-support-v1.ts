@@ -214,6 +214,8 @@ console.log('G2. Legacy-active + V2 catalog visibility (no second checkout)')
   assert(!/showSubscribe\s*&&\s*\(/.test(page), 'catalog not gated only on showSubscribe block')
   assert(page.includes('allowsNewCheckout'), 'checkout gated separately from catalog')
   assert(canCancelSubscription('active'), 'legacy-active cancel preserved')
+  assert(page.includes('data-billing-ui-version'), 'visible billing UI version fingerprint')
+  assert(page.includes('formatBuildFingerprint'), 'build fingerprint on billing page')
 }
 
 console.log('H. Support RBAC + Need Help routes')
