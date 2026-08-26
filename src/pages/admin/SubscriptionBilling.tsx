@@ -35,7 +35,6 @@ import {
   type BillingUserBandKey,
 } from '../../lib/billingCatalog'
 import { legacyPlanDisplayNote } from '../../lib/billingEntitlements'
-import { formatBuildFingerprint, getBuildInfo } from '../../lib/buildInfo'
 import { formatDate } from '../../lib/commission'
 import { agencyAllowsOpsAccess } from '../../lib/agencyLifecycle'
 
@@ -150,8 +149,6 @@ export function SubscriptionBillingPage() {
   const recommendedLabel =
     billingUserBands('alza_flow').find((b) => b.key === recommendedBand)?.label ?? recommendedBand
   const selectedProduct = BILLING_PRODUCTS.find((p) => p.key === product)
-  const buildInfo = getBuildInfo()
-  const buildFingerprint = formatBuildFingerprint(buildInfo)
   const primaryAction = billingCatalogPrimaryAction({
     status,
     planKey: billing?.planKey,
@@ -246,15 +243,6 @@ export function SubscriptionBillingPage() {
         <p className="mt-1 text-sm text-slate-500">
           ALZA Flow commission operations platform subscription for your agency.
         </p>
-        <p
-          className="mt-2 inline-flex rounded-md border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-900"
-          data-billing-ui-version={buildInfo.billingCatalogUiVersion}
-          data-build-ref={buildInfo.commitRef}
-          data-build-sha={buildInfo.commitSha}
-        >
-          {buildFingerprint}
-          {buildInfo.isVercelPreview ? ' · Preview' : ''}
-        </p>
       </div>
 
       <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
@@ -291,31 +279,28 @@ export function SubscriptionBillingPage() {
               )}
 
               {profile && !agencyAllowsOpsAccess(profile.agencyLifecycle) ? (
-                <div className="rounded-lg border border-alza-blue-200 bg-alza-blue-50 px-4 py-3 text-sm text-alza-blue-900">
-                  <p className="font-semibold">Workspace status: {profile.agencyLifecycle}</p>
-                  <p className="mt-1 text-xs">
-                    Operational ALZA Flow (Clients, Policies, Financials, Onboarding, etc.) stays locked
-                    until your agency is activated after tenant isolation. You can complete subscription
-                    checkout here when online payment is available.
-                  </p>
+                <div className="rounded-lg border border-alza-blue-200 bg-alza-blue-50 px-3 py-2 text-xs text-alza-blue-900">
+                  <span className="font-semibold">Workspace: {profile.agencyLifecycle}</span>
+                  {' — '}
+                  Operational screens stay locked until activation. Complete subscription below when
+                  available.
                 </div>
               ) : null}
 
               {legacyActive ? (
-                <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-amber-800">
+                <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
+                  <span className="text-xs font-semibold uppercase tracking-wide text-amber-800">
                     Legacy Plan
-                  </p>
-                  <p className="mt-1 text-base font-semibold text-slate-900">{planLabel.title}</p>
-                  <p className="mt-1 text-sm text-amber-900">
-                    Historical compatibility only — new ALZA Flow checkout is not started while this plan
-                    remains active. Review pricing below, then contact ALZA to upgrade.
-                  </p>
-                  {legacyNote && <p className="mt-2 text-xs font-medium text-amber-800">{legacyNote}</p>}
+                  </span>
+                  <span className="mt-0.5 block font-semibold text-slate-900">{planLabel.title}</span>
+                  <span className="mt-0.5 block text-xs text-amber-900">
+                    Historical only — new online checkout disabled while active. Use Upgrade / Contact
+                    ALZA.
+                  </span>
                 </div>
               ) : null}
 
-              <dl className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              <dl className="grid gap-3 sm:grid-cols-2">
                 <div>
                   <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">Status</dt>
                   <dd className="mt-1 text-sm font-semibold text-slate-900">
@@ -349,14 +334,6 @@ export function SubscriptionBillingPage() {
                 </div>
                 <div>
                   <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">
-                    Billing frequency
-                  </dt>
-                  <dd className="mt-1 text-sm font-semibold text-slate-900">
-                    {!hasActivePlan ? '—' : planLabel.intervalLabel}
-                  </dd>
-                </div>
-                <div>
-                  <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">
                     Next charge / period end
                   </dt>
                   <dd className="mt-1 text-sm font-semibold text-slate-900">
@@ -365,14 +342,14 @@ export function SubscriptionBillingPage() {
                       : billing?.chargeAt
                         ? formatDate(billing.chargeAt.slice(0, 10))
                         : '—'}
-                  </dd>
-                </div>
-                <div>
-                  <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">
-                    Subscription ID
-                  </dt>
-                  <dd className="mt-1 break-all font-mono text-xs text-slate-700">
-                    {billing?.razorpaySubscriptionId ?? '—'}
+                    {!hasActivePlan ? null : (
+                      <span className="mt-0.5 block text-xs font-normal text-slate-500">
+                        {planLabel.intervalLabel}
+                        {billing?.razorpaySubscriptionId
+                          ? ` · ${billing.razorpaySubscriptionId}`
+                          : ''}
+                      </span>
+                    )}
                   </dd>
                 </div>
               </dl>
