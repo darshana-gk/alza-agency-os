@@ -24,6 +24,8 @@ import {
   billingUserBands,
   formatUsdWhole,
   isBillingCheckoutBandKey,
+  isBillingProductKey,
+  isBillingUserBandKey,
   isLegacyActiveSubscription,
   quoteBillingSelection,
   recommendUserBand,
@@ -36,15 +38,9 @@ import { legacyPlanDisplayNote } from '../../lib/billingEntitlements'
 import { formatBuildFingerprint, getBuildInfo } from '../../lib/buildInfo'
 import { formatDate } from '../../lib/commission'
 
-function choiceClass(selected: boolean, disabled = false) {
-  return `rounded-xl border px-4 py-4 text-left transition-colors ${
-    disabled ? 'cursor-not-allowed opacity-60' : ''
-  } ${
-    selected
-      ? 'border-alza-blue-500 bg-alza-blue-50 ring-2 ring-alza-blue-500/20'
-      : 'border-slate-200 bg-white hover:border-slate-300'
-  }`
-}
+const fieldLabelClass = 'mb-1 block text-xs font-medium uppercase tracking-wide text-slate-500'
+const selectClass =
+  'h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-900 focus:border-alza-blue-500 focus:outline-none focus:ring-2 focus:ring-alza-blue-500/20 disabled:cursor-not-allowed disabled:opacity-60'
 
 export function SubscriptionBillingPage() {
   const { profile } = useAuth()
@@ -137,6 +133,9 @@ export function SubscriptionBillingPage() {
   const showCatalog = shouldShowBillingCatalog()
   const showCancel = canCancelSubscription(status)
   const bands = billingUserBands(product)
+  const recommendedLabel =
+    billingUserBands('alza_flow').find((b) => b.key === recommendedBand)?.label ?? recommendedBand
+  const selectedProduct = BILLING_PRODUCTS.find((p) => p.key === product)
   const buildInfo = getBuildInfo()
   const buildFingerprint = formatBuildFingerprint(buildInfo)
   const primaryAction = billingCatalogPrimaryAction({
@@ -227,7 +226,7 @@ export function SubscriptionBillingPage() {
   }
 
   return (
-    <div className="mx-auto max-w-4xl space-y-6">
+    <div className="mx-auto max-w-3xl space-y-6">
       <div>
         <h1 className="text-2xl font-semibold text-slate-900">Subscription &amp; Billing</h1>
         <p className="mt-1 text-sm text-slate-500">
@@ -251,7 +250,7 @@ export function SubscriptionBillingPage() {
           <p className="mt-1 text-sm text-white/75">by ALZA Business Solutions LLP</p>
         </div>
 
-        <div className="space-y-6 px-6 py-6">
+        <div className="space-y-5 px-6 py-6">
           {info && (
             <div className="rounded-lg border border-alza-blue-100 bg-alza-blue-50 px-3 py-2 text-sm text-alza-blue-900">
               {info}
@@ -278,20 +277,20 @@ export function SubscriptionBillingPage() {
               )}
 
               {legacyActive ? (
-                <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-4">
+                <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3">
                   <p className="text-xs font-semibold uppercase tracking-wide text-amber-800">
                     Legacy Plan
                   </p>
                   <p className="mt-1 text-base font-semibold text-slate-900">{planLabel.title}</p>
                   <p className="mt-1 text-sm text-amber-900">
                     Historical compatibility only — new ALZA Flow checkout is not started while this plan
-                    remains active. Review current pricing below, then contact ALZA to upgrade.
+                    remains active. Review pricing below, then contact ALZA to upgrade.
                   </p>
                   {legacyNote && <p className="mt-2 text-xs font-medium text-amber-800">{legacyNote}</p>}
                 </div>
               ) : null}
 
-              <dl className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              <dl className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                 <div>
                   <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">Status</dt>
                   <dd className="mt-1 text-sm font-semibold text-slate-900">
@@ -319,8 +318,7 @@ export function SubscriptionBillingPage() {
                   <dd className="mt-1 text-sm font-semibold text-slate-900">
                     {userCount} active
                     <span className="mt-0.5 block text-xs font-normal text-slate-500">
-                      Recommended tier:{' '}
-                      {billingUserBands('alza_flow').find((b) => b.key === recommendedBand)?.label}
+                      Recommended: {recommendedLabel}
                     </span>
                   </dd>
                 </div>
@@ -355,53 +353,46 @@ export function SubscriptionBillingPage() {
               </dl>
 
               {showCatalog && (
-                <div className="space-y-5 border-t border-slate-100 pt-5">
+                <div className="space-y-4 border-t border-slate-100 pt-5">
                   <div>
                     <h3 className="text-sm font-semibold text-slate-900">ALZA Flow pricing</h3>
                     <p className="mt-1 text-xs text-slate-500">
-                      Current catalog for your agency size. Online checkout is only available when no
-                      blocking subscription is active.
+                      Select product, billing frequency, and user band. Online checkout is only available
+                      when no blocking subscription is active.
                     </p>
                   </div>
 
-                  <div>
-                    <h3 className="text-sm font-semibold text-slate-900">Choose product</h3>
-                    <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                      {BILLING_PRODUCTS.map((p) => (
-                        <button
-                          key={p.key}
-                          type="button"
-                          disabled={busy || processing}
-                          onClick={() => setProduct(p.key)}
-                          className={choiceClass(product === p.key)}
-                        >
-                          <div className="flex items-center justify-between gap-2">
-                            <p className="text-sm font-semibold text-slate-900">{p.name}</p>
-                            {p.comingSoon && (
-                              <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-600 ring-1 ring-slate-500/20">
-                                Coming Soon
-                              </span>
-                            )}
-                          </div>
-                          <p className="mt-1 text-xs text-slate-600">{p.startsAtLabel}</p>
-                          {!p.purchasable && (
-                            <p className="mt-2 text-xs font-medium text-slate-500">Not purchasable yet</p>
-                          )}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
+                  <div className="grid gap-3 sm:grid-cols-3">
+                    <label className="block sm:col-span-1">
+                      <span className={fieldLabelClass}>Product</span>
+                      <select
+                        className={selectClass}
+                        value={product}
+                        disabled={busy || processing}
+                        onChange={(e) => {
+                          const next = e.target.value
+                          if (isBillingProductKey(next)) setProduct(next)
+                        }}
+                      >
+                        {BILLING_PRODUCTS.map((p) => (
+                          <option key={p.key} value={p.key}>
+                            {p.name}
+                            {p.comingSoon ? ' — Coming Soon' : ''}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
 
-                  {product === 'alza_flow' && (
-                    <div>
-                      <h3 className="text-sm font-semibold text-slate-900">Billing frequency</h3>
-                      <div className="mt-3 inline-flex rounded-xl border border-slate-200 bg-slate-50 p-1">
+                    <div className="block sm:col-span-1">
+                      <span className={fieldLabelClass}>Billing</span>
+                      <div className="inline-flex h-10 w-full rounded-lg border border-slate-200 bg-slate-50 p-0.5">
                         {BILLING_INTERVALS.map((opt) => (
                           <button
                             key={opt.key}
                             type="button"
+                            disabled={busy || processing || product === 'alza_flow_pay'}
                             onClick={() => setInterval(opt.key)}
-                            className={`rounded-lg px-4 py-2 text-sm font-medium ${
+                            className={`flex-1 rounded-md text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
                               interval === opt.key
                                 ? 'bg-white text-alza-blue-800 shadow-sm'
                                 : 'text-slate-600 hover:text-slate-900'
@@ -412,67 +403,84 @@ export function SubscriptionBillingPage() {
                         ))}
                       </div>
                     </div>
-                  )}
 
-                  <div>
-                    <h3 className="text-sm font-semibold text-slate-900">User band</h3>
-                    <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                      {bands.map((band) => {
-                        const selected = userBand === band.key
-                        const bandQuote = quoteBillingSelection({
-                          product,
-                          userBand: band.key,
-                          interval,
-                        })
-                        return (
-                          <button
-                            key={band.key}
-                            type="button"
-                            disabled={busy || processing}
-                            onClick={() => setUserBand(band.key)}
-                            className={choiceClass(selected)}
-                          >
-                            <div className="flex items-center justify-between gap-2">
-                              <p className="text-sm font-semibold text-slate-900">{band.label}</p>
-                              {band.key === recommendedBand && (
-                                <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-800 ring-1 ring-emerald-600/20">
-                                  Recommended
-                                </span>
-                              )}
-                            </div>
-                            <p className="mt-1 text-lg font-bold tabular-nums text-slate-900">
-                              {bandQuote.displayPrice}
-                            </p>
-                            {product === 'alza_flow' &&
-                              interval === 'annual' &&
-                              bandQuote.annualSavings != null &&
-                              !band.contactAlza && (
-                                <p className="mt-1 text-xs text-alza-teal-800">
-                                  12-month value {formatUsdWhole(bandQuote.annualListValue ?? 0)} · Save{' '}
-                                  {formatUsdWhole(bandQuote.annualSavings)} · 2 months free
-                                </p>
-                              )}
-                            {band.contactAlza && (
-                              <p className="mt-2 text-xs font-medium text-slate-600">Contact ALZA</p>
-                            )}
-                          </button>
-                        )
-                      })}
-                    </div>
+                    <label className="block sm:col-span-1">
+                      <span className={fieldLabelClass}>User band</span>
+                      <select
+                        className={selectClass}
+                        value={userBand}
+                        disabled={busy || processing}
+                        onChange={(e) => {
+                          const next = e.target.value
+                          if (isBillingUserBandKey(next)) setUserBand(next)
+                        }}
+                      >
+                        {bands.map((band) => (
+                          <option key={band.key} value={band.key}>
+                            {band.label}
+                            {band.key === recommendedBand ? ' (Recommended)' : ''}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
                   </div>
 
-                  <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
-                    <p className="font-semibold text-slate-900">
-                      {quote.productName} · {quote.bandLabel}
-                      {quote.intervalLabel ? ` · ${quote.intervalLabel}` : ''}
-                    </p>
-                    <ul className="mt-2 list-inside list-disc text-xs text-slate-600">
+                  <p className="text-xs text-slate-500">
+                    {userCount} active users · recommended band{' '}
+                    <span className="font-medium text-slate-700">{recommendedLabel}</span>
+                    {userBand !== recommendedBand && (
+                      <>
+                        {' '}
+                        · viewing{' '}
+                        <span className="font-medium text-slate-700">{quote.bandLabel}</span>
+                      </>
+                    )}
+                  </p>
+
+                  <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-4">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-semibold text-slate-900">
+                          {quote.productName}
+                          {selectedProduct?.comingSoon ? (
+                            <span className="ml-2 rounded bg-slate-200 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-slate-600">
+                              Coming Soon
+                            </span>
+                          ) : null}
+                        </p>
+                        <p className="mt-0.5 text-xs text-slate-500">
+                          {quote.bandLabel}
+                          {quote.intervalLabel ? ` · ${quote.intervalLabel}` : ''}
+                        </p>
+                      </div>
+                      <p className="text-2xl font-bold tabular-nums text-slate-900">
+                        {quote.displayPrice}
+                      </p>
+                    </div>
+
+                    {product === 'alza_flow' &&
+                      interval === 'annual' &&
+                      quote.annualSavings != null &&
+                      !quote.contactAlza && (
+                        <p className="mt-3 text-sm text-alza-teal-800">
+                          12-month value {formatUsdWhole(quote.annualListValue ?? 0)} · Save{' '}
+                          {formatUsdWhole(quote.annualSavings)} · 2 months free
+                        </p>
+                      )}
+
+                    <ul className="mt-3 list-inside list-disc text-xs text-slate-600">
                       {quote.summaryLines.map((line) => (
                         <li key={line}>{line}</li>
                       ))}
                     </ul>
+
+                    {product === 'alza_flow_pay' && (
+                      <p className="mt-3 text-xs font-medium text-slate-600">
+                        ALZA Flow Pay is Coming Soon and not purchasable.
+                      </p>
+                    )}
                     {legacyActive && (
-                      <p className="mt-2 text-xs font-medium text-amber-900">
+                      <p className="mt-3 text-xs font-medium text-amber-900">
                         Legacy subscription is active — online checkout for a second plan is disabled.
                         Use Upgrade / Contact ALZA.
                       </p>
