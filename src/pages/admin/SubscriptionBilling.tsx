@@ -45,6 +45,9 @@ const fieldLabelClass = 'mb-1 block text-xs font-medium uppercase tracking-wide 
 const selectClass =
   'h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-900 focus:border-alza-blue-500 focus:outline-none focus:ring-2 focus:ring-alza-blue-500/20 disabled:cursor-not-allowed disabled:opacity-60'
 
+/** Temporary Preview QA fingerprint — visible only on the quote-first panel. */
+export const BILLING_QUOTE_FIRST_QA_MARKER = 'QUOTE-FIRST BILLING QA · ffefc3c'
+
 export function SubscriptionBillingPage() {
   const { profile } = useAuth()
   const [searchParams] = useSearchParams()
@@ -106,7 +109,7 @@ export function SubscriptionBillingPage() {
 
   function startProcessingPoll() {
     setProcessing(true)
-    setInfo('Processing subscription… Status will update after Razorpay confirms via webhook.')
+    setInfo('Processing subscription… confirmation usually arrives within a minute.')
     if (pollRef.current != null) window.clearInterval(pollRef.current)
     let ticks = 0
     pollRef.current = window.setInterval(() => {
@@ -127,11 +130,9 @@ export function SubscriptionBillingPage() {
           pollRef.current = null
           setProcessing(false)
           if (status === 'authenticated' || status === 'active') {
-            setInfo('Subscription confirmed. Status below is mirrored from Razorpay.')
+            setInfo('Subscription confirmed.')
           } else if (ticks >= 12) {
-            setInfo(
-              'Still waiting for webhook confirmation. Use Refresh status in a moment — browser checkout is not authoritative.',
-            )
+            setInfo('Still confirming. Use Refresh in a moment.')
           }
         }
       })()
@@ -210,7 +211,7 @@ export function SubscriptionBillingPage() {
       return
     }
     if (checkout.dismissed) {
-      setInfo('Checkout was closed. No authoritative status change until Razorpay confirms.')
+      setInfo('Checkout was closed. No status change until payment confirms.')
       void load()
       return
     }
@@ -234,7 +235,7 @@ export function SubscriptionBillingPage() {
       setError(result.error)
       return
     }
-    setInfo('Cancellation requested. Status will refresh from Razorpay / webhook.')
+    setInfo('Cancellation requested. Status will refresh shortly.')
     void load()
   }
 
@@ -250,12 +251,10 @@ export function SubscriptionBillingPage() {
   }
 
   return (
-    <div className="mx-auto max-w-5xl space-y-6" data-billing-layout="quote-first">
+    <div className="mx-auto max-w-5xl space-y-5" data-billing-layout="quote-first">
       <div>
         <h1 className="text-2xl font-semibold text-slate-900">Subscription &amp; Billing</h1>
-        <p className="mt-1 text-sm text-slate-500">
-          ALZA Flow commission operations platform subscription for your agency.
-        </p>
+        <p className="mt-1 text-sm text-slate-500">Choose your ALZA Flow plan for this agency.</p>
       </div>
 
       {info && (
@@ -277,7 +276,7 @@ export function SubscriptionBillingPage() {
           {processing && (
             <div className="flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
               <Loader2 className="h-4 w-4 animate-spin" />
-              Processing subscription… waiting for Razorpay webhook confirmation.
+              Processing subscription… confirmation usually arrives within a minute.
             </div>
           )}
 
@@ -289,85 +288,12 @@ export function SubscriptionBillingPage() {
             </div>
           ) : null}
 
-          {legacyActive ? (
-            <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
-              <span className="text-xs font-semibold uppercase tracking-wide text-amber-800">Legacy Plan</span>
-              <span className="mt-0.5 block font-semibold text-slate-900">{planLabel.title}</span>
-              <span className="mt-0.5 block text-xs text-amber-900">
-                Historical only — new online checkout disabled while active. Use Upgrade / Contact ALZA.
-              </span>
-            </div>
-          ) : null}
-
-          {/* Compact account status — secondary to the quote composition */}
-          <dl className="grid gap-3 rounded-xl border border-slate-200/80 bg-slate-50/80 px-4 py-3 sm:grid-cols-4">
-            <div>
-              <dt className="text-[10px] font-medium uppercase tracking-wide text-slate-500">Status</dt>
-              <dd className="mt-0.5 text-sm font-semibold text-slate-900">
-                {formatBillingStatusLabel(status)}
-              </dd>
-            </div>
-            <div>
-              <dt className="text-[10px] font-medium uppercase tracking-wide text-slate-500">
-                {planFieldLabel}
-              </dt>
-              <dd className="mt-0.5 text-sm font-semibold text-slate-900">
-                {!hasActivePlan && !isEndedSubscription ? 'No active plan' : planLabel.title}
-                {planLabel.subtitle ? (
-                  <span className="mt-0.5 block text-xs font-normal text-slate-500">{planLabel.subtitle}</span>
-                ) : null}
-                {isEndedSubscription && billing?.canceledAt ? (
-                  <span className="mt-0.5 block text-xs font-normal text-slate-500">
-                    Cancelled {formatDate(billing.canceledAt.slice(0, 10))}
-                  </span>
-                ) : null}
-                {legacyNote ? (
-                  <span className="mt-1 block text-xs font-medium text-amber-800">{legacyNote}</span>
-                ) : null}
-              </dd>
-            </div>
-            <div>
-              <dt className="text-[10px] font-medium uppercase tracking-wide text-slate-500">Agency users</dt>
-              <dd className="mt-0.5 text-sm font-semibold text-slate-900">
-                {userCount} active
-                <span className="mt-0.5 block text-xs font-normal text-slate-500">
-                  Recommended: {recommendedLabel}
-                </span>
-              </dd>
-            </div>
-            <div>
-              <dt className="text-[10px] font-medium uppercase tracking-wide text-slate-500">
-                {isEndedSubscription ? 'Ended' : 'Next charge / period end'}
-              </dt>
-              <dd className="mt-0.5 text-sm font-semibold text-slate-900">
-                {isEndedSubscription
-                  ? billing?.canceledAt
-                    ? formatDate(billing.canceledAt.slice(0, 10))
-                    : '—'
-                  : billing?.currentPeriodEnd
-                    ? formatDate(billing.currentPeriodEnd.slice(0, 10))
-                    : billing?.chargeAt
-                      ? formatDate(billing.chargeAt.slice(0, 10))
-                      : '—'}
-                {!hasActivePlan && !isEndedSubscription ? null : (
-                  <span className="mt-0.5 block text-xs font-normal text-slate-500">
-                    {planLabel.intervalLabel}
-                    {billing?.razorpaySubscriptionId ? ` · ${billing.razorpaySubscriptionId}` : ''}
-                  </span>
-                )}
-              </dd>
-            </div>
-          </dl>
-
           {showCatalog && (
-            <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,17rem)_minmax(0,1fr)]">
-              {/* Selectors — compact controls, not plan cards */}
-              <div className="space-y-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+            <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,16.5rem)_minmax(0,1fr)]">
+              <aside className="space-y-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
                 <div>
                   <h3 className="text-sm font-semibold text-slate-900">Configure plan</h3>
-                  <p className="mt-1 text-xs text-slate-500">
-                    Product, frequency, and user band — not plan cards.
-                  </p>
+                  <p className="mt-1 text-xs text-slate-500">Product, team size, and billing frequency.</p>
                 </div>
 
                 <label className="block">
@@ -392,8 +318,30 @@ export function SubscriptionBillingPage() {
                   </select>
                 </label>
 
+                <label className="block">
+                  <span className={fieldLabelClass}>Team Size</span>
+                  <select
+                    className={selectClass}
+                    value={userBand}
+                    disabled={busy || processing}
+                    aria-label="Team Size"
+                    data-testid="billing-user-band-select"
+                    onChange={(e) => {
+                      const next = e.target.value
+                      if (isBillingUserBandKey(next)) setUserBand(next)
+                    }}
+                  >
+                    {bands.map((band) => (
+                      <option key={band.key} value={band.key}>
+                        {band.label}
+                        {band.key === recommendedBand ? ' (Recommended)' : ''}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
                 <div className="block">
-                  <span className={fieldLabelClass}>Billing frequency</span>
+                  <span className={fieldLabelClass}>Monthly / Annual</span>
                   <div
                     className="inline-flex h-10 w-full rounded-lg border border-slate-200 bg-slate-50 p-0.5"
                     role="group"
@@ -417,39 +365,24 @@ export function SubscriptionBillingPage() {
                   </div>
                 </div>
 
-                <label className="block">
-                  <span className={fieldLabelClass}>User band</span>
-                  <select
-                    className={selectClass}
-                    value={userBand}
-                    disabled={busy || processing}
-                    aria-label="User band"
-                    data-testid="billing-user-band-select"
-                    onChange={(e) => {
-                      const next = e.target.value
-                      if (isBillingUserBandKey(next)) setUserBand(next)
-                    }}
-                  >
-                    {bands.map((band) => (
-                      <option key={band.key} value={band.key}>
-                        {band.label}
-                        {band.key === recommendedBand ? ' (Recommended)' : ''}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-
                 <p className="text-xs text-slate-500">
                   {userCount} active users · recommended{' '}
                   <span className="font-medium text-slate-700">{recommendedLabel}</span>
                 </p>
-              </div>
+              </aside>
 
-              {/* Dominant quote composition — first design direction */}
-              <div
+              <section
                 className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-md"
                 data-testid="billing-price-result"
+                data-billing-quote="quote-first"
               >
+                <div
+                  className="border-b border-amber-300/40 bg-amber-400 px-4 py-2 text-center text-xs font-bold uppercase tracking-wide text-amber-950"
+                  data-billing-qa-marker="quote-first"
+                >
+                  {BILLING_QUOTE_FIRST_QA_MARKER}
+                </div>
+
                 <div className="bg-gradient-to-br from-alza-blue-900 via-alza-blue-800 to-alza-teal-800 px-6 py-5 text-white sm:px-8 sm:py-6">
                   <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-white/70">
                     {quote.productName}
@@ -527,8 +460,8 @@ export function SubscriptionBillingPage() {
                   )}
                   {legacyActive && (
                     <p className="text-sm font-medium text-amber-900">
-                      Legacy subscription is active — online checkout for a second plan is disabled. Use
-                      Upgrade / Contact ALZA.
+                      A legacy plan is still active. Use Upgrade / Contact ALZA — a second online
+                      subscription will not be started.
                     </p>
                   )}
 
@@ -541,7 +474,9 @@ export function SubscriptionBillingPage() {
                         className="inline-flex min-h-11 flex-1 items-center justify-center gap-2 rounded-xl gradient-alza px-5 py-3 text-sm font-semibold text-white shadow-sm hover:opacity-90 disabled:opacity-50 sm:flex-none sm:min-w-[14rem]"
                       >
                         <CreditCard className="h-4 w-4" />
-                        {busy ? 'Opening Checkout…' : `Subscribe — ${quote.displayPrice.replace(' / ', '/')}`}
+                        {busy
+                          ? 'Opening Checkout…'
+                          : `Subscribe — ${quote.displayPrice.replace(' / ', '/')}`}
                       </button>
                     )}
                     {primaryAction === 'upgrade_contact' && (
@@ -562,15 +497,23 @@ export function SubscriptionBillingPage() {
                     )}
                   </div>
                 </div>
-              </div>
+              </section>
             </div>
           )}
 
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <p className="max-w-2xl text-xs text-slate-500">
-              Status is mirrored from Razorpay webhooks. Browser checkout is not authoritative. ALZA Flow Pay
-              is Coming Soon and not purchasable. Amounts are never sent from the browser — Razorpay Plan IDs
-              stay server-side.
+          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-4 text-xs text-slate-500">
+            <p>
+              <span className="font-medium text-slate-700">{formatBillingStatusLabel(status)}</span>
+              {' · '}
+              {planFieldLabel}:{' '}
+              {!hasActivePlan && !isEndedSubscription ? 'No active plan' : planLabel.title}
+              {planLabel.subtitle ? ` (${planLabel.subtitle})` : ''}
+              {isEndedSubscription && billing?.canceledAt
+                ? ` · Cancelled ${formatDate(billing.canceledAt.slice(0, 10))}`
+                : ''}
+              {legacyNote ? ` · ${legacyNote}` : ''}
+              {' · '}
+              {userCount} active users
             </p>
             <div className="flex flex-wrap gap-2">
               {showCancel && (
@@ -578,20 +521,20 @@ export function SubscriptionBillingPage() {
                   type="button"
                   disabled={busy || processing}
                   onClick={() => void handleCancel()}
-                  className="inline-flex items-center gap-2 rounded-lg border border-red-200 bg-white px-3.5 py-2 text-sm font-medium text-red-700 hover:bg-red-50 disabled:opacity-50"
+                  className="inline-flex items-center gap-2 rounded-lg border border-red-200 bg-white px-3 py-1.5 text-xs font-medium text-red-700 hover:bg-red-50 disabled:opacity-50"
                 >
-                  <XCircle className="h-4 w-4" />
-                  Cancel subscription
+                  <XCircle className="h-3.5 w-3.5" />
+                  Cancel
                 </button>
               )}
               <button
                 type="button"
                 disabled={busy || loading}
                 onClick={() => void load()}
-                className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3.5 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
               >
-                <RefreshCw className="h-4 w-4" />
-                Refresh status
+                <RefreshCw className="h-3.5 w-3.5" />
+                Refresh
               </button>
             </div>
           </div>
