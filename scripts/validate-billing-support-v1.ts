@@ -12,14 +12,18 @@ import {
   annualListValueFromMonthly,
   annualPriceFromMonthly,
   annualSavingsFromMonthly,
+  allowsNewCheckout,
+  billingCatalogPrimaryAction,
   canCancelSubscription,
   catalogContainsPlanSecrets,
   checkoutSkuFor,
   formatStoredPlanLabel,
+  isLegacyActiveSubscription,
   quoteBillingSelection,
   quoteCheckoutSelection,
   razorpayPlanEnvName,
   recommendUserBand,
+  shouldShowBillingCatalog,
   shouldShowSubscribe,
 } from '../src/lib/billingCatalog.ts'
 import { evaluateSeatEntitlement } from '../src/lib/billingEntitlements.ts'
@@ -166,6 +170,50 @@ console.log('G. Subscribe/cancel helpers')
   assert(!shouldShowSubscribe('active'), 'hide subscribe active')
   assert(canCancelSubscription('active'), 'can cancel active')
   assert(checkoutSkuFor('alza_flow', 'users_4_10', 'annual') === 'flow_4_10_annual', 'sku helper')
+}
+
+console.log('G2. Legacy-active + V2 catalog visibility (no second checkout)')
+{
+  assert(shouldShowBillingCatalog(), 'catalog always shown to Owner/Admin')
+  for (const status of ['active', 'authenticated', 'pending'] as const) {
+    assert(isLegacyActiveSubscription('essential', status), `essential ${status} is legacy-active`)
+    assert(isLegacyActiveSubscription('professional', status), `professional ${status} is legacy-active`)
+    assert(!allowsNewCheckout(status, 'essential'), `no checkout essential ${status}`)
+    assert(!allowsNewCheckout(status, 'professional'), `no checkout professional ${status}`)
+    assertEq(
+      billingCatalogPrimaryAction({
+        status,
+        planKey: 'essential',
+        product: 'alza_flow',
+        checkoutEligible: true,
+        contactAlza: false,
+      }),
+      'upgrade_contact',
+      `legacy ${status} CTA is upgrade_contact`,
+    )
+  }
+  assert(!isLegacyActiveSubscription('essential', 'cancelled'), 'cancelled essential not legacy-active')
+  assert(allowsNewCheckout('incomplete', null), 'incomplete may checkout')
+  assertEq(
+    billingCatalogPrimaryAction({
+      status: 'incomplete',
+      planKey: null,
+      product: 'alza_flow',
+      checkoutEligible: true,
+      contactAlza: false,
+    }),
+    'subscribe',
+    'incomplete CTA subscribe',
+  )
+
+  const page = readFileSync(resolve(root, 'src/pages/admin/SubscriptionBilling.tsx'), 'utf8')
+  assert(page.includes('shouldShowBillingCatalog'), 'page uses always-show catalog helper')
+  assert(page.includes('isLegacyActiveSubscription'), 'page detects legacy-active')
+  assert(page.includes('Upgrade / Contact ALZA'), 'legacy CTA label')
+  assert(page.includes('ALZA Flow pricing'), 'catalog section heading present')
+  assert(!/showSubscribe\s*&&\s*\(/.test(page), 'catalog not gated only on showSubscribe block')
+  assert(page.includes('allowsNewCheckout'), 'checkout gated separately from catalog')
+  assert(canCancelSubscription('active'), 'legacy-active cancel preserved')
 }
 
 console.log('H. Support RBAC + Need Help routes')

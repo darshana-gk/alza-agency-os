@@ -12,18 +12,22 @@ import {
   formatBillingPlan,
   formatBillingStatusLabel,
   openRazorpaySubscriptionCheckout,
-  shouldShowSubscribe,
   type BillingSubscription,
 } from '../../lib/billing'
 import {
   BILLING_INTERVALS,
   BILLING_PRODUCTS,
   BILLING_SUPPORT_CONTACT_PATH,
+  BILLING_UPGRADE_CONTACT_PATH,
+  allowsNewCheckout,
+  billingCatalogPrimaryAction,
   billingUserBands,
   formatUsdWhole,
   isBillingCheckoutBandKey,
+  isLegacyActiveSubscription,
   quoteBillingSelection,
   recommendUserBand,
+  shouldShowBillingCatalog,
   type BillingInterval,
   type BillingProductKey,
   type BillingUserBandKey,
@@ -126,11 +130,29 @@ export function SubscriptionBillingPage() {
   const planLabel = formatBillingPlan(billing)
   const legacyNote = legacyPlanDisplayNote(billing?.planKey)
   const status = billing?.status ?? 'incomplete'
-  const showSubscribe = shouldShowSubscribe(status) && !processing
-  const showCancel = canCancelSubscription(status) && !showSubscribe
+  const legacyActive = isLegacyActiveSubscription(billing?.planKey, status)
+  const allowCheckout = allowsNewCheckout(status, billing?.planKey) && !processing
+  const hasActivePlan = !allowCheckout && Boolean(billing?.planKey || billing?.razorpaySubscriptionId)
+  const showCatalog = shouldShowBillingCatalog()
+  const showCancel = canCancelSubscription(status)
   const bands = billingUserBands(product)
+  const primaryAction = billingCatalogPrimaryAction({
+    status,
+    planKey: billing?.planKey,
+    product,
+    checkoutEligible: quote.checkoutEligible,
+    contactAlza: quote.contactAlza,
+  })
 
   async function handleSubscribe() {
+    if (!allowCheckout) {
+      setError(
+        legacyActive
+          ? 'Your Legacy Plan is still active. Contact ALZA to upgrade — a second online subscription will not be started.'
+          : 'An active subscription already exists. Cancel it before starting a new online checkout.',
+      )
+      return
+    }
     if (product !== 'alza_flow' || !isBillingCheckoutBandKey(userBand) || !quote.checkoutEligible) {
       return
     }
@@ -243,6 +265,20 @@ export function SubscriptionBillingPage() {
                 </div>
               )}
 
+              {legacyActive ? (
+                <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-4">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-amber-800">
+                    Legacy Plan
+                  </p>
+                  <p className="mt-1 text-base font-semibold text-slate-900">{planLabel.title}</p>
+                  <p className="mt-1 text-sm text-amber-900">
+                    Historical compatibility only — new ALZA Flow checkout is not started while this plan
+                    remains active. Review current pricing below, then contact ALZA to upgrade.
+                  </p>
+                  {legacyNote && <p className="mt-2 text-xs font-medium text-amber-800">{legacyNote}</p>}
+                </div>
+              ) : null}
+
               <dl className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                 <div>
                   <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">Status</dt>
@@ -253,15 +289,15 @@ export function SubscriptionBillingPage() {
                 <div>
                   <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">Current plan</dt>
                   <dd className="mt-1 text-sm font-semibold text-slate-900">
-                    {showSubscribe && !processing ? 'No active plan' : planLabel.title}
+                    {!hasActivePlan ? 'No active plan' : planLabel.title}
                     {planLabel.subtitle && (
                       <span className="mt-0.5 block text-xs font-normal text-slate-500">
                         {planLabel.subtitle}
                       </span>
                     )}
-                    {legacyNote && (
+                    {!legacyActive && legacyNote ? (
                       <span className="mt-1 block text-xs font-medium text-amber-800">{legacyNote}</span>
-                    )}
+                    ) : null}
                   </dd>
                 </div>
                 <div>
@@ -271,7 +307,8 @@ export function SubscriptionBillingPage() {
                   <dd className="mt-1 text-sm font-semibold text-slate-900">
                     {userCount} active
                     <span className="mt-0.5 block text-xs font-normal text-slate-500">
-                      Recommended tier: {billingUserBands('alza_flow').find((b) => b.key === recommendedBand)?.label}
+                      Recommended tier:{' '}
+                      {billingUserBands('alza_flow').find((b) => b.key === recommendedBand)?.label}
                     </span>
                   </dd>
                 </div>
@@ -280,7 +317,7 @@ export function SubscriptionBillingPage() {
                     Billing frequency
                   </dt>
                   <dd className="mt-1 text-sm font-semibold text-slate-900">
-                    {showSubscribe ? '—' : planLabel.intervalLabel}
+                    {!hasActivePlan ? '—' : planLabel.intervalLabel}
                   </dd>
                 </div>
                 <div>
@@ -305,8 +342,16 @@ export function SubscriptionBillingPage() {
                 </div>
               </dl>
 
-              {showSubscribe && (
+              {showCatalog && (
                 <div className="space-y-5 border-t border-slate-100 pt-5">
+                  <div>
+                    <h3 className="text-sm font-semibold text-slate-900">ALZA Flow pricing</h3>
+                    <p className="mt-1 text-xs text-slate-500">
+                      Current catalog for your agency size. Online checkout is only available when no
+                      blocking subscription is active.
+                    </p>
+                  </div>
+
                   <div>
                     <h3 className="text-sm font-semibold text-slate-900">Choose product</h3>
                     <div className="mt-3 grid gap-3 sm:grid-cols-2">
@@ -365,7 +410,7 @@ export function SubscriptionBillingPage() {
                         const bandQuote = quoteBillingSelection({
                           product,
                           userBand: band.key,
-                          interval: product === 'alza_flow_pay' ? interval : interval,
+                          interval,
                         })
                         return (
                           <button
@@ -414,6 +459,12 @@ export function SubscriptionBillingPage() {
                         <li key={line}>{line}</li>
                       ))}
                     </ul>
+                    {legacyActive && (
+                      <p className="mt-2 text-xs font-medium text-amber-900">
+                        Legacy subscription is active — online checkout for a second plan is disabled.
+                        Use Upgrade / Contact ALZA.
+                      </p>
+                    )}
                   </div>
                 </div>
               )}
@@ -425,7 +476,7 @@ export function SubscriptionBillingPage() {
               </p>
 
               <div className="flex flex-wrap gap-3">
-                {showSubscribe && product === 'alza_flow' && quote.checkoutEligible && (
+                {primaryAction === 'subscribe' && allowCheckout && (
                   <button
                     type="button"
                     disabled={busy || processing}
@@ -436,7 +487,15 @@ export function SubscriptionBillingPage() {
                     {busy ? 'Opening Checkout…' : `Subscribe — ${quote.displayPrice}`}
                   </button>
                 )}
-                {showSubscribe && (quote.contactAlza || product === 'alza_flow_pay') && (
+                {primaryAction === 'upgrade_contact' && (
+                  <Link
+                    to={BILLING_UPGRADE_CONTACT_PATH}
+                    className="inline-flex items-center gap-2 rounded-lg gradient-alza px-4 py-2.5 text-sm font-medium text-white shadow-sm hover:opacity-90"
+                  >
+                    Upgrade / Contact ALZA
+                  </Link>
+                )}
+                {primaryAction === 'contact_alza' && (
                   <Link
                     to={BILLING_SUPPORT_CONTACT_PATH}
                     className="inline-flex items-center gap-2 rounded-lg border border-alza-blue-200 bg-alza-blue-50 px-4 py-2.5 text-sm font-medium text-alza-blue-900 hover:bg-alza-blue-100"

@@ -664,6 +664,57 @@ export function canCancelSubscription(status: string | null | undefined): boolea
   )
 }
 
+/** Legacy Essential/Professional with a live (or pending) Razorpay subscription. */
+export function isLegacyActiveSubscription(
+  planKey: string | null | undefined,
+  status: string | null | undefined,
+): boolean {
+  return isLegacyBillingPlanKey(planKey) && !shouldShowSubscribe(status)
+}
+
+/**
+ * New Razorpay checkout is only for agencies without a blocking subscription.
+ * Legacy-active must never start a second subscription from the catalog.
+ */
+export function allowsNewCheckout(
+  status: string | null | undefined,
+  planKey?: string | null,
+): boolean {
+  if (!shouldShowSubscribe(status)) return false
+  if (isLegacyBillingPlanKey(planKey)) return false
+  return true
+}
+
+export const BILLING_UPGRADE_CONTACT_PATH =
+  '/support?category=billing_subscription&subject=Upgrade%20from%20legacy%20plan'
+
+export type BillingCatalogPrimaryAction = 'subscribe' | 'upgrade_contact' | 'contact_alza' | null
+
+/** Catalog stays visible; this only decides the safe primary CTA. */
+export function billingCatalogPrimaryAction(input: {
+  status: string | null | undefined
+  planKey: string | null | undefined
+  product: BillingProductKey
+  checkoutEligible: boolean
+  contactAlza: boolean
+}): BillingCatalogPrimaryAction {
+  const legacyActive = isLegacyActiveSubscription(input.planKey, input.status)
+  if (legacyActive) {
+    return 'upgrade_contact'
+  }
+  if (!allowsNewCheckout(input.status, input.planKey)) {
+    return input.product === 'alza_flow_pay' || input.contactAlza ? 'contact_alza' : null
+  }
+  if (input.product === 'alza_flow_pay' || input.contactAlza) return 'contact_alza'
+  if (input.product === 'alza_flow' && input.checkoutEligible) return 'subscribe'
+  return null
+}
+
+/** V2 catalog is always shown to Owner/Admin (not gated on subscribe eligibility). */
+export function shouldShowBillingCatalog(): boolean {
+  return true
+}
+
 /** Frontend must never contain secret-like plan id fields. */
 export function catalogContainsPlanSecrets(catalogJson: string): boolean {
   return /["']rzp_|["']sk_live|razorpay_plan_id\s*[:=]\s*["'][^"']+["']/i.test(catalogJson)
