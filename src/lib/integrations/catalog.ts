@@ -6,6 +6,7 @@
  */
 
 import type { IntegrationProviderDefinition } from './types'
+import { INTEGRATION_CATEGORIES } from './types'
 
 export const INTEGRATION_PROVIDER_CATALOG: readonly IntegrationProviderDefinition[] = [
   // —— AMS / Agency Management ——
@@ -357,6 +358,31 @@ export function providersInCategory(
   category: IntegrationProviderDefinition['category'],
 ): IntegrationProviderDefinition[] {
   return INTEGRATION_PROVIDER_CATALOG.filter((p) => p.category === category)
+}
+
+/** Preserve catalog order within each category (no business-priority re-sort). */
+export function groupProvidersByCategory(
+  providers: readonly IntegrationProviderDefinition[] = INTEGRATION_PROVIDER_CATALOG,
+): Array<{ category: IntegrationProviderDefinition['category']; providers: IntegrationProviderDefinition[] }> {
+  const buckets = new Map<
+    IntegrationProviderDefinition['category'],
+    IntegrationProviderDefinition[]
+  >()
+  for (const p of providers) {
+    const list = buckets.get(p.category) ?? []
+    list.push(p)
+    buckets.set(p.category, list)
+  }
+  return INTEGRATION_CATEGORIES.filter((c) => buckets.has(c)).map((category) => ({
+    category,
+    providers: buckets.get(category) ?? [],
+  }))
+}
+
+export function oneLineProviderBlurb(description: string, maxLen = 88): string {
+  const first = description.split(/(?<=\.)\s+/)[0]?.trim() || description.trim()
+  if (first.length <= maxLen) return first
+  return `${first.slice(0, maxLen - 1).trimEnd()}…`
 }
 
 export function catalogContainsSecretFields(

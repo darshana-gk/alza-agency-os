@@ -20,16 +20,16 @@ export const INTEGRATION_CATEGORIES = [
 export type IntegrationCategory = (typeof INTEGRATION_CATEGORIES)[number]
 
 export const INTEGRATION_CATEGORY_LABELS: Record<IntegrationCategory, string> = {
-  ams: 'AMS / Agency Management',
-  crm: 'CRM / Sales',
+  ams: 'Agency Management Systems',
+  crm: 'CRM & Sales',
   carrier_mga_commission_feeds: 'Carrier/MGA Commission Feeds',
-  payments: 'Payment / Premium Collection',
+  payments: 'Payments & Premium Collection',
   banking: 'Banking',
   accounting: 'Accounting',
-  documents: 'Documents / eSignature',
-  email: 'Email / Communications',
-  telephony: 'Telephony / SMS',
-  identity: 'Identity / SSO',
+  documents: 'Documents & eSignature',
+  email: 'Email & Communications',
+  telephony: 'Telephony & SMS',
+  identity: 'Identity & SSO',
   data_import_export: 'Data Import / Export',
 }
 

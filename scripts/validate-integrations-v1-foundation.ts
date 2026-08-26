@@ -35,6 +35,8 @@ import {
   emptyNormalizedCommissionFeedLine,
   emptyNormalizedSettlementEvidence,
   getProviderById,
+  groupProvidersByCategory,
+  oneLineProviderBlurb,
   resolveProviderCardStatus,
 } from '../src/lib/integrations/index.ts'
 import {
@@ -310,6 +312,26 @@ console.log('M. Request placeholder CTAs')
     { locallyRequested: true },
   )
   assertEq(requested.status, 'requested', 'requested status after local request')
+}
+
+console.log('N. Category grouping preserves catalog coverage')
+{
+  const groups = groupProvidersByCategory()
+  const groupedIds = groups.flatMap((g) => g.providers.map((p) => p.id))
+  assertEq(groupedIds.length, INTEGRATION_PROVIDER_CATALOG.length, 'grouped count = catalog count')
+  assertEq(new Set(groupedIds).size, INTEGRATION_PROVIDER_CATALOG.length, 'no duplicate ids in groups')
+  assert(groups.some((g) => g.category === 'carrier_mga_commission_feeds'), 'carrier/mga section present')
+  assert(groups.some((g) => g.category === 'payments'), 'payments section present')
+  assert(groups.some((g) => g.category === 'banking'), 'banking section present')
+  const blurb = oneLineProviderBlurb('First sentence. Second sentence that is longer.')
+  assert(blurb === 'First sentence.', 'one-line blurb uses first sentence')
+  const page = readFileSync(resolve(root, 'src/pages/Integrations.tsx'), 'utf8')
+  assert(page.includes('View integration'), 'compact card CTA View integration')
+  assert(page.includes('ProviderDetailDrawer') || page.includes('detailCard'), 'detail drawer present')
+  assert(
+    getProviderById('ascend') && getProviderById('simply_easier_payments') && getProviderById('plaid'),
+    'Ascend / SEP / Plaid still catalogued',
+  )
 }
 
 console.log(`\n${passed} passed, ${failed} failed`)
