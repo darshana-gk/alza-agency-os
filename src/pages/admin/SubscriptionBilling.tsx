@@ -149,6 +149,16 @@ export function SubscriptionBillingPage() {
   const recommendedLabel =
     billingUserBands('alza_flow').find((b) => b.key === recommendedBand)?.label ?? recommendedBand
   const selectedProduct = BILLING_PRODUCTS.find((p) => p.key === product)
+  const statusNorm = status.trim().toLowerCase()
+  const isEndedSubscription =
+    statusNorm === 'cancelled' ||
+    statusNorm === 'canceled' ||
+    statusNorm === 'completed' ||
+    statusNorm === 'halted'
+  const planFieldLabel =
+    isEndedSubscription && (billing?.planKey || planLabel.title !== 'No active plan')
+      ? 'Previous plan'
+      : 'Current plan'
   const primaryAction = billingCatalogPrimaryAction({
     status,
     planKey: billing?.planKey,
@@ -308,15 +318,24 @@ export function SubscriptionBillingPage() {
                   </dd>
                 </div>
                 <div>
-                  <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">Current plan</dt>
+                  <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">
+                    {planFieldLabel}
+                  </dt>
                   <dd className="mt-1 text-sm font-semibold text-slate-900">
-                    {!hasActivePlan ? 'No active plan' : planLabel.title}
+                    {!hasActivePlan && !isEndedSubscription
+                      ? 'No active plan'
+                      : planLabel.title}
                     {planLabel.subtitle && (
                       <span className="mt-0.5 block text-xs font-normal text-slate-500">
                         {planLabel.subtitle}
                       </span>
                     )}
-                    {!legacyActive && legacyNote ? (
+                    {isEndedSubscription && billing?.canceledAt ? (
+                      <span className="mt-0.5 block text-xs font-normal text-slate-500">
+                        Cancelled {formatDate(billing.canceledAt.slice(0, 10))}
+                      </span>
+                    ) : null}
+                    {legacyNote ? (
                       <span className="mt-1 block text-xs font-medium text-amber-800">{legacyNote}</span>
                     ) : null}
                   </dd>
@@ -334,15 +353,19 @@ export function SubscriptionBillingPage() {
                 </div>
                 <div>
                   <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">
-                    Next charge / period end
+                    {isEndedSubscription ? 'Ended' : 'Next charge / period end'}
                   </dt>
                   <dd className="mt-1 text-sm font-semibold text-slate-900">
-                    {billing?.currentPeriodEnd
-                      ? formatDate(billing.currentPeriodEnd.slice(0, 10))
-                      : billing?.chargeAt
-                        ? formatDate(billing.chargeAt.slice(0, 10))
-                        : '—'}
-                    {!hasActivePlan ? null : (
+                    {isEndedSubscription
+                      ? billing?.canceledAt
+                        ? formatDate(billing.canceledAt.slice(0, 10))
+                        : '—'
+                      : billing?.currentPeriodEnd
+                        ? formatDate(billing.currentPeriodEnd.slice(0, 10))
+                        : billing?.chargeAt
+                          ? formatDate(billing.chargeAt.slice(0, 10))
+                          : '—'}
+                    {!hasActivePlan && !isEndedSubscription ? null : (
                       <span className="mt-0.5 block text-xs font-normal text-slate-500">
                         {planLabel.intervalLabel}
                         {billing?.razorpaySubscriptionId
@@ -355,22 +378,27 @@ export function SubscriptionBillingPage() {
               </dl>
 
               {showCatalog && (
-                <div className="space-y-4 border-t border-slate-100 pt-5">
+                <div
+                  className="space-y-4 border-t border-slate-100 pt-5"
+                  data-billing-layout="compact-selectors"
+                >
                   <div>
                     <h3 className="text-sm font-semibold text-slate-900">ALZA Flow pricing</h3>
                     <p className="mt-1 text-xs text-slate-500">
-                      Select product, billing frequency, and user band. Online checkout is only available
-                      when no blocking subscription is active.
+                      Use the dropdowns below — not plan cards. Online checkout is only available when no
+                      blocking subscription is active.
                     </p>
                   </div>
 
-                  <div className="grid gap-3 sm:grid-cols-3">
-                    <label className="block sm:col-span-1">
+                  <div className="space-y-3">
+                    <label className="block max-w-md">
                       <span className={fieldLabelClass}>Product</span>
                       <select
                         className={selectClass}
                         value={product}
                         disabled={busy || processing}
+                        aria-label="Product"
+                        data-testid="billing-product-select"
                         onChange={(e) => {
                           const next = e.target.value
                           if (isBillingProductKey(next)) setProduct(next)
@@ -385,9 +413,13 @@ export function SubscriptionBillingPage() {
                       </select>
                     </label>
 
-                    <div className="block sm:col-span-1">
-                      <span className={fieldLabelClass}>Billing</span>
-                      <div className="inline-flex h-10 w-full rounded-lg border border-slate-200 bg-slate-50 p-0.5">
+                    <div className="block max-w-md">
+                      <span className={fieldLabelClass}>Billing frequency</span>
+                      <div
+                        className="inline-flex h-10 w-full rounded-lg border border-slate-200 bg-slate-50 p-0.5"
+                        role="group"
+                        aria-label="Billing frequency"
+                      >
                         {BILLING_INTERVALS.map((opt) => (
                           <button
                             key={opt.key}
@@ -406,12 +438,14 @@ export function SubscriptionBillingPage() {
                       </div>
                     </div>
 
-                    <label className="block sm:col-span-1">
+                    <label className="block max-w-md">
                       <span className={fieldLabelClass}>User band</span>
                       <select
                         className={selectClass}
                         value={userBand}
                         disabled={busy || processing}
+                        aria-label="User band"
+                        data-testid="billing-user-band-select"
                         onChange={(e) => {
                           const next = e.target.value
                           if (isBillingUserBandKey(next)) setUserBand(next)
@@ -439,7 +473,10 @@ export function SubscriptionBillingPage() {
                     )}
                   </p>
 
-                  <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-4">
+                  <div
+                    className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-4"
+                    data-testid="billing-price-result"
+                  >
                     <div className="flex flex-wrap items-start justify-between gap-3">
                       <div>
                         <p className="text-sm font-semibold text-slate-900">
@@ -465,7 +502,8 @@ export function SubscriptionBillingPage() {
                       quote.annualSavings != null &&
                       !quote.contactAlza && (
                         <p className="mt-3 text-sm text-alza-teal-800">
-                          12-month value {formatUsdWhole(quote.annualListValue ?? 0)} · Save{' '}
+                          Annual total {formatUsdWhole(quote.amount ?? 0)} · 12-month value{' '}
+                          {formatUsdWhole(quote.annualListValue ?? 0)} · Save{' '}
                           {formatUsdWhole(quote.annualSavings)} · 2 months free
                         </p>
                       )}
