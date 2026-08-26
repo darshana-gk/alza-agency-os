@@ -395,8 +395,118 @@ console.log('J. create-subscription rejects legacy / missing secret message')
   )
   assert(createFn.includes('parseCheckoutSelection'), 'uses checkout selection parser')
   assert(createFn.includes('resolveRazorpayPlanIdForSku'), 'resolves secret by SKU')
+  assert(createFn.includes('getCallerAgency'), 'uses caller agency not singleton')
+  assert(!createFn.includes('getSingletonAgency'), 'create fn does not use singleton agency')
   assert(createFn.includes('plan_secret_missing') || createFn.includes('Contact ALZA'), 'missing secret message')
   assert(!createFn.includes('body.amount'), 'browser amount not used')
+  assert(createFn.includes('users_51_100'), '51-100 included_users mapped')
+  assert(/includedUsers[\s\S]*100/.test(createFn), '51-100 soft seats = 100')
+
+  const sharedCatalog = readFileSync(
+    resolve(root, 'supabase/functions/_shared/billingCatalog.ts'),
+    'utf8',
+  )
+  for (const sku of BILLING_CHECKOUT_SKUS) {
+    assert(sharedCatalog.includes(`'${sku}'`), `server catalog lists ${sku}`)
+    assertEq(
+      razorpayPlanEnvName(sku),
+      `RAZORPAY_PLAN_${sku.toUpperCase()}`,
+      `secret name for ${sku}`,
+    )
+  }
+  assertEq(BILLING_CHECKOUT_SKUS.length, 10, '10 sellable Flow SKUs')
+
+  const sharedBilling = readFileSync(
+    resolve(root, 'supabase/functions/_shared/billing.ts'),
+    'utf8',
+  )
+  assert(sharedBilling.includes('hasBlockingSubscription'), 'blocking helper present')
+  assert(
+    !/hasBlockingSubscription[\s\S]{0,200}cancelled/.test(
+      sharedBilling.match(/export function hasBlockingSubscription[\s\S]*?^}/m)?.[0] ?? '',
+    ),
+    'cancelled is not a blocking status',
+  )
+}
+
+console.log('K. Checkout matrix — sellable SKUs, rejects, cancelled legacy')
+{
+  const sellableBands = [
+    'users_1_3',
+    'users_4_10',
+    'users_11_25',
+    'users_26_50',
+    'users_51_100',
+  ] as const
+  const monthlyAmounts: Record<(typeof sellableBands)[number], number> = {
+    users_1_3: 399,
+    users_4_10: 599,
+    users_11_25: 899,
+    users_26_50: 1099,
+    users_51_100: 1499,
+  }
+
+  for (const band of sellableBands) {
+    for (const interval of ['monthly', 'annual'] as const) {
+      const q = quoteCheckoutSelection({
+        product: 'alza_flow',
+        userBand: band,
+        interval,
+      })
+      assert(!('error' in q), `${band} ${interval} checkout ok`)
+      if (!('error' in q)) {
+        assert(q.checkoutEligible, `${band} ${interval} eligible`)
+        assert(q.sku != null && BILLING_CHECKOUT_SKUS.includes(q.sku), `${band} ${interval} has SKU`)
+        const monthly = monthlyAmounts[band]
+        const want = interval === 'monthly' ? monthly : monthly * 10
+        assertEq(q.amount, want, `${band} ${interval} amount ${want}`)
+      }
+    }
+  }
+
+  const pay = quoteCheckoutSelection({
+    product: 'alza_flow_pay',
+    userBand: 'users_1_3',
+    interval: 'monthly',
+  })
+  assert('error' in pay, 'Flow Pay checkout rejected')
+
+  const custom = quoteCheckoutSelection({
+    product: 'alza_flow',
+    userBand: 'users_100_plus',
+    interval: 'monthly',
+  })
+  assert('error' in custom, '100+ checkout rejected')
+
+  assert(allowsNewCheckout('cancelled', 'essential'), 'cancelled legacy permits checkout')
+  assert(allowsNewCheckout('canceled', 'professional'), 'canceled legacy permits checkout')
+  assert(!allowsNewCheckout('active', 'essential'), 'active legacy blocks second subscription')
+  assert(!allowsNewCheckout('active', 'flow_4_10_monthly'), 'active Flow blocks second subscription')
+  assertEq(
+    billingCatalogPrimaryAction({
+      status: 'active',
+      planKey: 'essential',
+      product: 'alza_flow',
+      checkoutEligible: true,
+      contactAlza: false,
+    }),
+    'upgrade_contact',
+    'active legacy CTA upgrade_contact',
+  )
+
+  const browser = readFileSync(resolve(root, 'src/lib/billing.ts'), 'utf8')
+  assert(browser.includes('product: input.product'), 'browser sends product')
+  assert(browser.includes('userBand: input.userBand'), 'browser sends userBand')
+  assert(browser.includes('interval: input.interval'), 'browser sends interval')
+  assert(!/functions\.invoke\([\s\S]*amount\s*:/.test(browser), 'browser does not send amount')
+  assert(!/functions\.invoke\([\s\S]*planId\s*:/.test(browser), 'browser does not send planId')
+  assert(browser.includes('readEdgeFunctionErrorMessage'), 'surfaces Edge Function body message')
+
+  const createFn = readFileSync(
+    resolve(root, 'supabase/functions/create-razorpay-subscription/index.ts'),
+    'utf8',
+  )
+  assert(createFn.includes('authz.agencyProfileId'), 'create uses authenticated agency_profile_id')
 }
 
 console.log(`\n${passed} passed, ${failed} failed`)

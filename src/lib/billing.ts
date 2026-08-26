@@ -210,6 +210,37 @@ export interface RazorpayCheckoutBootstrap {
   message?: string
 }
 
+/** Prefer Edge Function JSON `{ message }` over Supabase's generic non-2xx string. */
+async function readEdgeFunctionErrorMessage(error: unknown): Promise<string | null> {
+  const err = error as {
+    message?: string
+    context?: Response | { json?: () => Promise<unknown>; text?: () => Promise<string> }
+  } | null
+  const ctx = err?.context
+  if (!ctx) return null
+  try {
+    if (typeof (ctx as Response).json === 'function') {
+      const body = (await (ctx as Response).clone().json()) as {
+        message?: string
+        error?: string
+        code?: string
+      }
+      if (typeof body?.message === 'string' && body.message.trim()) return body.message.trim()
+      if (typeof body?.error === 'string' && body.error.trim()) return body.error.trim()
+    }
+  } catch {
+    try {
+      if (typeof (ctx as Response).text === 'function') {
+        const text = await (ctx as Response).clone().text()
+        if (text.trim()) return text.trim().slice(0, 400)
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+  return null
+}
+
 export async function createRazorpaySubscription(input: {
   product: BillingProductKey
   userBand: BillingCheckoutBandKey
@@ -230,7 +261,12 @@ export async function createRazorpaySubscription(input: {
     },
   })
   if (error) {
-    return { data: null, error: error.message || 'Unable to call create-razorpay-subscription.' }
+    // Supabase wraps non-2xx as FunctionsHttpError with a generic message; prefer body.message.
+    const fromBody = await readEdgeFunctionErrorMessage(error)
+    return {
+      data: null,
+      error: fromBody || error.message || 'Unable to call create-razorpay-subscription.',
+    }
   }
 
   const payload = data as {

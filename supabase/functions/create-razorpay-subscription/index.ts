@@ -116,7 +116,11 @@ Deno.serve(async (req) => {
         ? 10
         : selection.userBand === 'users_11_25'
           ? 25
-          : 50
+          : selection.userBand === 'users_26_50'
+            ? 50
+            : selection.userBand === 'users_51_100'
+              ? 100
+              : null
 
   const { error: updateError } = await admin
     .from('billing_subscriptions')
