@@ -60,6 +60,7 @@ export function AlzaSupportInboxPage() {
   const [statusFilter, setStatusFilter] = useState<SupportStatus | 'all'>('waiting_on_alza')
   const [categoryFilter, setCategoryFilter] = useState<SupportCategory | 'all'>('all')
   const [search, setSearch] = useState('')
+  const [searchDebounced, setSearchDebounced] = useState('')
   const [rows, setRows] = useState<SupportConversation[]>([])
   const [sort, setSort] = useState<
     TableSortState<'agency' | 'subject' | 'category' | 'status' | 'updatedAt' | 'assigned'>
@@ -72,6 +73,11 @@ export function AlzaSupportInboxPage() {
   const [busy, setBusy] = useState(false)
   const [agents, setAgents] = useState<Array<{ id: string; fullName: string }>>([])
   const [assignTo, setAssignTo] = useState('')
+
+  useEffect(() => {
+    const t = window.setTimeout(() => setSearchDebounced(search.trim()), 250)
+    return () => window.clearTimeout(t)
+  }, [search])
 
   useEffect(() => {
     if (!allowed) return
@@ -92,13 +98,13 @@ export function AlzaSupportInboxPage() {
       forAlzaInbox: true,
       status: statusFilter,
       category: categoryFilter,
-      search,
+      search: searchDebounced,
       tab: 'all',
     })
     if (result.error) setError(result.error)
     setRows(result.data)
     setLoading(false)
-  }, [statusFilter, categoryFilter, search])
+  }, [statusFilter, categoryFilter, searchDebounced])
 
   const loadDetail = useCallback(async (id: string) => {
     const [conv, msgs] = await Promise.all([fetchSupportConversation(id), fetchSupportMessages(id)])
@@ -170,7 +176,11 @@ export function AlzaSupportInboxPage() {
   async function handleResolve() {
     if (!profile || !selectedId) return
     setBusy(true)
-    const result = await resolveSupportConversation({ conversationId: selectedId, profile })
+    const result = await resolveSupportConversation({
+      conversationId: selectedId,
+      profile,
+      asAlza: true,
+    })
     setBusy(false)
     if (result.error) {
       setError(result.error)
@@ -290,8 +300,7 @@ export function AlzaSupportInboxPage() {
             <div>
               <h1 className="text-xl font-semibold text-slate-900">{selected.subject}</h1>
               <p className="mt-1 text-sm text-slate-500">
-                {selected.agencyName || 'Agency'} · {supportCategoryLabel(selected.category)} ·{' '}
-                {supportPriorityLabel(selected.priority)}
+                {supportCategoryLabel(selected.category)} · {supportPriorityLabel(selected.priority)}
               </p>
             </div>
             <span
@@ -300,11 +309,38 @@ export function AlzaSupportInboxPage() {
               {supportStatusLabelForAlza(selected.status)}
             </span>
           </div>
+
+          <div className="mt-4 rounded-lg border border-slate-100 bg-slate-50/80 px-4 py-3">
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Agency &amp; customer</p>
+            <dl className="mt-2 grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-3">
+              <div>
+                <dt className="text-xs font-medium text-slate-500">Agency</dt>
+                <dd className="mt-0.5 font-medium text-slate-900">{selected.agencyName || '—'}</dd>
+              </div>
+              <div>
+                <dt className="text-xs font-medium text-slate-500">Agency email</dt>
+                <dd className="mt-0.5 text-slate-800">{selected.agencyEmail || '—'}</dd>
+              </div>
+              <div>
+                <dt className="text-xs font-medium text-slate-500">Agency phone</dt>
+                <dd className="mt-0.5 text-slate-800">{selected.agencyPhone || '—'}</dd>
+              </div>
+              <div>
+                <dt className="text-xs font-medium text-slate-500">Website</dt>
+                <dd className="mt-0.5 text-slate-800">{selected.agencyWebsite || '—'}</dd>
+              </div>
+              <div>
+                <dt className="text-xs font-medium text-slate-500">Opened by</dt>
+                <dd className="mt-0.5 text-slate-800">{selected.createdByName || '—'}</dd>
+              </div>
+              <div>
+                <dt className="text-xs font-medium text-slate-500">Contact email</dt>
+                <dd className="mt-0.5 text-slate-800">{selected.createdByEmail || '—'}</dd>
+              </div>
+            </dl>
+          </div>
+
           <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-4">
-            <div>
-              <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">Opened by</dt>
-              <dd className="mt-0.5 text-slate-800">{selected.createdByName || '—'}</dd>
-            </div>
             <div>
               <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">Created</dt>
               <dd className="mt-0.5 text-slate-800">{formatWhen(selected.createdAt)}</dd>
@@ -316,6 +352,10 @@ export function AlzaSupportInboxPage() {
             <div>
               <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">Assigned</dt>
               <dd className="mt-0.5 text-slate-800">{selected.assignedToName || 'Unassigned'}</dd>
+            </div>
+            <div>
+              <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">Waiting state</dt>
+              <dd className="mt-0.5 text-slate-800">{supportStatusLabelForAlza(selected.status)}</dd>
             </div>
           </dl>
           <div className="mt-4 flex flex-wrap items-end gap-2">
@@ -366,7 +406,7 @@ export function AlzaSupportInboxPage() {
                 </button>
                 <button
                   type="button"
-                  disabled={busy}
+                  disabled={busy || selected.status === 'waiting_on_customer'}
                   onClick={() => void handleWaiting('waiting_on_customer')}
                   className="h-9 rounded-lg border border-slate-200 px-3 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
                 >
@@ -374,7 +414,7 @@ export function AlzaSupportInboxPage() {
                 </button>
                 <button
                   type="button"
-                  disabled={busy}
+                  disabled={busy || selected.status === 'waiting_on_alza'}
                   onClick={() => void handleWaiting('waiting_on_alza')}
                   className="h-9 rounded-lg border border-slate-200 px-3 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
                 >
@@ -451,7 +491,7 @@ export function AlzaSupportInboxPage() {
           ALZA Support Inbox
         </h1>
         <p className="mt-1 text-sm text-slate-500">
-          Cross-agency support requests for ALZA Business Solutions staff.
+          Review and respond to support requests across all agencies.
         </p>
       </div>
 

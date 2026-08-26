@@ -1,18 +1,17 @@
 // Deno Edge Function: notify-support-event
 // Best-effort email for support lifecycle events.
-// If RESEND_API_KEY / RESEND_FROM missing: skip gracefully (ok:true, skipped:true).
+// If RESEND_API_KEY / from-address missing: skip gracefully (ok:true, skipped:true).
 // Never fails the client support write path — callers treat this as fire-and-forget.
-// DO NOT deploy until reviewed. verify_jwt = true.
+// DO NOT deploy until reviewed (Resend/DNS still externally blocked). verify_jwt = true.
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.49.1'
 import { corsHeaders, fail, ok } from '../_shared/http.ts'
-
-type SupportEvent =
-  | 'request_created'
-  | 'customer_replied'
-  | 'alza_replied'
-  | 'ticket_resolved'
-  | 'ticket_reopened'
+import {
+  SUPPORT_EMAIL_ADDRESS,
+  SUPPORT_EMAIL_IDENTITY,
+  buildSupportEmailTemplate,
+  type SupportEmailEvent,
+} from '../_shared/supportEmailTemplates.ts'
 
 function adminClient() {
   const url = Deno.env.get('SUPABASE_URL') ?? ''
@@ -20,21 +19,36 @@ function adminClient() {
   return createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } })
 }
 
+function resolveFromAddress(): string {
+  const configured =
+    (Deno.env.get('RESEND_FROM') ?? '').trim() ||
+    (Deno.env.get('SUPPORT_FROM') ?? '').trim()
+  if (configured) return configured
+  // Preferred identity when domain is verified; still requires RESEND_API_KEY to send.
+  return SUPPORT_EMAIL_IDENTITY
+}
+
 async function sendResend(input: {
   to: string[]
   subject: string
   text: string
+  html: string
 }): Promise<{ sent: boolean; skipped: boolean; message: string }> {
   const resendKey = (Deno.env.get('RESEND_API_KEY') ?? '').trim()
-  const from =
-    (Deno.env.get('RESEND_FROM') ?? '').trim() ||
-    (Deno.env.get('SUPPORT_FROM') ?? '').trim()
-  if (!resendKey || !from) {
+  const from = resolveFromAddress()
+  if (!resendKey) {
     return {
       sent: false,
       skipped: true,
       message:
-        'Support email skipped: RESEND_API_KEY / RESEND_FROM not configured. In-app notifications still apply.',
+        'Support email skipped: RESEND_API_KEY not configured (DNS/Resend externally blocked). In-app notifications still apply.',
+    }
+  }
+  if (!from) {
+    return {
+      sent: false,
+      skipped: true,
+      message: 'Support email skipped: from address not configured.',
     }
   }
   if (input.to.length === 0) {
@@ -50,8 +64,10 @@ async function sendResend(input: {
     body: JSON.stringify({
       from,
       to: input.to,
+      reply_to: SUPPORT_EMAIL_ADDRESS,
       subject: input.subject,
       text: input.text,
+      html: input.html,
     }),
   })
 
@@ -82,9 +98,9 @@ Deno.serve(async (req) => {
     return fail('invalid_body', 'JSON body required.')
   }
 
-  const event = String(body.event ?? '') as SupportEvent
+  const event = String(body.event ?? '') as SupportEmailEvent
   const conversationId = String(body.conversationId ?? '').trim()
-  const allowed: SupportEvent[] = [
+  const allowed: SupportEmailEvent[] = [
     'request_created',
     'customer_replied',
     'alza_replied',
@@ -120,52 +136,75 @@ Deno.serve(async (req) => {
   const creator = Array.isArray(conv.creator) ? conv.creator[0] : conv.creator
   const customerEmail = String((creator as { email?: string } | null)?.email ?? '').trim()
   const agencyName = String((agency as { agency_name?: string } | null)?.agency_name ?? 'Agency')
-  const subject = String(conv.subject ?? 'Support request')
+  const ticketSubject = String(conv.subject ?? 'Support request')
+  const status = String(conv.status ?? '')
 
-  const alzaInbox = (Deno.env.get('ALZA_SUPPORT_NOTIFY_EMAIL') ?? '').trim()
-  const appUrl = (Deno.env.get('APP_URL') ?? Deno.env.get('SITE_URL') ?? '').trim() || 'https://alza-agency-os.vercel.app'
+  const alzaInbox =
+    (Deno.env.get('ALZA_SUPPORT_NOTIFY_EMAIL') ?? '').trim() || SUPPORT_EMAIL_ADDRESS
+  const appUrl =
+    (Deno.env.get('APP_URL') ?? Deno.env.get('SITE_URL') ?? '').trim() ||
+    'https://alza-agency-os.vercel.app'
 
-  const customerEvents: SupportEvent[] = ['alza_replied', 'ticket_resolved', 'ticket_reopened']
-  const alzaEvents: SupportEvent[] = ['request_created', 'customer_replied', 'ticket_reopened']
+  const customerEvents: SupportEmailEvent[] = ['alza_replied', 'ticket_resolved', 'ticket_reopened']
+  const alzaEvents: SupportEmailEvent[] = [
+    'request_created',
+    'customer_replied',
+    'ticket_resolved',
+    'ticket_reopened',
+  ]
 
-  const to: string[] = []
-  if (customerEvents.includes(event) && customerEmail) to.push(customerEmail)
-  if (alzaEvents.includes(event) && alzaInbox) to.push(alzaInbox)
-
-  const titles: Record<SupportEvent, string> = {
-    request_created: `New support request from ${agencyName}`,
-    customer_replied: `Customer replied — ${agencyName}`,
-    alza_replied: `ALZA replied to your support request`,
-    ticket_resolved: `Support request resolved`,
-    ticket_reopened: `Support request reopened`,
+  const deliveries: Array<{ audience: 'customer' | 'alza'; to: string; link: string }> = []
+  if (customerEvents.includes(event) && customerEmail) {
+    deliveries.push({
+      audience: 'customer',
+      to: customerEmail,
+      link: `${appUrl}/support?c=${conversationId}`,
+    })
+  }
+  if (alzaEvents.includes(event) && alzaInbox) {
+    deliveries.push({
+      audience: 'alza',
+      to: alzaInbox,
+      link: `${appUrl}/admin/support-inbox?c=${conversationId}`,
+    })
   }
 
-  const link =
-    event === 'request_created' || event === 'customer_replied'
-      ? `${appUrl}/admin/support-inbox?c=${conversationId}`
-      : `${appUrl}/support?c=${conversationId}`
+  if (deliveries.length === 0) {
+    return ok({
+      ok: true,
+      skipped: true,
+      delivered: false,
+      message: 'No recipients for this support email event.',
+      event,
+    })
+  }
 
-  const result = await sendResend({
-    to: [...new Set(to)],
-    subject: titles[event],
-    text: [
-      titles[event],
-      '',
-      `Agency: ${agencyName}`,
-      `Subject: ${subject}`,
-      `Status: ${String(conv.status ?? '')}`,
-      '',
-      `Open in ALZA Flow: ${link}`,
-      '',
-      'This message contains no credentials.',
-    ].join('\n'),
-  })
+  let anySent = false
+  let lastMessage = 'ok'
+  for (const d of deliveries) {
+    const template = buildSupportEmailTemplate({
+      event,
+      agencyName,
+      subject: ticketSubject,
+      status,
+      appLink: d.link,
+      recipientAudience: d.audience,
+    })
+    const result = await sendResend({
+      to: [d.to],
+      subject: template.subject,
+      text: template.text,
+      html: template.html,
+    })
+    lastMessage = result.message
+    if (result.sent) anySent = true
+  }
 
   return ok({
     ok: true,
-    skipped: result.skipped,
-    delivered: result.sent,
-    message: result.message,
+    skipped: !anySent,
+    delivered: anySent,
+    message: lastMessage,
     event,
   })
 })

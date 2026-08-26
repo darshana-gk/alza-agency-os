@@ -368,6 +368,7 @@ console.log('I. Support source contracts')
   assert(support.includes('unassignSupportConversation'), 'unassign helper')
   assert(support.includes('notifySupportEventBestEffort'), 'email best effort')
   assert(support.includes('ticket_reopened'), 'reopen notify event')
+  assert(support.includes('agencyEmail'), 'agency details fields')
 
   const notifyFn = readFileSync(
     resolve(root, 'supabase/functions/notify-support-event/index.ts'),
@@ -375,16 +376,46 @@ console.log('I. Support source contracts')
   )
   assert(notifyFn.includes('RESEND_API_KEY'), 'notify checks Resend')
   assert(notifyFn.includes('skipped'), 'graceful skip')
+  assert(notifyFn.includes('supportEmailTemplates'), 'template module wired')
+  assert(notifyFn.includes('DO NOT deploy'), 'notify deploy gated')
 
-  const migration = readFileSync(
+  const templates = readFileSync(
+    resolve(root, 'supabase/functions/_shared/supportEmailTemplates.ts'),
+    'utf8',
+  )
+  assert(templates.includes('support@alzabusiness.com'), 'support@ identity')
+
+  const billingMigration = readFileSync(
     resolve(root, 'supabase/migrations/20260826120000_billing_v2_and_support_assignment.sql'),
     'utf8',
   )
-  assert(migration.includes('support_assign_conversation'), 'assign RPC in migration')
-  assert(migration.includes('flow_1_3_monthly'), 'billing SKUs in migration')
-  assert(migration.includes('flow_51_100_monthly'), '51-100 monthly SKU in migration')
-  assert(migration.includes('flow_51_100_annual'), '51-100 annual SKU in migration')
-  assert(migration.includes('DO NOT apply until reviewed') || migration.includes('PROPOSED'), 'migration marked proposed')
+  assert(billingMigration.includes('flow_1_3_monthly'), 'billing SKUs in migration')
+  assert(billingMigration.includes('flow_51_100_monthly'), '51-100 monthly SKU in migration')
+  assert(billingMigration.includes('flow_51_100_annual'), '51-100 annual SKU in migration')
+  assert(
+    billingMigration.includes('DO NOT apply until reviewed') || billingMigration.includes('PROPOSED'),
+    'billing migration marked proposed',
+  )
+  assert(
+    !billingMigration.includes('support_assign_conversation'),
+    'assignment RPCs moved out of billing migration',
+  )
+
+  const assignMigration = readFileSync(
+    resolve(root, 'supabase/migrations/20260827120000_support_assignment_rpcs.sql'),
+    'utf8',
+  )
+  assert(assignMigration.includes('support_assign_conversation'), 'assign RPC in assignment migration')
+  assert(assignMigration.includes('support_unassign_conversation'), 'unassign RPC in assignment migration')
+  assert(assignMigration.includes('is_alza_support()'), 'ALZA-only assignment auth')
+  assert(
+    assignMigration.includes('DO NOT apply until reviewed') || assignMigration.includes('PROPOSED'),
+    'assignment migration marked proposed',
+  )
+
+  const center = readFileSync(resolve(root, 'src/pages/SupportCenter.tsx'), 'utf8')
+  assert(center.includes('Mark Resolved'), 'customer can resolve')
+  assert(!center.includes('coming soon'), 'no placeholder controls')
 }
 
 console.log('J. create-subscription rejects legacy / missing secret message')

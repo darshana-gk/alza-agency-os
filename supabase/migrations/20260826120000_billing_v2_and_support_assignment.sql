@@ -1,9 +1,10 @@
--- PROPOSED / REVIEW BEFORE APPLY — ALZA Flow billing V2 + support assignment
+-- PROPOSED / REVIEW BEFORE APPLY — ALZA Flow billing V2 columns
 -- Additive only. Does not drop legacy Stripe/Razorpay columns or Essential/Professional rows.
+-- Support assignment RPCs live in 20260827120000_support_assignment_rpcs.sql (separate).
 -- DO NOT apply until reviewed.
 
 -- ---------------------------------------------------------------------------
--- 1) billing_subscriptions additive columns
+-- billing_subscriptions additive columns
 -- ---------------------------------------------------------------------------
 ALTER TABLE public.billing_subscriptions
   ADD COLUMN IF NOT EXISTS product_key text,
@@ -62,85 +63,3 @@ COMMENT ON COLUMN public.billing_subscriptions.billing_interval IS
   'monthly | annual';
 COMMENT ON COLUMN public.billing_subscriptions.included_users IS
   'Soft seat ceiling for the subscribed band when known.';
-
--- ---------------------------------------------------------------------------
--- 2) Support assignment RPC (ALZA support only)
--- ---------------------------------------------------------------------------
-CREATE OR REPLACE FUNCTION public.support_assign_conversation(
-  p_conversation_id uuid,
-  p_assignee_user_id uuid
-)
-RETURNS void
-LANGUAGE plpgsql
-SECURITY DEFINER
-SET search_path = public
-AS $$
-DECLARE
-  assignee_ok boolean;
-BEGIN
-  IF NOT public.is_alza_support() THEN
-    RAISE EXCEPTION 'only ALZA support can assign conversations';
-  END IF;
-
-  IF p_assignee_user_id IS NULL THEN
-    RAISE EXCEPTION 'assignee required';
-  END IF;
-
-  SELECT EXISTS (
-    SELECT 1
-    FROM public.users u
-    WHERE u.id = p_assignee_user_id
-      AND u.archived_at IS NULL
-      AND lower(coalesce(u.status, '')) = 'active'
-      AND (
-        lower(coalesce(u.role, '')) = 'alza_support'
-        OR EXISTS (
-          SELECT 1 FROM public.user_roles ur
-          WHERE ur.user_id = u.id AND lower(ur.role) = 'alza_support'
-        )
-      )
-  ) INTO assignee_ok;
-
-  IF NOT assignee_ok THEN
-    RAISE EXCEPTION 'assignee must be an active ALZA support user';
-  END IF;
-
-  UPDATE public.support_conversations
-  SET
-    assigned_to_user_id = p_assignee_user_id,
-    updated_at = now()
-  WHERE id = p_conversation_id;
-
-  IF NOT FOUND THEN
-    RAISE EXCEPTION 'conversation not found';
-  END IF;
-END;
-$$;
-
-CREATE OR REPLACE FUNCTION public.support_unassign_conversation(p_conversation_id uuid)
-RETURNS void
-LANGUAGE plpgsql
-SECURITY DEFINER
-SET search_path = public
-AS $$
-BEGIN
-  IF NOT public.is_alza_support() THEN
-    RAISE EXCEPTION 'only ALZA support can unassign conversations';
-  END IF;
-
-  UPDATE public.support_conversations
-  SET
-    assigned_to_user_id = NULL,
-    updated_at = now()
-  WHERE id = p_conversation_id;
-
-  IF NOT FOUND THEN
-    RAISE EXCEPTION 'conversation not found';
-  END IF;
-END;
-$$;
-
-REVOKE ALL ON FUNCTION public.support_assign_conversation(uuid, uuid) FROM PUBLIC;
-REVOKE ALL ON FUNCTION public.support_unassign_conversation(uuid) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.support_assign_conversation(uuid, uuid) TO authenticated;
-GRANT EXECUTE ON FUNCTION public.support_unassign_conversation(uuid) TO authenticated;

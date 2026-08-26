@@ -380,9 +380,25 @@ LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = public
 AS $$
+DECLARE
+  c public.support_conversations%ROWTYPE;
 BEGIN
-  IF NOT public.is_alza_support() THEN
-    RAISE EXCEPTION 'only ALZA support can resolve conversations';
+  SELECT * INTO c
+  FROM public.support_conversations
+  WHERE id = p_conversation_id;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'conversation not found';
+  END IF;
+
+  -- ALZA Support may resolve any ticket; agency users may resolve their own agency's tickets.
+  IF public.is_alza_support() THEN
+    NULL;
+  ELSIF public.can_use_agency_support()
+        AND c.agency_profile_id = public.current_user_agency_profile_id() THEN
+    NULL;
+  ELSE
+    RAISE EXCEPTION 'not allowed to resolve this conversation';
   END IF;
 
   UPDATE public.support_conversations
@@ -391,10 +407,6 @@ BEGIN
     resolved_at = now(),
     updated_at = now()
   WHERE id = p_conversation_id;
-
-  IF NOT FOUND THEN
-    RAISE EXCEPTION 'conversation not found';
-  END IF;
 END;
 $$;
 
