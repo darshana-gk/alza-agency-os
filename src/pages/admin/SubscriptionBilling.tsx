@@ -37,16 +37,11 @@ import {
   type BillingProductKey,
   type BillingUserBandKey,
 } from '../../lib/billingCatalog'
-import { legacyPlanDisplayNote } from '../../lib/billingEntitlements'
-import { formatDate } from '../../lib/commission'
 import { agencyAllowsOpsAccess } from '../../lib/agencyLifecycle'
 
-const fieldLabelClass = 'mb-1 block text-xs font-medium uppercase tracking-wide text-slate-500'
+const fieldLabelClass = 'mb-1.5 block text-xs font-medium uppercase tracking-wide text-slate-500'
 const selectClass =
-  'h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-900 focus:border-alza-blue-500 focus:outline-none focus:ring-2 focus:ring-alza-blue-500/20 disabled:cursor-not-allowed disabled:opacity-60'
-
-/** Temporary Preview QA fingerprint — visible only on the quote-first panel. */
-export const BILLING_QUOTE_FIRST_QA_MARKER = 'QUOTE-FIRST BILLING QA · ffefc3c'
+  'h-11 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-900 shadow-sm focus:border-alza-blue-500 focus:outline-none focus:ring-2 focus:ring-alza-blue-500/20 disabled:cursor-not-allowed disabled:opacity-60'
 
 export function SubscriptionBillingPage() {
   const { profile } = useAuth()
@@ -142,27 +137,23 @@ export function SubscriptionBillingPage() {
   const recommendedBand = useMemo(() => recommendUserBand(userCount), [userCount])
   const quote = quoteBillingSelection({ product, userBand, interval })
   const planLabel = formatBillingPlan(billing)
-  const legacyNote = legacyPlanDisplayNote(billing?.planKey)
   const status = billing?.status ?? 'incomplete'
   const legacyActive = isLegacyActiveSubscription(billing?.planKey, status)
   const allowCheckout = allowsNewCheckout(status, billing?.planKey) && !processing
-  const hasActivePlan = !allowCheckout && Boolean(billing?.planKey || billing?.razorpaySubscriptionId)
   const showCatalog = shouldShowBillingCatalog()
   const showCancel = canCancelSubscription(status)
   const bands = billingUserBands(product)
   const recommendedLabel =
     billingUserBands('alza_flow').find((b) => b.key === recommendedBand)?.label ?? recommendedBand
   const selectedProduct = BILLING_PRODUCTS.find((p) => p.key === product)
-  const statusNorm = status.trim().toLowerCase()
-  const isEndedSubscription =
-    statusNorm === 'cancelled' ||
-    statusNorm === 'canceled' ||
-    statusNorm === 'completed' ||
-    statusNorm === 'halted'
-  const planFieldLabel =
-    isEndedSubscription && (billing?.planKey || planLabel.title !== 'No active plan')
-      ? 'Previous plan'
-      : 'Current plan'
+  const isRecommendedSelection = userBand === recommendedBand && product === 'alza_flow'
+  const showAnnualAdvantage =
+    product === 'alza_flow' &&
+    interval === 'annual' &&
+    quote.annualSavings != null &&
+    quote.annualListValue != null &&
+    quote.amount != null &&
+    !quote.contactAlza
   const primaryAction = billingCatalogPrimaryAction({
     status,
     planKey: billing?.planKey,
@@ -289,11 +280,11 @@ export function SubscriptionBillingPage() {
           ) : null}
 
           {showCatalog && (
-            <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,16.5rem)_minmax(0,1fr)]">
-              <aside className="space-y-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+            <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,17.5rem)_minmax(0,1fr)]">
+              {/* Left configuration rail */}
+              <aside className="space-y-5 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
                 <div>
                   <h3 className="text-sm font-semibold text-slate-900">Configure plan</h3>
-                  <p className="mt-1 text-xs text-slate-500">Product, team size, and billing frequency.</p>
                 </div>
 
                 <label className="block">
@@ -341,99 +332,105 @@ export function SubscriptionBillingPage() {
                 </label>
 
                 <div className="block">
-                  <span className={fieldLabelClass}>Monthly / Annual</span>
+                  <span className={fieldLabelClass}>Billing frequency</span>
                   <div
-                    className="inline-flex h-10 w-full rounded-lg border border-slate-200 bg-slate-50 p-0.5"
+                    className="inline-flex h-11 w-full rounded-lg border border-slate-200 bg-slate-100/80 p-1"
                     role="group"
                     aria-label="Billing frequency"
                   >
-                    {BILLING_INTERVALS.map((opt) => (
-                      <button
-                        key={opt.key}
-                        type="button"
-                        disabled={busy || processing || product === 'alza_flow_pay'}
-                        onClick={() => setInterval(opt.key)}
-                        className={`flex-1 rounded-md text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
-                          interval === opt.key
-                            ? 'bg-white text-alza-blue-800 shadow-sm'
-                            : 'text-slate-600 hover:text-slate-900'
-                        }`}
-                      >
-                        {opt.label}
-                      </button>
-                    ))}
+                    {BILLING_INTERVALS.map((opt) => {
+                      const selected = interval === opt.key
+                      return (
+                        <button
+                          key={opt.key}
+                          type="button"
+                          disabled={busy || processing || product === 'alza_flow_pay'}
+                          onClick={() => setInterval(opt.key)}
+                          className={`relative flex flex-1 items-center justify-center gap-1.5 rounded-md text-sm font-semibold transition-all disabled:cursor-not-allowed disabled:opacity-50 ${
+                            selected
+                              ? 'bg-white text-alza-blue-900 shadow-sm ring-1 ring-alza-blue-200'
+                              : 'text-slate-500 hover:text-slate-800'
+                          }`}
+                        >
+                          {opt.label}
+                          {opt.key === 'annual' && selected ? (
+                            <span className="rounded bg-alza-teal-50 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-alza-teal-800 ring-1 ring-alza-teal-200/80">
+                              Save 2 months
+                            </span>
+                          ) : null}
+                        </button>
+                      )
+                    })}
                   </div>
                 </div>
 
-                <p className="text-xs text-slate-500">
-                  {userCount} active users · recommended{' '}
-                  <span className="font-medium text-slate-700">{recommendedLabel}</span>
-                </p>
+                <div className="space-y-1 border-t border-slate-100 pt-4 text-xs text-slate-500">
+                  <p>
+                    <span className="font-medium text-slate-700">{userCount}</span> active users
+                  </p>
+                  <p>
+                    Recommended:{' '}
+                    <span className="font-medium text-slate-700">{recommendedLabel}</span>
+                  </p>
+                  <p className="pt-2 leading-relaxed text-slate-400">
+                    All prices are in USD. Secure checkout by Razorpay.
+                  </p>
+                </div>
               </aside>
 
+              {/* Right dominant quote panel */}
               <section
-                className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-md"
+                className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-lg"
                 data-testid="billing-price-result"
                 data-billing-quote="quote-first"
               >
-                <div
-                  className="border-b border-amber-300/40 bg-amber-400 px-4 py-2 text-center text-xs font-bold uppercase tracking-wide text-amber-950"
-                  data-billing-qa-marker="quote-first"
-                >
-                  {BILLING_QUOTE_FIRST_QA_MARKER}
-                </div>
-
-                <div className="bg-gradient-to-br from-alza-blue-900 via-alza-blue-800 to-alza-teal-800 px-6 py-5 text-white sm:px-8 sm:py-6">
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-white/70">
-                    {quote.productName}
-                    {userBand === recommendedBand && product === 'alza_flow' ? (
-                      <span className="text-alza-teal-200"> — Recommended</span>
+                <div className="bg-gradient-to-br from-alza-blue-900 via-alza-blue-800 to-alza-teal-800 px-6 py-6 text-white sm:px-8 sm:py-7">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-white/75">
+                    {product === 'alza_flow' ? 'ALZA FLOW' : quote.productName.toUpperCase()}
+                    {isRecommendedSelection ? (
+                      <span className="text-alza-teal-200"> — RECOMMENDED</span>
                     ) : null}
                     {selectedProduct?.comingSoon ? (
-                      <span className="ml-2 rounded bg-white/15 px-1.5 py-0.5 text-[10px] font-medium tracking-wide">
+                      <span className="ml-2 rounded bg-white/15 px-1.5 py-0.5 text-[10px] font-medium tracking-wide normal-case">
                         Coming Soon
                       </span>
                     ) : null}
                   </p>
-                  <p className="mt-2 text-base text-white/85">
+                  <p className="mt-2.5 text-base font-medium text-white/90">
                     {quote.bandLabel}
                     {quote.intervalLabel ? ` · ${quote.intervalLabel}` : ''}
                   </p>
                   <p className="mt-5 text-4xl font-bold tabular-nums tracking-tight sm:text-5xl">
                     {quote.displayPrice}
                   </p>
-                  {product === 'alza_flow' &&
-                    interval === 'annual' &&
-                    quote.amount != null &&
-                    !quote.contactAlza && (
-                      <p className="mt-2 text-sm text-white/75">
-                        Equivalent to {formatUsdMoney(equivalentMonthlyFromAnnual(quote.amount))}
-                        /month
-                      </p>
-                    )}
+                  {showAnnualAdvantage && (
+                    <p className="mt-2 text-sm text-white/75">
+                      Equivalent to {formatUsdMoney(equivalentMonthlyFromAnnual(quote.amount!))}
+                      /month
+                    </p>
+                  )}
                 </div>
 
                 <div className="space-y-5 px-6 py-6 sm:px-8 sm:py-7">
-                  {product === 'alza_flow' &&
-                    interval === 'annual' &&
-                    quote.annualSavings != null &&
-                    quote.annualListValue != null &&
-                    !quote.contactAlza && (
-                      <div className="rounded-xl border border-alza-teal-200 bg-gradient-to-r from-alza-teal-50 to-white px-4 py-3.5">
-                        <p className="text-xs font-semibold uppercase tracking-wide text-alza-teal-900">
-                          Annual advantage
-                        </p>
-                        <p className="mt-1 text-base font-semibold text-alza-teal-950">
-                          Save {formatUsdWhole(quote.annualSavings)} · 2 months included
-                        </p>
-                        <p className="mt-0.5 text-sm text-alza-teal-800/90">
-                          {formatUsdWhole(quote.annualListValue)}/year when paid monthly
-                        </p>
-                      </div>
-                    )}
+                  {showAnnualAdvantage && (
+                    <div className="rounded-xl border border-alza-teal-200 bg-gradient-to-r from-alza-teal-50 to-white px-4 py-4">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-alza-teal-900">
+                        Annual Advantage
+                      </p>
+                      <p className="mt-1.5 text-base font-semibold text-alza-teal-950">
+                        Save {formatUsdWhole(quote.annualSavings!)} · 2 months included
+                      </p>
+                      <p className="mt-1 text-sm text-alza-teal-800/90">
+                        <span className="mr-1.5 line-through decoration-alza-teal-700/50">
+                          {formatUsdWhole(quote.annualListValue!)}
+                        </span>
+                        /year when paid monthly
+                      </p>
+                    </div>
+                  )}
 
                   {product === 'alza_flow' && !quote.contactAlza && (
-                    <ul className="space-y-2.5 text-[15px] text-slate-700">
+                    <ul className="space-y-2.5 text-[15px] leading-snug text-slate-700">
                       {ALZA_FLOW_INCLUDED_FEATURES.map((line) => (
                         <li key={line} className="flex gap-2.5">
                           <span className="mt-0.5 font-semibold text-alza-teal-700" aria-hidden>
@@ -446,11 +443,14 @@ export function SubscriptionBillingPage() {
                   )}
 
                   {quote.contactAlza && (
-                    <ul className="list-inside list-disc space-y-1 text-sm text-slate-600">
-                      {quote.summaryLines.map((line) => (
-                        <li key={line}>{line}</li>
-                      ))}
-                    </ul>
+                    <div className="space-y-2 text-sm text-slate-600">
+                      <p className="font-medium text-slate-800">Custom pricing for large teams.</p>
+                      <ul className="list-inside list-disc space-y-1">
+                        {quote.summaryLines.map((line) => (
+                          <li key={line}>{line}</li>
+                        ))}
+                      </ul>
+                    </div>
                   )}
 
                   {product === 'alza_flow_pay' && (
@@ -458,31 +458,37 @@ export function SubscriptionBillingPage() {
                       ALZA Flow Pay is Coming Soon and not purchasable.
                     </p>
                   )}
+
                   {legacyActive && (
-                    <p className="text-sm font-medium text-amber-900">
+                    <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
                       A legacy plan is still active. Use Upgrade / Contact ALZA — a second online
                       subscription will not be started.
                     </p>
                   )}
 
-                  <div className="flex flex-wrap gap-3 border-t border-slate-100 pt-5">
+                  <div className="space-y-2 border-t border-slate-100 pt-5">
                     {primaryAction === 'subscribe' && allowCheckout && (
-                      <button
-                        type="button"
-                        disabled={busy || processing}
-                        onClick={() => void handleSubscribe()}
-                        className="inline-flex min-h-11 flex-1 items-center justify-center gap-2 rounded-xl gradient-alza px-5 py-3 text-sm font-semibold text-white shadow-sm hover:opacity-90 disabled:opacity-50 sm:flex-none sm:min-w-[14rem]"
-                      >
-                        <CreditCard className="h-4 w-4" />
-                        {busy
-                          ? 'Opening Checkout…'
-                          : `Subscribe — ${quote.displayPrice.replace(' / ', '/')}`}
-                      </button>
+                      <>
+                        <button
+                          type="button"
+                          disabled={busy || processing}
+                          onClick={() => void handleSubscribe()}
+                          className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-xl gradient-alza px-5 py-3.5 text-base font-semibold text-white shadow-md hover:opacity-90 disabled:opacity-50"
+                        >
+                          <CreditCard className="h-5 w-5" />
+                          {busy
+                            ? 'Opening Checkout…'
+                            : `Subscribe — ${quote.displayPrice.replace(' / ', '/')}`}
+                        </button>
+                        <p className="text-center text-xs text-slate-500">
+                          Secure checkout by Razorpay
+                        </p>
+                      </>
                     )}
                     {primaryAction === 'upgrade_contact' && (
                       <Link
                         to={BILLING_UPGRADE_CONTACT_PATH}
-                        className="inline-flex min-h-11 flex-1 items-center justify-center gap-2 rounded-xl gradient-alza px-5 py-3 text-sm font-semibold text-white shadow-sm hover:opacity-90 sm:flex-none"
+                        className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-xl gradient-alza px-5 py-3.5 text-base font-semibold text-white shadow-md hover:opacity-90"
                       >
                         Upgrade / Contact ALZA
                       </Link>
@@ -490,7 +496,7 @@ export function SubscriptionBillingPage() {
                     {primaryAction === 'contact_alza' && (
                       <Link
                         to={BILLING_SUPPORT_CONTACT_PATH}
-                        className="inline-flex min-h-11 flex-1 items-center justify-center gap-2 rounded-xl border border-alza-blue-200 bg-alza-blue-50 px-5 py-3 text-sm font-semibold text-alza-blue-900 hover:bg-alza-blue-100 sm:flex-none"
+                        className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-xl border border-alza-blue-200 bg-alza-blue-50 px-5 py-3.5 text-base font-semibold text-alza-blue-900 hover:bg-alza-blue-100"
                       >
                         Contact ALZA
                       </Link>
@@ -501,19 +507,17 @@ export function SubscriptionBillingPage() {
             </div>
           )}
 
-          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-4 text-xs text-slate-500">
+          {/* Minimal account actions — not a history block */}
+          <div className="flex flex-wrap items-center justify-between gap-3 text-xs text-slate-400">
             <p>
-              <span className="font-medium text-slate-700">{formatBillingStatusLabel(status)}</span>
-              {' · '}
-              {planFieldLabel}:{' '}
-              {!hasActivePlan && !isEndedSubscription ? 'No active plan' : planLabel.title}
-              {planLabel.subtitle ? ` (${planLabel.subtitle})` : ''}
-              {isEndedSubscription && billing?.canceledAt
-                ? ` · Cancelled ${formatDate(billing.canceledAt.slice(0, 10))}`
-                : ''}
-              {legacyNote ? ` · ${legacyNote}` : ''}
-              {' · '}
-              {userCount} active users
+              Status:{' '}
+              <span className="text-slate-600">{formatBillingStatusLabel(status)}</span>
+              {planLabel.title && planLabel.title !== 'No active plan' ? (
+                <>
+                  {' · '}
+                  {planLabel.title}
+                </>
+              ) : null}
             </p>
             <div className="flex flex-wrap gap-2">
               {showCancel && (
@@ -521,7 +525,7 @@ export function SubscriptionBillingPage() {
                   type="button"
                   disabled={busy || processing}
                   onClick={() => void handleCancel()}
-                  className="inline-flex items-center gap-2 rounded-lg border border-red-200 bg-white px-3 py-1.5 text-xs font-medium text-red-700 hover:bg-red-50 disabled:opacity-50"
+                  className="inline-flex items-center gap-1.5 rounded-md border border-red-100 bg-white px-2.5 py-1 text-xs font-medium text-red-600 hover:bg-red-50 disabled:opacity-50"
                 >
                   <XCircle className="h-3.5 w-3.5" />
                   Cancel
@@ -531,7 +535,7 @@ export function SubscriptionBillingPage() {
                 type="button"
                 disabled={busy || loading}
                 onClick={() => void load()}
-                className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-500 hover:bg-slate-50 disabled:opacity-50"
               >
                 <RefreshCw className="h-3.5 w-3.5" />
                 Refresh
