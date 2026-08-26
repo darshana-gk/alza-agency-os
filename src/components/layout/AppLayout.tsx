@@ -23,6 +23,10 @@ const pageTitles: Record<string, { title: string; subtitle?: string }> = {
     title: 'Onboarding Import',
     subtitle: 'Import directory, clients, and policies from spreadsheets or pasted tables',
   },
+  '/integrations': {
+    title: 'Integrations',
+    subtitle: 'Connect the systems your agency already uses to ALZA Flow',
+  },
   '/admin/producers': { title: 'Producers', subtitle: 'Manage producer accounts' },
   '/admin/csrs': { title: 'CSRs', subtitle: 'Customer service representatives' },
   '/admin/mgas': { title: 'MGAs', subtitle: 'Managing general agents' },

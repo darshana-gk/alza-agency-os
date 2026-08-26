@@ -21,6 +21,7 @@ import {
   LifeBuoy,
   Inbox,
   Upload,
+  Cable,
   type LucideIcon,
 } from 'lucide-react'
 import type { NavGroup } from '@/types'
@@ -40,6 +41,7 @@ const ICONS: Record<string, LucideIcon> = {
   '/support': LifeBuoy,
   '/admin/support-inbox': Inbox,
   '/onboarding': Upload,
+  '/integrations': Cable,
   '/admin/producers': UserCog,
   '/admin/csrs': Headphones,
   '/admin/mgas': Building2,
