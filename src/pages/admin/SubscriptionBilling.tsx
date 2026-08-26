@@ -9,8 +9,6 @@ import {
   createRazorpaySubscription,
   fetchAgencyActiveUserCount,
   fetchBillingSubscription,
-  formatBillingPlan,
-  formatBillingStatusLabel,
   openRazorpaySubscriptionCheckout,
   type BillingSubscription,
 } from '../../lib/billing'
@@ -136,7 +134,6 @@ export function SubscriptionBillingPage() {
 
   const recommendedBand = useMemo(() => recommendUserBand(userCount), [userCount])
   const quote = quoteBillingSelection({ product, userBand, interval })
-  const planLabel = formatBillingPlan(billing)
   const status = billing?.status ?? 'incomplete'
   const legacyActive = isLegacyActiveSubscription(billing?.planKey, status)
   const allowCheckout = allowsNewCheckout(status, billing?.planKey) && !processing
@@ -166,7 +163,7 @@ export function SubscriptionBillingPage() {
     if (!allowCheckout) {
       setError(
         legacyActive
-          ? 'Your Legacy Plan is still active. Contact ALZA to upgrade — a second online subscription will not be started.'
+          ? 'Online checkout is unavailable while another subscription is active. Use Upgrade / Contact ALZA.'
           : 'An active subscription already exists. Cancel it before starting a new online checkout.',
       )
       return
@@ -334,9 +331,10 @@ export function SubscriptionBillingPage() {
                 <div className="block">
                   <span className={fieldLabelClass}>Billing frequency</span>
                   <div
-                    className="inline-flex h-11 w-full rounded-lg border border-slate-200 bg-slate-100/80 p-1"
+                    className="inline-flex h-11 w-full gap-1 rounded-lg border border-slate-200 bg-slate-50 p-1"
                     role="group"
                     aria-label="Billing frequency"
+                    data-testid="billing-frequency-toggle"
                   >
                     {BILLING_INTERVALS.map((opt) => {
                       const selected = interval === opt.key
@@ -346,15 +344,17 @@ export function SubscriptionBillingPage() {
                           type="button"
                           disabled={busy || processing || product === 'alza_flow_pay'}
                           onClick={() => setInterval(opt.key)}
-                          className={`relative flex flex-1 items-center justify-center gap-1.5 rounded-md text-sm font-semibold transition-all disabled:cursor-not-allowed disabled:opacity-50 ${
+                          aria-pressed={selected}
+                          data-selected={selected ? 'true' : 'false'}
+                          className={`relative flex flex-1 items-center justify-center gap-1.5 rounded-md px-2 text-sm font-semibold transition-all disabled:cursor-not-allowed disabled:opacity-50 ${
                             selected
-                              ? 'bg-white text-alza-blue-900 shadow-sm ring-1 ring-alza-blue-200'
-                              : 'text-slate-500 hover:text-slate-800'
+                              ? 'bg-gradient-to-r from-alza-blue-800 to-alza-teal-700 text-white shadow-sm'
+                              : 'bg-white text-slate-600 hover:bg-slate-50 hover:text-slate-900'
                           }`}
                         >
                           {opt.label}
                           {opt.key === 'annual' && selected ? (
-                            <span className="rounded bg-alza-teal-50 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-alza-teal-800 ring-1 ring-alza-teal-200/80">
+                            <span className="rounded bg-white/20 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-white">
                               Save 2 months
                             </span>
                           ) : null}
@@ -459,13 +459,6 @@ export function SubscriptionBillingPage() {
                     </p>
                   )}
 
-                  {legacyActive && (
-                    <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
-                      A legacy plan is still active. Use Upgrade / Contact ALZA — a second online
-                      subscription will not be started.
-                    </p>
-                  )}
-
                   <div className="space-y-2 border-t border-slate-100 pt-5">
                     {primaryAction === 'subscribe' && allowCheckout && (
                       <>
@@ -507,19 +500,7 @@ export function SubscriptionBillingPage() {
             </div>
           )}
 
-          {/* Minimal account actions — not a history block */}
-          <div className="flex flex-wrap items-center justify-between gap-3 text-xs text-slate-400">
-            <p>
-              Status:{' '}
-              <span className="text-slate-600">{formatBillingStatusLabel(status)}</span>
-              {planLabel.title && planLabel.title !== 'No active plan' ? (
-                <>
-                  {' · '}
-                  {planLabel.title}
-                </>
-              ) : null}
-            </p>
-            <div className="flex flex-wrap gap-2">
+          <div className="flex justify-end gap-2">
               {showCancel && (
                 <button
                   type="button"
@@ -528,7 +509,7 @@ export function SubscriptionBillingPage() {
                   className="inline-flex items-center gap-1.5 rounded-md border border-red-100 bg-white px-2.5 py-1 text-xs font-medium text-red-600 hover:bg-red-50 disabled:opacity-50"
                 >
                   <XCircle className="h-3.5 w-3.5" />
-                  Cancel
+                  Cancel subscription
                 </button>
               )}
               <button
@@ -541,7 +522,6 @@ export function SubscriptionBillingPage() {
                 Refresh
               </button>
             </div>
-          </div>
         </>
       )}
     </div>
