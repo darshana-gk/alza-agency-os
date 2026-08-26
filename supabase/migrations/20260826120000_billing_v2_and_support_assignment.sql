@@ -34,7 +34,9 @@ BEGIN
         'flow_11_25_monthly',
         'flow_11_25_annual',
         'flow_26_50_monthly',
-        'flow_26_50_annual'
+        'flow_26_50_annual',
+        'flow_51_100_monthly',
+        'flow_51_100_annual'
       )
     );
 EXCEPTION

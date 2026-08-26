@@ -25,12 +25,14 @@ export type BillingCheckoutSku =
   | 'flow_11_25_annual'
   | 'flow_26_50_monthly'
   | 'flow_26_50_annual'
+  | 'flow_51_100_monthly'
+  | 'flow_51_100_annual'
 
 export type LegacyBillingPlanKey = 'essential' | 'professional'
 
 export type BillingCheckoutBandKey = Extract<
   BillingUserBandKey,
-  'users_1_3' | 'users_4_10' | 'users_11_25' | 'users_26_50'
+  'users_1_3' | 'users_4_10' | 'users_11_25' | 'users_26_50' | 'users_51_100'
 >
 
 export interface BillingProductOption {
@@ -81,6 +83,7 @@ const BAND_SKU_PART: Record<BillingCheckoutBandKey, string> = {
   users_4_10: '4_10',
   users_11_25: '11_25',
   users_26_50: '26_50',
+  users_51_100: '51_100',
 }
 
 export const BILLING_PRODUCTS: BillingProductOption[] = [
@@ -151,12 +154,12 @@ const FLOW_BANDS: BillingUserBandOption[] = [
     key: 'users_51_100',
     label: '51–100 users',
     includedUsersMax: 100,
-    checkoutEligible: false,
-    customPricing: true,
+    checkoutEligible: true,
+    customPricing: false,
     monthly: 1499,
-    annual: null,
-    plusPricing: true,
-    contactAlza: true,
+    annual: 14990,
+    plusPricing: false,
+    contactAlza: false,
   },
   {
     key: 'users_100_plus',
@@ -222,11 +225,11 @@ const FLOW_PAY_BANDS: BillingUserBandOption[] = [
     label: '51–100 users',
     includedUsersMax: 100,
     checkoutEligible: false,
-    customPricing: true,
+    customPricing: false,
     monthly: 1799,
-    annual: null,
-    plusPricing: true,
-    contactAlza: true,
+    annual: 17990,
+    plusPricing: false,
+    contactAlza: false,
   },
   {
     key: 'users_100_plus',
@@ -255,6 +258,8 @@ export const BILLING_CHECKOUT_SKUS: BillingCheckoutSku[] = [
   'flow_11_25_annual',
   'flow_26_50_monthly',
   'flow_26_50_annual',
+  'flow_51_100_monthly',
+  'flow_51_100_annual',
 ]
 
 export const BILLING_SUPPORT_CONTACT_PATH = '/support?category=billing_subscription&subject=Subscription%20inquiry'
@@ -306,7 +311,8 @@ export function isBillingCheckoutBandKey(
     value === 'users_1_3' ||
     value === 'users_4_10' ||
     value === 'users_11_25' ||
-    value === 'users_26_50'
+    value === 'users_26_50' ||
+    value === 'users_51_100'
   )
 }
 
@@ -369,7 +375,7 @@ export function parseCheckoutSku(sku: string | null | undefined): {
   interval: BillingInterval
 } | null {
   const v = String(sku ?? '').trim().toLowerCase()
-  const match = /^flow_(1_3|4_10|11_25|26_50)_(monthly|annual)$/.exec(v)
+  const match = /^flow_(1_3|4_10|11_25|26_50|51_100)_(monthly|annual)$/.exec(v)
   if (!match) return null
   const part = match[1]
   const userBand = (
@@ -464,7 +470,7 @@ export function quoteBillingSelection(input: {
     }
   }
 
-  if (contactAlza || input.userBand === 'users_51_100') {
+  if (contactAlza) {
     return {
       product: input.product,
       productName,
@@ -481,7 +487,7 @@ export function quoteBillingSelection(input: {
       annualAmount: null,
       annualListValue: monthlyAmount != null ? annualListValueFromMonthly(monthlyAmount) : null,
       annualSavings: null,
-      displayPrice: `${formatUsdWhole(monthlyAmount ?? 0)}${plusPricing ? '+' : ''}/mo · Contact ALZA`,
+      displayPrice: 'Custom pricing',
       intervalLabel: input.interval === 'annual' ? 'Annual' : input.interval === 'monthly' ? 'Monthly' : '',
       summaryLines: ['Contact ALZA', 'Online checkout not available for this band'],
     }
@@ -675,13 +681,14 @@ export function isLegacyActiveSubscription(
 /**
  * New Razorpay checkout is only for agencies without a blocking subscription.
  * Legacy-active must never start a second subscription from the catalog.
+ * Cancelled / incomplete / halted (including cancelled legacy) may checkout.
  */
 export function allowsNewCheckout(
   status: string | null | undefined,
   planKey?: string | null,
 ): boolean {
   if (!shouldShowSubscribe(status)) return false
-  if (isLegacyBillingPlanKey(planKey)) return false
+  if (isLegacyActiveSubscription(planKey, status)) return false
   return true
 }
 

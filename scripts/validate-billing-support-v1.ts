@@ -59,6 +59,8 @@ console.log('A. ALZA Flow monthly + annual ×10 + savings')
   assertEq(annualSavingsFromMonthly(899), 1798, '11-25 savings')
   assertEq(annualPriceFromMonthly(1099), 10990, '26-50 annual')
   assertEq(annualSavingsFromMonthly(1099), 2198, '26-50 savings')
+  assertEq(annualPriceFromMonthly(1499), 14990, '51-100 annual')
+  assertEq(annualSavingsFromMonthly(1499), 2998, '51-100 savings')
 
   const q = quoteBillingSelection({
     product: 'alza_flow',
@@ -110,13 +112,25 @@ console.log('D. Band detection + Contact/Custom')
   assertEq(recommendUserBand(75), 'users_51_100', '75 → 51-100')
   assertEq(recommendUserBand(120), 'users_100_plus', '120 → 100+')
 
-  const contact = quoteBillingSelection({
+  const band51 = quoteBillingSelection({
     product: 'alza_flow',
     userBand: 'users_51_100',
     interval: 'monthly',
   })
-  assertEq(contact.checkoutEligible, false, '51-100 no checkout')
-  assert(contact.contactAlza, '51-100 Contact ALZA')
+  assert(band51.checkoutEligible, '51-100 monthly checkout eligible')
+  assertEq(band51.amount, 1499, '51-100 monthly $1499')
+  assertEq(band51.sku, 'flow_51_100_monthly', '51-100 monthly sku')
+  assert(!band51.contactAlza, '51-100 not Contact ALZA')
+
+  const band51Annual = quoteBillingSelection({
+    product: 'alza_flow',
+    userBand: 'users_51_100',
+    interval: 'annual',
+  })
+  assert(band51Annual.checkoutEligible, '51-100 annual checkout eligible')
+  assertEq(band51Annual.amount, 14990, '51-100 annual $14990')
+  assertEq(band51Annual.sku, 'flow_51_100_annual', '51-100 annual sku')
+  assertEq(band51Annual.annualSavings, 2998, '51-100 annual savings (2 months free)')
 
   const custom = quoteBillingSelection({
     product: 'alza_flow',
@@ -124,6 +138,7 @@ console.log('D. Band detection + Contact/Custom')
     interval: null,
   })
   assert(custom.contactAlza && custom.customPricing, '100+ custom')
+  assertEq(custom.checkoutEligible, false, '100+ no checkout')
   assert(BILLING_SUPPORT_CONTACT_PATH.startsWith('/support'), 'Contact ALZA → /support')
 }
 
@@ -139,7 +154,14 @@ console.log('E. Razorpay secret names + no frontend secrets')
     'RAZORPAY_PLAN_FLOW_26_50_ANNUAL',
     'env name annual',
   )
-  assertEq(BILLING_CHECKOUT_SKUS.length, 8, '8 Flow checkout SKUs only')
+  assertEq(BILLING_CHECKOUT_SKUS.length, 10, '10 Flow checkout SKUs (incl 51-100)')
+  assert(BILLING_CHECKOUT_SKUS.includes('flow_51_100_monthly'), '51-100 monthly sku listed')
+  assert(BILLING_CHECKOUT_SKUS.includes('flow_51_100_annual'), '51-100 annual sku listed')
+  assertEq(
+    razorpayPlanEnvName('flow_51_100_monthly'),
+    'RAZORPAY_PLAN_FLOW_51_100_MONTHLY',
+    'env name 51-100 monthly',
+  )
   const catalogSrc = readFileSync(resolve(root, 'src/lib/billingCatalog.ts'), 'utf8')
   assert(!catalogContainsPlanSecrets(catalogSrc), 'catalog has no secret values')
   assert(!/["']rzp_live|["']sk_live/.test(catalogSrc), 'no embedded live keys')
@@ -194,6 +216,10 @@ console.log('G2. Legacy-active + V2 catalog visibility (no second checkout)')
   }
   assert(!isLegacyActiveSubscription('essential', 'cancelled'), 'cancelled essential not legacy-active')
   assert(allowsNewCheckout('incomplete', null), 'incomplete may checkout')
+  assert(allowsNewCheckout('cancelled', null), 'cancelled null plan may checkout')
+  assert(allowsNewCheckout('cancelled', 'essential'), 'cancelled legacy may checkout Flow')
+  assert(allowsNewCheckout('canceled', 'professional'), 'canceled legacy may checkout Flow')
+  assert(allowsNewCheckout('cancelled', 'flow_1_3_monthly'), 'cancelled Flow may checkout again')
   assertEq(
     billingCatalogPrimaryAction({
       status: 'incomplete',
@@ -204,6 +230,61 @@ console.log('G2. Legacy-active + V2 catalog visibility (no second checkout)')
     }),
     'subscribe',
     'incomplete CTA subscribe',
+  )
+  assertEq(
+    billingCatalogPrimaryAction({
+      status: 'cancelled',
+      planKey: 'essential',
+      product: 'alza_flow',
+      checkoutEligible: true,
+      contactAlza: false,
+    }),
+    'subscribe',
+    'cancelled legacy CTA subscribe',
+  )
+  assertEq(
+    billingCatalogPrimaryAction({
+      status: 'cancelled',
+      planKey: 'flow_4_10_monthly',
+      product: 'alza_flow',
+      checkoutEligible: true,
+      contactAlza: false,
+    }),
+    'subscribe',
+    'cancelled Flow CTA subscribe',
+  )
+  assertEq(
+    billingCatalogPrimaryAction({
+      status: 'incomplete',
+      planKey: null,
+      product: 'alza_flow',
+      checkoutEligible: true,
+      contactAlza: false,
+    }),
+    'subscribe',
+    'no-plan CTA subscribe',
+  )
+  assertEq(
+    billingCatalogPrimaryAction({
+      status: 'cancelled',
+      planKey: null,
+      product: 'alza_flow',
+      checkoutEligible: true,
+      contactAlza: false,
+    }),
+    'subscribe',
+    '51-100 checkoutEligible cancelled CTA subscribe',
+  )
+  assertEq(
+    billingCatalogPrimaryAction({
+      status: 'incomplete',
+      planKey: null,
+      product: 'alza_flow',
+      checkoutEligible: false,
+      contactAlza: true,
+    }),
+    'contact_alza',
+    '100+ Contact ALZA CTA',
   )
 
   const page = readFileSync(resolve(root, 'src/pages/admin/SubscriptionBilling.tsx'), 'utf8')
@@ -260,6 +341,8 @@ console.log('I. Support source contracts')
   )
   assert(migration.includes('support_assign_conversation'), 'assign RPC in migration')
   assert(migration.includes('flow_1_3_monthly'), 'billing SKUs in migration')
+  assert(migration.includes('flow_51_100_monthly'), '51-100 monthly SKU in migration')
+  assert(migration.includes('flow_51_100_annual'), '51-100 annual SKU in migration')
   assert(migration.includes('DO NOT apply until reviewed') || migration.includes('PROPOSED'), 'migration marked proposed')
 }
 
