@@ -17,6 +17,7 @@ import {
   canCancelSubscription,
   catalogContainsPlanSecrets,
   checkoutSkuFor,
+  equivalentMonthlyFromAnnual,
   formatStoredPlanLabel,
   isLegacyActiveSubscription,
   quoteBillingSelection,
@@ -69,9 +70,15 @@ console.log('A. ALZA Flow monthly + annual ×10 + savings')
   })
   assertEq(q.amount, 3990, 'quote annual amount')
   assertEq(q.annualSavings, 798, 'quote savings')
-  assert(q.summaryLines.some((l) => /2 months free/i.test(l)), '2 months free in summary')
+  assert(q.summaryLines.some((l) => /2 months included/i.test(l)), '2 months included in summary')
   assert(q.checkoutEligible, '1-3 annual checkout eligible')
   assertEq(q.sku, 'flow_1_3_annual', 'sku flow_1_3_annual')
+  assertEq(q.displayPrice, '$3,990 / year', 'annual display price spacing')
+  assertEq(
+    Math.round(equivalentMonthlyFromAnnual(5990) * 100) / 100,
+    499.17,
+    '4-10 annual equivalent monthly',
+  )
 }
 
 console.log('B. Flow Pay Coming Soon / not purchasable')
@@ -304,7 +311,12 @@ console.log('G2. Legacy-active + V2 catalog visibility (no second checkout)')
   assert(page.includes('billing-product-select'), 'product select test id')
   assert(page.includes('billing-user-band-select'), 'user band select test id')
   assert(page.includes('Previous plan'), 'cancelled uses Previous plan label')
-  assert(page.includes('not plan cards'), 'copy states dropdowns not cards')
+  assert(page.includes('Annual advantage'), 'annual advantage panel copy')
+  assert(page.includes('Equivalent to'), 'annual equivalent monthly copy')
+  assert(page.includes('ALZA_FLOW_INCLUDED_FEATURES'), 'feature checklist wired')
+  assert(page.includes('2 months included'), '2 months included copy')
+  const catalogSrc = readFileSync(resolve(root, 'src/lib/billingCatalog.ts'), 'utf8')
+  assert(catalogSrc.includes('Commission operations & reconciliation'), 'feature checklist content')
   assert(!page.includes('formatBuildFingerprint'), 'QA fingerprint removed from billing page')
   assert(!page.includes('data-billing-ui-version'), 'QA fingerprint attrs removed')
   assert(!page.includes('Choose product'), 'no card Choose product heading')

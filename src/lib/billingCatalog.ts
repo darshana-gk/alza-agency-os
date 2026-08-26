@@ -264,6 +264,15 @@ export const BILLING_CHECKOUT_SKUS: BillingCheckoutSku[] = [
 
 export const BILLING_SUPPORT_CONTACT_PATH = '/support?category=billing_subscription&subject=Subscription%20inquiry'
 
+/** Included capabilities shown on the ALZA Flow quote panel (presentation only). */
+export const ALZA_FLOW_INCLUDED_FEATURES = [
+  'Commission operations & reconciliation',
+  'Exception management',
+  'Reporting & financial visibility',
+  'Producer and CSR management',
+  'Priority support',
+] as const
+
 export function formatUsdWhole(amount: number): string {
   return new Intl.NumberFormat('en-US', {
     style: 'currency',
@@ -271,6 +280,20 @@ export function formatUsdWhole(amount: number): string {
     minimumFractionDigits: 0,
     maximumFractionDigits: 0,
   }).format(amount)
+}
+
+/** e.g. annual $5,990 → equivalent monthly $499.17 */
+export function formatUsdMoney(amount: number): string {
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(amount)
+}
+
+export function equivalentMonthlyFromAnnual(annual: number): number {
+  return annual / 12
 }
 
 /** Annual rule: 2 months free / pay for 10 months. */
@@ -531,8 +554,12 @@ export function quoteBillingSelection(input: {
 
   const amount = interval === 'annual' ? annualAmount : monthlyAmount
   const plus = plusPricing ? '+' : ''
-  const intervalLabel = interval === 'annual' ? 'year' : 'month'
-  const displayPrice = amount == null ? 'Custom pricing' : `${formatUsdWhole(amount)}${plus}/${intervalLabel}`
+  const displayPrice =
+    amount == null
+      ? 'Custom pricing'
+      : interval === 'annual'
+        ? `${formatUsdWhole(amount)}${plus} / year`
+        : `${formatUsdWhole(amount)}${plus} / month`
   const listValue = monthlyAmount != null ? annualListValueFromMonthly(monthlyAmount) : null
   const savings =
     interval === 'annual' && monthlyAmount != null && annualAmount != null
@@ -546,7 +573,7 @@ export function quoteBillingSelection(input: {
     summaryLines.push(displayPrice)
     if (listValue != null) summaryLines.push(`12-month value ${formatUsdWhole(listValue)}`)
     if (savings != null) summaryLines.push(`Save ${formatUsdWhole(savings)}`)
-    summaryLines.push('2 months free')
+    summaryLines.push('2 months included')
   } else {
     summaryLines.push(displayPrice)
   }

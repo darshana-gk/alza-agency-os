@@ -15,6 +15,7 @@ import {
   type BillingSubscription,
 } from '../../lib/billing'
 import {
+  ALZA_FLOW_INCLUDED_FEATURES,
   BILLING_INTERVALS,
   BILLING_PRODUCTS,
   BILLING_SUPPORT_CONTACT_PATH,
@@ -22,6 +23,8 @@ import {
   allowsNewCheckout,
   billingCatalogPrimaryAction,
   billingUserBands,
+  equivalentMonthlyFromAnnual,
+  formatUsdMoney,
   formatUsdWhole,
   isBillingCheckoutBandKey,
   isBillingProductKey,
@@ -474,53 +477,88 @@ export function SubscriptionBillingPage() {
                   </p>
 
                   <div
-                    className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-4"
+                    className="rounded-lg border border-slate-200 bg-white px-5 py-5 shadow-sm"
                     data-testid="billing-price-result"
                   >
-                    <div className="flex flex-wrap items-start justify-between gap-3">
-                      <div>
-                        <p className="text-sm font-semibold text-slate-900">
-                          {quote.productName}
-                          {selectedProduct?.comingSoon ? (
-                            <span className="ml-2 rounded bg-slate-200 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-slate-600">
-                              Coming Soon
-                            </span>
-                          ) : null}
-                        </p>
-                        <p className="mt-0.5 text-xs text-slate-500">
-                          {quote.bandLabel}
-                          {quote.intervalLabel ? ` · ${quote.intervalLabel}` : ''}
-                        </p>
-                      </div>
-                      <p className="text-2xl font-bold tabular-nums text-slate-900">
-                        {quote.displayPrice}
+                    <div className="flex flex-wrap items-start justify-between gap-2">
+                      <p className="text-sm font-semibold uppercase tracking-wide text-slate-900">
+                        {quote.productName}
+                        {userBand === recommendedBand && product === 'alza_flow' ? (
+                          <span className="text-alza-teal-700"> — Recommended</span>
+                        ) : null}
+                        {selectedProduct?.comingSoon ? (
+                          <span className="ml-2 rounded bg-slate-200 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-slate-600">
+                            Coming Soon
+                          </span>
+                        ) : null}
                       </p>
                     </div>
+                    <p className="mt-1 text-sm text-slate-500">
+                      {quote.bandLabel}
+                      {quote.intervalLabel ? ` · ${quote.intervalLabel}` : ''}
+                    </p>
+
+                    <p className="mt-4 text-3xl font-bold tabular-nums tracking-tight text-slate-900">
+                      {quote.displayPrice}
+                    </p>
+
+                    {product === 'alza_flow' &&
+                      interval === 'annual' &&
+                      quote.amount != null &&
+                      !quote.contactAlza && (
+                        <p className="mt-1 text-sm text-slate-500">
+                          Equivalent to{' '}
+                          {formatUsdMoney(equivalentMonthlyFromAnnual(quote.amount))}
+                          /month
+                        </p>
+                      )}
 
                     {product === 'alza_flow' &&
                       interval === 'annual' &&
                       quote.annualSavings != null &&
+                      quote.annualListValue != null &&
                       !quote.contactAlza && (
-                        <p className="mt-3 text-sm text-alza-teal-800">
-                          Annual total {formatUsdWhole(quote.amount ?? 0)} · 12-month value{' '}
-                          {formatUsdWhole(quote.annualListValue ?? 0)} · Save{' '}
-                          {formatUsdWhole(quote.annualSavings)} · 2 months free
-                        </p>
+                        <div className="mt-4 rounded-lg border border-alza-teal-100 bg-alza-teal-50/60 px-4 py-3">
+                          <p className="text-xs font-semibold uppercase tracking-wide text-alza-teal-900">
+                            Annual advantage
+                          </p>
+                          <p className="mt-1 text-sm font-medium text-alza-teal-900">
+                            Save {formatUsdWhole(quote.annualSavings)} · 2 months included
+                          </p>
+                          <p className="mt-0.5 text-xs text-alza-teal-800/80">
+                            {formatUsdWhole(quote.annualListValue)}/year when paid monthly
+                          </p>
+                        </div>
                       )}
 
-                    <ul className="mt-3 list-inside list-disc text-xs text-slate-600">
-                      {quote.summaryLines.map((line) => (
-                        <li key={line}>{line}</li>
-                      ))}
-                    </ul>
+                    {product === 'alza_flow' && !quote.contactAlza && (
+                      <ul className="mt-4 space-y-1.5 text-sm text-slate-700">
+                        {ALZA_FLOW_INCLUDED_FEATURES.map((line) => (
+                          <li key={line} className="flex gap-2">
+                            <span className="font-medium text-alza-teal-700" aria-hidden>
+                              ✓
+                            </span>
+                            <span>{line}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+
+                    {quote.contactAlza && (
+                      <ul className="mt-4 list-inside list-disc text-xs text-slate-600">
+                        {quote.summaryLines.map((line) => (
+                          <li key={line}>{line}</li>
+                        ))}
+                      </ul>
+                    )}
 
                     {product === 'alza_flow_pay' && (
-                      <p className="mt-3 text-xs font-medium text-slate-600">
+                      <p className="mt-4 text-xs font-medium text-slate-600">
                         ALZA Flow Pay is Coming Soon and not purchasable.
                       </p>
                     )}
                     {legacyActive && (
-                      <p className="mt-3 text-xs font-medium text-amber-900">
+                      <p className="mt-4 text-xs font-medium text-amber-900">
                         Legacy subscription is active — online checkout for a second plan is disabled.
                         Use Upgrade / Contact ALZA.
                       </p>
