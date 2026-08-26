@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { CreditCard, Loader2, RefreshCw, XCircle } from 'lucide-react'
 import { useAuth } from '../../lib/auth'
 import { canManageBilling, rolesOf } from '../../lib/permissions'
@@ -37,6 +37,7 @@ import {
 import { legacyPlanDisplayNote } from '../../lib/billingEntitlements'
 import { formatBuildFingerprint, getBuildInfo } from '../../lib/buildInfo'
 import { formatDate } from '../../lib/commission'
+import { agencyAllowsOpsAccess } from '../../lib/agencyLifecycle'
 
 const fieldLabelClass = 'mb-1 block text-xs font-medium uppercase tracking-wide text-slate-500'
 const selectClass =
@@ -44,6 +45,7 @@ const selectClass =
 
 export function SubscriptionBillingPage() {
   const { profile } = useAuth()
+  const [searchParams] = useSearchParams()
   const canManage = canManageBilling(rolesOf(profile))
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
@@ -57,6 +59,18 @@ export function SubscriptionBillingPage() {
   const [interval, setInterval] = useState<BillingInterval>('monthly')
   const pollRef = useRef<number | null>(null)
   const recommendedInitialized = useRef(false)
+  const queryInitialized = useRef(false)
+
+  useEffect(() => {
+    if (queryInitialized.current) return
+    queryInitialized.current = true
+    const p = searchParams.get('product')
+    const b = searchParams.get('userBand')
+    const i = searchParams.get('interval')
+    if (isBillingProductKey(p)) setProduct(p)
+    if (isBillingUserBandKey(b)) setUserBand(b)
+    if (i === 'monthly' || i === 'annual') setInterval(i)
+  }, [searchParams])
 
   const load = useCallback(async () => {
     if (!canManage) {
@@ -275,6 +289,17 @@ export function SubscriptionBillingPage() {
                   Processing subscription… waiting for Razorpay webhook confirmation.
                 </div>
               )}
+
+              {profile && !agencyAllowsOpsAccess(profile.agencyLifecycle) ? (
+                <div className="rounded-lg border border-alza-blue-200 bg-alza-blue-50 px-4 py-3 text-sm text-alza-blue-900">
+                  <p className="font-semibold">Workspace status: {profile.agencyLifecycle}</p>
+                  <p className="mt-1 text-xs">
+                    Operational ALZA Flow (Clients, Policies, Financials, Onboarding, etc.) stays locked
+                    until your agency is activated after tenant isolation. You can complete subscription
+                    checkout here when online payment is available.
+                  </p>
+                </div>
+              ) : null}
 
               {legacyActive ? (
                 <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3">

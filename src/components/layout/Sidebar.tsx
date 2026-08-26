@@ -96,7 +96,7 @@ function NavSection({ group }: { group: NavGroup }) {
 
 export function Sidebar() {
   const { profile } = useAuth()
-  const nav = getNavVisibility(rolesOf(profile))
+  const nav = getNavVisibility(rolesOf(profile), profile?.agencyLifecycle)
 
   const { mainNav, adminNav } = useMemo(() => {
     const specs = buildSidebarNavItems(nav)

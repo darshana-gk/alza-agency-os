@@ -14,6 +14,10 @@ import {
   toAppRoles,
   type AppRole,
 } from './permissions'
+import {
+  normalizeAgencyLifecycle,
+  type AgencyLifecycle,
+} from './agencyLifecycle'
 
 export interface AppUserProfile {
   id: string
@@ -30,6 +34,13 @@ export interface AppUserProfile {
   producerId: string | null
   /** Canonical producers.producer_name via producer_id (preferred for book locks). */
   linkedProducerName: string | null
+  /** Membership agency workspace. */
+  agencyProfileId: string | null
+  /**
+   * Agency lifecycle. Missing column / unknown → treated as active for Production compatibility
+   * until lifecycle migration is applied.
+   */
+  agencyLifecycle: AgencyLifecycle
 }
 
 type AuthStatus = 'loading' | 'unauthenticated' | 'authenticated' | 'access_denied'
@@ -56,7 +67,18 @@ interface UserRow {
   status: string | null
   archived_at: string | null
   producer_id?: string | null
+  agency_profile_id?: string | null
+  agency_profile?:
+    | { lifecycle?: string | null }
+    | { lifecycle?: string | null }[]
+    | null
   producers?: { producer_name: string | null } | { producer_name: string | null }[] | null
+}
+
+function lifecycleFromRow(row: UserRow): AgencyLifecycle {
+  const join = row.agency_profile
+  const life = Array.isArray(join) ? join[0]?.lifecycle : join?.lifecycle
+  return normalizeAgencyLifecycle(life)
 }
 
 function linkedProducerNameFromRow(row: UserRow): string | null {
@@ -82,6 +104,8 @@ function mapProfile(row: UserRow, roles: AppRole[]): AppUserProfile {
     archivedAt: row.archived_at,
     producerId: (row.producer_id ?? '').trim() || null,
     linkedProducerName: linkedProducerNameFromRow(row),
+    agencyProfileId: (row.agency_profile_id ?? '').trim() || null,
+    agencyLifecycle: lifecycleFromRow(row),
   }
 }
 
@@ -92,7 +116,7 @@ async function loadLinkedProfile(authUserId: string): Promise<{
   const { data, error } = await supabase
     .from('users')
     .select(
-      'id, auth_user_id, full_name, email, role, status, archived_at, invite_status, producer_id, producers(producer_name)',
+      'id, auth_user_id, full_name, email, role, status, archived_at, invite_status, producer_id, agency_profile_id, agency_profile:agency_profile_id ( lifecycle ), producers(producer_name)',
     )
     .eq('auth_user_id', authUserId)
     .maybeSingle()
@@ -100,10 +124,17 @@ async function loadLinkedProfile(authUserId: string): Promise<{
   let row = data as (UserRow & { invite_status?: string | null }) | null
   let loadError = error
 
-  if (error && (error.message.includes('invite_status') || error.message.includes('producer_id') || error.message.includes('producers'))) {
+  if (
+    error &&
+    (error.message.includes('invite_status') ||
+      error.message.includes('producer_id') ||
+      error.message.includes('producers') ||
+      error.message.includes('agency_profile') ||
+      error.message.includes('lifecycle'))
+  ) {
     const fallback = await supabase
       .from('users')
-      .select('id, auth_user_id, full_name, email, role, status, archived_at')
+      .select('id, auth_user_id, full_name, email, role, status, archived_at, agency_profile_id')
       .eq('auth_user_id', authUserId)
       .maybeSingle()
     row = fallback.data as UserRow | null

@@ -80,21 +80,24 @@ export async function fetchAgencyProfile(): Promise<{
   error: string | null
   missingTable?: boolean
 }> {
-  const first = await supabase
-    .from('agency_profile')
-    .select(AGENCY_SELECT_WITH_SCHEDULE)
-    .limit(1)
-    .maybeSingle()
+  // Prefer membership-scoped row (multi-agency safe). Fall back to limit(1) only if RPC missing.
+  let agencyId: string | null = null
+  const rpc = await supabase.rpc('current_user_agency_profile_id')
+  if (!rpc.error && rpc.data) {
+    agencyId = String(rpc.data)
+  }
+
+  let first = agencyId
+    ? await supabase.from('agency_profile').select(AGENCY_SELECT_WITH_SCHEDULE).eq('id', agencyId).maybeSingle()
+    : await supabase.from('agency_profile').select(AGENCY_SELECT_WITH_SCHEDULE).limit(1).maybeSingle()
 
   let data: unknown = first.data
   let error = first.error
 
   if (error && isMissingColumnError(error)) {
-    const retry = await supabase
-      .from('agency_profile')
-      .select(AGENCY_SELECT_LEGACY)
-      .limit(1)
-      .maybeSingle()
+    const retry = agencyId
+      ? await supabase.from('agency_profile').select(AGENCY_SELECT_LEGACY).eq('id', agencyId).maybeSingle()
+      : await supabase.from('agency_profile').select(AGENCY_SELECT_LEGACY).limit(1).maybeSingle()
     data = retry.data
     error = retry.error
   }
@@ -155,25 +158,22 @@ export async function saveAgencyProfile(input: AgencyProfileInput): Promise<{
     }
   }
 
-  async function persist(
-    rowPayload: Record<string, unknown>,
-    select: string,
-    id?: string,
-  ) {
-    if (id) {
-      return supabase.from('agency_profile').update(rowPayload).eq('id', id).select(select).single()
+  const existingId = existing.data?.id
+  if (!existingId) {
+    return {
+      data: null,
+      error:
+        'No agency profile is linked to your account. Create an agency via signup, or contact ALZA.',
     }
-    return supabase
-      .from('agency_profile')
-      .insert({ ...rowPayload, singleton_key: true })
-      .select(select)
-      .single()
   }
 
-  const existingId = existing.data?.id
-  let result = await persist(payload, AGENCY_SELECT_WITH_SCHEDULE, existingId)
+  async function persist(rowPayload: Record<string, unknown>, select: string) {
+    return supabase.from('agency_profile').update(rowPayload).eq('id', existingId).select(select).single()
+  }
+
+  let result = await persist(payload, AGENCY_SELECT_WITH_SCHEDULE)
   if (result.error && isMissingColumnError(result.error)) {
-    result = await persist(identityPayload, AGENCY_SELECT_LEGACY, existingId)
+    result = await persist(identityPayload, AGENCY_SELECT_LEGACY)
   }
   if (result.error) return { data: null, error: result.error.message }
   if (!result.data) return { data: null, error: 'Agency profile save returned no row.' }

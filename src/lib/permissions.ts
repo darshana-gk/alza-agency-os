@@ -1,5 +1,10 @@
 import type { AppUserProfile } from './auth'
 import { supabase } from './supabase'
+import {
+  agencyAllowsOpsAccess,
+  normalizeAgencyLifecycle,
+  type AgencyLifecycle,
+} from './agencyLifecycle'
 
 /** Supported public.users.role / user_roles.role values. */
 export const APP_ROLES = ['owner', 'admin', 'csr', 'producer', 'viewer', 'alza_support'] as const
@@ -400,15 +405,37 @@ export function isReadOnlyRole(role: RoleInput): boolean {
 }
 
 /** Sidebar / route path allow-list. */
-export function canAccessPath(role: RoleInput, pathname: string): boolean {
+export function canAccessPath(
+  role: RoleInput,
+  pathname: string,
+  lifecycle?: AgencyLifecycle | null,
+): boolean {
   const roles = toAppRoles(role)
   if (roles.length === 0) return false
 
   const path = pathname.split('?')[0] || '/'
+  const life = normalizeAgencyLifecycle(lifecycle)
+  const opsOk = agencyAllowsOpsAccess(life) || isAlzaSupportRole(roles)
 
+  // ALZA platform inbox — independent of agency lifecycle.
   if (path.startsWith('/admin/support-inbox') || path.startsWith('/support-inbox')) {
     return canAccessAlzaSupportInbox(roles)
   }
+
+  // Non-active agencies: restricted shell only (never ops / shared production data).
+  if (!opsOk) {
+    if (path.startsWith('/support') || path.startsWith('/help')) {
+      return canAccessSupportCenter(roles)
+    }
+    if (path.startsWith('/admin/subscription-billing')) {
+      return isAdminDirectoryRole(roles)
+    }
+    if (path.startsWith('/admin/agency-settings')) {
+      return isAdminDirectoryRole(roles)
+    }
+    return false
+  }
+
   if (path.startsWith('/support') || path.startsWith('/help')) {
     return canAccessSupportCenter(roles) || canAccessAlzaSupportInbox(roles)
   }
@@ -469,11 +496,42 @@ export type NavVisibility = {
   subscriptionBilling: boolean
 }
 
-export function getNavVisibility(role: RoleInput): NavVisibility {
+export function getNavVisibility(
+  role: RoleInput,
+  lifecycle?: AgencyLifecycle | null,
+): NavVisibility {
   const roles = toAppRoles(role)
   const admin = isAdminDirectoryRole(roles)
   const ops = isOpsMutatorRole(roles) || roles.includes('viewer') || roles.includes('producer')
   const alzaOnly = isAlzaSupportRole(roles) && !canAccessSupportCenter(roles)
+  const life = normalizeAgencyLifecycle(lifecycle)
+  const opsOk = agencyAllowsOpsAccess(life)
+
+  // Prospect / billing_pending / suspended: never show ops or directory nav.
+  if (!opsOk && !alzaOnly) {
+    return {
+      dashboard: false,
+      clients: false,
+      policyFiles: false,
+      transactions: false,
+      financials: false,
+      reconciliation: false,
+      reports: false,
+      activityHistory: false,
+      support: canAccessSupportCenter(roles),
+      alzaSupportInbox: false,
+      onboardingImport: false,
+      administration: admin,
+      producers: false,
+      csrs: false,
+      mgas: false,
+      carriers: false,
+      users: false,
+      agencySettings: admin,
+      subscriptionBilling: admin,
+    }
+  }
+
   return {
     dashboard: roles.length > 0 && !alzaOnly,
     clients: ops && !alzaOnly,

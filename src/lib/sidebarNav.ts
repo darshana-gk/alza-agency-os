@@ -67,10 +67,16 @@ export function buildSidebarNavItems(nav: NavVisibility): SidebarNavItemSpec[] {
   return items
 }
 
-export function sidebarNavForRole(role: RoleInput): SidebarNavItemSpec[] {
-  return buildSidebarNavItems(getNavVisibility(role))
+export function sidebarNavForRole(
+  role: RoleInput,
+  lifecycle?: import('./agencyLifecycle').AgencyLifecycle | null,
+): SidebarNavItemSpec[] {
+  return buildSidebarNavItems(getNavVisibility(role, lifecycle))
 }
 
-export function roleCanOpenOnboarding(role: RoleInput): boolean {
-  return canAccessPath(role, '/onboarding')
+export function roleCanOpenOnboarding(
+  role: RoleInput,
+  lifecycle?: import('./agencyLifecycle').AgencyLifecycle | null,
+): boolean {
+  return canAccessPath(role, '/onboarding', lifecycle)
 }

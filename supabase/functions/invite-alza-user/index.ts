@@ -329,16 +329,33 @@ async function handleInvite(opts: {
 
   const nowIso = new Date().toISOString()
 
-  // Prefer inviter membership; fall back to singleton agency workspace.
-  let agencyProfileId: string | null = callerAgencyProfileId
+  // Prefer inviter membership — never fall back to "first" agency (unsafe for multi-agency).
+  const agencyProfileId: string | null = callerAgencyProfileId
   if (!agencyProfileId) {
-    const { data: agencyRow } = await adminClient
-      .from('agency_profile')
-      .select('id')
-      .order('created_at', { ascending: true })
-      .limit(1)
-      .maybeSingle()
-    agencyProfileId = agencyRow?.id ?? null
+    return fail(
+      'agency_membership_required',
+      'Your user is not linked to an agency workspace. Cannot invite users.',
+      400,
+    )
+  }
+
+  const { data: agencyRow, error: agencyLoadError } = await adminClient
+    .from('agency_profile')
+    .select('id, lifecycle')
+    .eq('id', agencyProfileId)
+    .maybeSingle()
+
+  if (agencyLoadError) {
+    return fail('agency_load_failed', agencyLoadError.message, 500)
+  }
+  const lifecycle = String(agencyRow?.lifecycle ?? '').trim().toLowerCase()
+  // Missing lifecycle column → treat as active (pre-migration). Otherwise require active.
+  if (lifecycle && lifecycle !== 'active') {
+    return fail(
+      'agency_not_active',
+      'User invites are only available for activated agency workspaces.',
+      403,
+    )
   }
 
   const { data: existingProfile } = await adminClient

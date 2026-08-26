@@ -1,12 +1,13 @@
 // Deno Edge Function: create-razorpay-subscription
 // Owner/Admin only. Creates a Razorpay Subscription for ALZA FLOW.
 // Body: { product, userBand, interval } — never amounts or Razorpay plan IDs from browser.
-// Secrets: RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET, RAZORPAY_PLAN_FLOW_*, APP_URL, SUPABASE_*
+// Resolves caller's agency_profile_id (not singleton). Never sets lifecycle=active.
 
 import {
   adminClient,
+  agencyLifecycleAllowsBilling,
+  getCallerAgency,
   getOrCreateBillingRow,
-  getSingletonAgency,
   hasBlockingSubscription,
   requireOwnerOrAdmin,
   razorpayRequest,
@@ -52,9 +53,17 @@ Deno.serve(async (req) => {
   const authz = await requireOwnerOrAdmin(admin, req.headers.get('Authorization'))
   if (!authz.ok) return authz.response
 
-  const agency = await getSingletonAgency(admin)
+  const agency = await getCallerAgency(admin, authz.agencyProfileId)
   if (!agency.data) {
-    return fail('agency_missing', agency.error ?? 'Agency profile missing.', 500)
+    return fail('agency_missing', agency.error ?? 'Agency profile missing.', 400)
+  }
+
+  if (!agencyLifecycleAllowsBilling(agency.data.lifecycle as string | null)) {
+    return fail(
+      'agency_suspended',
+      'This workspace cannot start billing checkout while suspended. Contact ALZA.',
+      403,
+    )
   }
 
   const billing = await getOrCreateBillingRow(admin, String(agency.data.id))
@@ -127,7 +136,6 @@ Deno.serve(async (req) => {
     .eq('id', billing.data.id)
 
   if (updateError) {
-    // Additive columns may be missing until migration is applied — retry core columns only.
     if (/product_key|user_band_key|billing_interval|included_users|plan_key/i.test(updateError.message)) {
       const { error: coreError } = await admin
         .from('billing_subscriptions')
@@ -147,6 +155,16 @@ Deno.serve(async (req) => {
     } else {
       return fail('billing_persist_failed', updateError.message, 500)
     }
+  }
+
+  // Prospect → billing_pending on checkout start. Never set lifecycle=active here.
+  const life = String(agency.data.lifecycle ?? '').trim().toLowerCase()
+  if (life === 'prospect') {
+    await admin
+      .from('agency_profile')
+      .update({ lifecycle: 'billing_pending', updated_at: new Date().toISOString() })
+      .eq('id', agency.data.id)
+      .eq('lifecycle', 'prospect')
   }
 
   return ok({

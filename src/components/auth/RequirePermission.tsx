@@ -1,6 +1,7 @@
 import { Navigate } from 'react-router-dom'
 import { useAuth } from '../../lib/auth'
-import { canAccessPath } from '../../lib/permissions'
+import { canAccessPath, rolesOf } from '../../lib/permissions'
+import { agencyAllowsOpsAccess, PROSPECT_HOME_PATH } from '../../lib/agencyLifecycle'
 
 /**
  * In-layout access denied for unauthorized routes.
@@ -17,7 +18,7 @@ export function RouteAccessDenied({ message }: { message?: string }) {
   )
 }
 
-/** Protect a route subtree / page by path allow-list for the current role. */
+/** Protect a route subtree / page by path allow-list for the current role + agency lifecycle. */
 export function RequirePathAccess({
   path,
   children,
@@ -26,8 +27,16 @@ export function RequirePathAccess({
   children: React.ReactNode
 }) {
   const { profile } = useAuth()
-  if (!canAccessPath(profile?.role, path)) {
-    return <RouteAccessDenied />
+  if (!canAccessPath(rolesOf(profile), path, profile?.agencyLifecycle)) {
+    return (
+      <RouteAccessDenied
+        message={
+          profile && !agencyAllowsOpsAccess(profile.agencyLifecycle)
+            ? 'This workspace is not activated for operational ALZA Flow yet. Complete subscription & billing, or contact ALZA.'
+            : undefined
+        }
+      />
+    )
   }
   return <>{children}</>
 }
@@ -49,5 +58,9 @@ export function RequirePermission({
 }
 
 export function RedirectHome() {
+  const { profile } = useAuth()
+  if (profile && !agencyAllowsOpsAccess(profile.agencyLifecycle)) {
+    return <Navigate to={PROSPECT_HOME_PATH} replace />
+  }
   return <Navigate to="/" replace />
 }

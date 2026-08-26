@@ -185,6 +185,18 @@ export async function fetchAgencyActiveUserCount(): Promise<{
     .is('archived_at', null)
     .neq('role', 'alza_support')
 
+  // Prefer same-agency users when membership RPC is available.
+  const agencyRpc = await supabase.rpc('current_user_agency_profile_id')
+  if (!agencyRpc.error && agencyRpc.data) {
+    const scoped = await supabase
+      .from('users')
+      .select('id', { count: 'exact', head: true })
+      .is('archived_at', null)
+      .neq('role', 'alza_support')
+      .eq('agency_profile_id', String(agencyRpc.data))
+    if (!scoped.error) return { count: scoped.count ?? 0, error: null }
+  }
+
   if (error) return { count: 0, error: error.message }
   return { count: count ?? 0, error: null }
 }

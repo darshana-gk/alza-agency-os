@@ -25,3 +25,7 @@ verify_jwt = false
 
 [functions.notify-support-event]
 verify_jwt = true
+
+# Public prospect signup (creates prospect agency; never auto-activates).
+[functions.create-agency-signup]
+verify_jwt = false

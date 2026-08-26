@@ -95,7 +95,13 @@ export function LoginPage() {
         </div>
 
         <p className="mt-6 text-center text-xs text-slate-500">
-          Internal agency access only. Accounts are provisioned by ALZA administrators.
+          Need an agency workspace?{' '}
+          <a href="/signup" className="font-medium text-alza-blue-700 hover:underline">
+            Create agency account
+          </a>
+        </p>
+        <p className="mt-2 text-center text-xs text-slate-500">
+          Existing accounts may also be provisioned by ALZA administrators.
         </p>
       </div>
     </div>

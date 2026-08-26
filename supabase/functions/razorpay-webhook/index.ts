@@ -75,8 +75,12 @@ async function mirrorSubscriptionEntity(
     .from('billing_subscriptions')
     .update(payload)
     .eq('razorpay_subscription_id', subscriptionId)
-    .select('id')
-  if (!bySub.error && (bySub.data?.length ?? 0) > 0) return { ok: true as const }
+    .select('id, agency_profile_id')
+  if (!bySub.error && (bySub.data?.length ?? 0) > 0) {
+    const agencyId = String(bySub.data?.[0]?.agency_profile_id ?? agencyFromNotes ?? '')
+    if (agencyId) await maybeMarkBillingPending(admin, agencyId, status)
+    return { ok: true as const }
+  }
 
   const customerId =
     typeof subscription.customer_id === 'string' ? subscription.customer_id : null
@@ -85,8 +89,12 @@ async function mirrorSubscriptionEntity(
       .from('billing_subscriptions')
       .update(payload)
       .eq('razorpay_customer_id', customerId)
-      .select('id')
-    if (!byCustomer.error && (byCustomer.data?.length ?? 0) > 0) return { ok: true as const }
+      .select('id, agency_profile_id')
+    if (!byCustomer.error && (byCustomer.data?.length ?? 0) > 0) {
+      const agencyId = String(byCustomer.data?.[0]?.agency_profile_id ?? agencyFromNotes ?? '')
+      if (agencyId) await maybeMarkBillingPending(admin, agencyId, status)
+      return { ok: true as const }
+    }
   }
 
   if (agencyFromNotes) {
@@ -94,14 +102,35 @@ async function mirrorSubscriptionEntity(
       .from('billing_subscriptions')
       .update(payload)
       .eq('agency_profile_id', agencyFromNotes)
-      .select('id')
-    if (!byAgency.error && (byAgency.data?.length ?? 0) > 0) return { ok: true as const }
+      .select('id, agency_profile_id')
+    if (!byAgency.error && (byAgency.data?.length ?? 0) > 0) {
+      await maybeMarkBillingPending(admin, agencyFromNotes, status)
+      return { ok: true as const }
+    }
   }
 
   return {
     ok: false as const,
     error: 'No billing_subscriptions row matched this Razorpay subscription.',
   }
+}
+
+/**
+ * Optional: prospect → billing_pending on paid/confirmed events.
+ * NEVER sets lifecycle=active (ops unlock requires tenant isolation + controlled promote).
+ */
+async function maybeMarkBillingPending(
+  admin: ReturnType<typeof adminClient>,
+  agencyProfileId: string,
+  billingStatus: string,
+) {
+  const s = billingStatus.trim().toLowerCase()
+  if (s !== 'authenticated' && s !== 'active' && s !== 'pending') return
+  await admin
+    .from('agency_profile')
+    .update({ lifecycle: 'billing_pending', updated_at: new Date().toISOString() })
+    .eq('id', agencyProfileId)
+    .eq('lifecycle', 'prospect')
 }
 
 Deno.serve(async (req) => {

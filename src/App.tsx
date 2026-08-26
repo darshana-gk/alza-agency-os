@@ -24,16 +24,22 @@ import { SubscriptionBillingPage } from '@/pages/admin/SubscriptionBilling'
 import { AlzaSupportInboxPage } from '@/pages/admin/AlzaSupportInbox'
 import { TestSupabase } from '@/pages/TestSupabase'
 import { LoginPage } from '@/pages/Login'
+import { SignupPage } from '@/pages/Signup'
 import { AccessDeniedPage } from '@/pages/AccessDenied'
 import { SetPasswordPage } from '@/pages/SetPassword'
 import { useAuth } from '@/lib/auth'
+import { agencyAllowsOpsAccess, PROSPECT_HOME_PATH } from '@/lib/agencyLifecycle'
 
 function Guard({ path, children }: { path: string; children: React.ReactNode }) {
   return <RequirePathAccess path={path}>{children}</RequirePathAccess>
 }
 
+function ProspectHomeRedirect() {
+  return <Navigate to={PROSPECT_HOME_PATH} replace />
+}
+
 function AuthenticatedApp() {
-  const { status } = useAuth()
+  const { status, profile } = useAuth()
 
   if (status === 'loading') {
     return (
@@ -51,15 +57,21 @@ function AuthenticatedApp() {
     return <AccessDeniedPage />
   }
 
+  const opsActive = agencyAllowsOpsAccess(profile?.agencyLifecycle)
+
   return (
     <Routes>
       <Route element={<AppLayout />}>
         <Route
           index
           element={
-            <Guard path="/">
-              <Dashboard />
-            </Guard>
+            opsActive ? (
+              <Guard path="/">
+                <Dashboard />
+              </Guard>
+            ) : (
+              <ProspectHomeRedirect />
+            )
           }
         />
         <Route
@@ -257,11 +269,21 @@ export default function App() {
 
   // Public auth routes must work before/without the main session gate
   // (invite emails land here with tokens in the URL hash/query).
-  if (location.pathname.startsWith('/auth/')) {
+  // Future CTA: Pricing → /signup → agency prospect → checkout → (later) active ops.
+  if (location.pathname.startsWith('/auth/') || location.pathname === '/signup') {
     return (
       <Routes>
         <Route path="/auth/set-password" element={<SetPasswordPage />} />
-        <Route path="*" element={<Navigate to="/auth/set-password" replace />} />
+        <Route path="/signup" element={<SignupPage />} />
+        <Route
+          path="*"
+          element={
+            <Navigate
+              to={location.pathname === '/signup' ? '/signup' : '/auth/set-password'}
+              replace
+            />
+          }
+        />
       </Routes>
     )
   }
