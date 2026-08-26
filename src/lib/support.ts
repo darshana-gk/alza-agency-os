@@ -302,6 +302,11 @@ export async function createSupportRequest(input: {
     newValue: { category: input.category, status: 'waiting_on_alza', priority: conversation.priority },
   })
 
+  void notifySupportEventBestEffort({
+    event: 'request_created',
+    conversationId: conversation.id,
+  })
+
   const refreshed = await fetchSupportConversation(conversation.id)
   return { data: refreshed.data ?? conversation, error: refreshed.error }
 }
@@ -356,6 +361,11 @@ export async function replyToSupportConversation(input: {
     newValue: { status: nextStatus },
   })
 
+  void notifySupportEventBestEffort({
+    event: input.asAlza ? 'alza_replied' : 'customer_replied',
+    conversationId: input.conversationId,
+  })
+
   return { data: mapMessage(msg as Record<string, unknown>), error: null }
 }
 
@@ -381,6 +391,12 @@ export async function resolveSupportConversation(input: {
     recordReference: existing.data.subject,
     newValue: { status: 'resolved' },
   })
+
+  void notifySupportEventBestEffort({
+    event: 'ticket_resolved',
+    conversationId: input.conversationId,
+  })
+
   return { error: null }
 }
 
@@ -410,9 +426,133 @@ export async function reopenSupportConversation(input: {
     entityType: 'support',
     entityId: input.conversationId,
     recordReference: existing.data.subject,
-    newValue: { status: 'waiting_on_alza' },
+    newValue: { status: 'waiting_on_alza', reopened: true },
+  })
+
+  void notifySupportEventBestEffort({
+    event: 'ticket_reopened',
+    conversationId: input.conversationId,
+  })
+
+  return { error: null }
+}
+
+export async function assignSupportConversation(input: {
+  conversationId: string
+  assigneeUserId: string
+  profile: AppUserProfile
+}): Promise<{ error: string | null }> {
+  if (!canAccessAlzaSupportInbox(input.profile.roles)) {
+    return { error: 'Only ALZA Support can assign conversations.' }
+  }
+  const { error } = await supabase.rpc('support_assign_conversation', {
+    p_conversation_id: input.conversationId,
+    p_assignee_user_id: input.assigneeUserId,
+  })
+  if (error) {
+    return {
+      error:
+        error.message.includes('function') || error.message.includes('does not exist')
+          ? 'Assignment is not available until the support assignment migration is applied.'
+          : error.message,
+    }
+  }
+  await recordActivity({
+    action: 'support_request_assigned',
+    entityType: 'support',
+    entityId: input.conversationId,
+    newValue: { assigned_to_user_id: input.assigneeUserId },
   })
   return { error: null }
+}
+
+export async function unassignSupportConversation(input: {
+  conversationId: string
+  profile: AppUserProfile
+}): Promise<{ error: string | null }> {
+  if (!canAccessAlzaSupportInbox(input.profile.roles)) {
+    return { error: 'Only ALZA Support can unassign conversations.' }
+  }
+  const { error } = await supabase.rpc('support_unassign_conversation', {
+    p_conversation_id: input.conversationId,
+  })
+  if (error) {
+    return {
+      error:
+        error.message.includes('function') || error.message.includes('does not exist')
+          ? 'Assignment is not available until the support assignment migration is applied.'
+          : error.message,
+    }
+  }
+  await recordActivity({
+    action: 'support_request_unassigned',
+    entityType: 'support',
+    entityId: input.conversationId,
+  })
+  return { error: null }
+}
+
+export async function fetchAlzaSupportAgents(): Promise<{
+  data: Array<{ id: string; fullName: string }>
+  error: string | null
+}> {
+  const { data, error } = await supabase
+    .from('users')
+    .select('id, full_name, role, archived_at, status')
+    .is('archived_at', null)
+    .eq('status', 'active')
+    .eq('role', 'alza_support')
+    .order('full_name')
+
+  if (error) return { data: [], error: error.message }
+  return {
+    data: (data ?? []).map((row) => ({
+      id: String(row.id),
+      fullName: String(row.full_name ?? 'ALZA Support').trim() || 'ALZA Support',
+    })),
+    error: null,
+  }
+}
+
+export type SupportNotifyEvent =
+  | 'request_created'
+  | 'customer_replied'
+  | 'alza_replied'
+  | 'ticket_resolved'
+  | 'ticket_reopened'
+
+/** Best-effort email notify — never blocks support message success. */
+export async function notifySupportEventBestEffort(input: {
+  event: SupportNotifyEvent
+  conversationId: string
+}): Promise<{ delivered: boolean; skipped: boolean; message: string }> {
+  try {
+    const { data, error } = await supabase.functions.invoke('notify-support-event', {
+      body: {
+        event: input.event,
+        conversationId: input.conversationId,
+      },
+    })
+    if (error) {
+      return {
+        delivered: false,
+        skipped: true,
+        message: error.message || 'Support email notify skipped',
+      }
+    }
+    const payload = data as { ok?: boolean; skipped?: boolean; message?: string } | null
+    return {
+      delivered: Boolean(payload?.ok && !payload?.skipped),
+      skipped: Boolean(payload?.skipped),
+      message: payload?.message || 'ok',
+    }
+  } catch (err) {
+    return {
+      delivered: false,
+      skipped: true,
+      message: err instanceof Error ? err.message : 'Support email notify failed safely',
+    }
+  }
 }
 
 export async function setSupportWaitingStatus(input: {

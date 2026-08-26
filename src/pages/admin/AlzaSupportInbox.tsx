@@ -13,6 +13,9 @@ import {
   replyToSupportConversation,
   resolveSupportConversation,
   setSupportWaitingStatus,
+  assignSupportConversation,
+  unassignSupportConversation,
+  fetchAlzaSupportAgents,
   supportCategoryLabel,
   supportPriorityLabel,
   supportStatusClass,
@@ -67,6 +70,20 @@ export function AlzaSupportInboxPage() {
   const [messages, setMessages] = useState<SupportMessage[]>([])
   const [reply, setReply] = useState('')
   const [busy, setBusy] = useState(false)
+  const [agents, setAgents] = useState<Array<{ id: string; fullName: string }>>([])
+  const [assignTo, setAssignTo] = useState('')
+
+  useEffect(() => {
+    if (!allowed) return
+    void (async () => {
+      const result = await fetchAlzaSupportAgents()
+      if (result.data) setAgents(result.data)
+    })()
+  }, [allowed])
+
+  useEffect(() => {
+    setAssignTo(selected?.assignedToUserId ?? '')
+  }, [selected?.id, selected?.assignedToUserId])
 
   const loadList = useCallback(async () => {
     setLoading(true)
@@ -193,6 +210,39 @@ export function AlzaSupportInboxPage() {
     await loadList()
   }
 
+  async function handleAssign() {
+    if (!profile || !selectedId || !assignTo) return
+    setBusy(true)
+    setError(null)
+    const result = await assignSupportConversation({
+      conversationId: selectedId,
+      assigneeUserId: assignTo,
+      profile,
+    })
+    setBusy(false)
+    if (result.error) {
+      setError(result.error)
+      return
+    }
+    await loadDetail(selectedId)
+    await loadList()
+  }
+
+  async function handleUnassign() {
+    if (!profile || !selectedId) return
+    setBusy(true)
+    setError(null)
+    const result = await unassignSupportConversation({ conversationId: selectedId, profile })
+    setBusy(false)
+    if (result.error) {
+      setError(result.error)
+      return
+    }
+    setAssignTo('')
+    await loadDetail(selectedId)
+    await loadList()
+  }
+
   if (!allowed) {
     return (
       <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
@@ -268,6 +318,41 @@ export function AlzaSupportInboxPage() {
               <dd className="mt-0.5 text-slate-800">{selected.assignedToName || 'Unassigned'}</dd>
             </div>
           </dl>
+          <div className="mt-4 flex flex-wrap items-end gap-2">
+            <label className="min-w-[200px] flex-1">
+              <span className="mb-1 block text-xs font-medium text-slate-500">Assign to ALZA agent</span>
+              <select
+                className={selectClass + ' w-full'}
+                value={assignTo}
+                onChange={(e) => setAssignTo(e.target.value)}
+              >
+                <option value="">Select agent…</option>
+                {agents.map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {a.fullName}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <button
+              type="button"
+              disabled={busy || !assignTo}
+              onClick={() => void handleAssign()}
+              className="h-10 rounded-lg border border-slate-200 px-3 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+            >
+              {selected.assignedToUserId ? 'Reassign' : 'Assign'}
+            </button>
+            {selected.assignedToUserId && (
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => void handleUnassign()}
+                className="h-10 rounded-lg border border-slate-200 px-3 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+              >
+                Unassign
+              </button>
+            )}
+          </div>
           <div className="mt-4 flex flex-wrap gap-2">
             {selected.status !== 'resolved' && (
               <>

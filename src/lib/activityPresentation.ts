@@ -183,6 +183,10 @@ export function formatActivityActionLabel(action: string): string {
       return 'Support request resolved'
     case 'support_request_reopened':
       return 'Support request reopened'
+    case 'support_request_assigned':
+      return 'Support request assigned'
+    case 'support_request_unassigned':
+      return 'Support request unassigned'
     case 'recovery_direct_payment':
       return 'Direct recovery payment'
     case 'recovery_void':

@@ -1,5 +1,14 @@
 import { supabase } from './supabase'
 import { isAdminDirectoryRole, rejectUnlessRole } from './permissions'
+import {
+  canCancelSubscription,
+  formatStoredPlanLabel,
+  isLegacyBillingPlanKey,
+  shouldShowSubscribe,
+  type BillingCheckoutBandKey,
+  type BillingInterval,
+  type BillingProductKey,
+} from './billingCatalog'
 
 export type BillingSubscriptionStatus =
   | 'created'
@@ -12,39 +21,17 @@ export type BillingSubscriptionStatus =
   | 'paused'
   | 'incomplete'
 
-/** Internal plan keys only — never send Razorpay Plan IDs from the browser. */
-export type BillingPlanKey = 'essential' | 'professional'
-
-export interface BillingPlanOption {
-  key: BillingPlanKey
-  name: string
-  displayPrice: string
-  description: string
-}
-
-/** Display catalog for the Subscription page (marketing amounts). Plan IDs stay server-side. */
-export const BILLING_PLAN_OPTIONS: BillingPlanOption[] = [
-  {
-    key: 'essential',
-    name: 'ALZA FLOW Essential',
-    displayPrice: '$299/month',
-    description: 'Core commission operations for growing agencies.',
-  },
-  {
-    key: 'professional',
-    name: 'ALZA FLOW Professional',
-    displayPrice: '$499/month',
-    description: 'Full commission operations & reconciliation for established agencies.',
-  },
-]
-
 export interface BillingSubscription {
   id: string
   agencyProfileId: string
   razorpayCustomerId: string | null
   razorpaySubscriptionId: string | null
   razorpayPlanId: string | null
-  planKey: BillingPlanKey | string | null
+  planKey: string | null
+  productKey: string | null
+  userBandKey: string | null
+  billingInterval: string | null
+  includedUsers: number | null
   status: BillingSubscriptionStatus | string
   currentPeriodStart: string | null
   currentPeriodEnd: string | null
@@ -63,6 +50,13 @@ function mapBilling(row: Record<string, unknown>): BillingSubscription {
     razorpaySubscriptionId: (row.razorpay_subscription_id as string | null) ?? null,
     razorpayPlanId: (row.razorpay_plan_id as string | null) ?? null,
     planKey: (row.plan_key as string | null) ?? null,
+    productKey: (row.product_key as string | null) ?? null,
+    userBandKey: (row.user_band_key as string | null) ?? null,
+    billingInterval: (row.billing_interval as string | null) ?? null,
+    includedUsers:
+      row.included_users == null || row.included_users === ''
+        ? null
+        : Number(row.included_users),
     status: String(row.status ?? 'incomplete'),
     currentPeriodStart: (row.current_period_start as string | null) ?? null,
     currentPeriodEnd: (row.current_period_end as string | null) ?? null,
@@ -83,15 +77,24 @@ export function formatBillingStatusLabel(status: string | null | undefined): str
     .join(' ')
 }
 
-export function isBillingPlanKey(value: string | null | undefined): value is BillingPlanKey {
-  return value === 'essential' || value === 'professional'
+export function formatBillingPlan(billing: BillingSubscription | null): {
+  title: string
+  subtitle: string | null
+  intervalLabel: string
+  legacy: boolean
+} {
+  if (!billing) {
+    return { title: 'No active plan', subtitle: null, intervalLabel: '—', legacy: false }
+  }
+  return formatStoredPlanLabel({
+    planKey: billing.planKey,
+    productKey: billing.productKey,
+    userBandKey: billing.userBandKey,
+    billingInterval: billing.billingInterval,
+  })
 }
 
-export function planDisplayName(planKey: string | null | undefined): string {
-  if (planKey === 'essential') return 'ALZA FLOW Essential'
-  if (planKey === 'professional') return 'ALZA FLOW Professional'
-  return 'ALZA FLOW'
-}
+export { shouldShowSubscribe, canCancelSubscription, isLegacyBillingPlanKey }
 
 export async function fetchBillingSubscription(): Promise<{
   data: BillingSubscription | null
@@ -100,10 +103,40 @@ export async function fetchBillingSubscription(): Promise<{
   const authz = await rejectUnlessRole(isAdminDirectoryRole)
   if (!authz.ok) return { data: null, error: authz.message }
 
-  const { data, error } = await supabase
-    .from('billing_subscriptions')
-    .select(
-      `
+  const fullSelect = `
+      id,
+      agency_profile_id,
+      razorpay_customer_id,
+      razorpay_subscription_id,
+      razorpay_plan_id,
+      plan_key,
+      product_key,
+      user_band_key,
+      billing_interval,
+      included_users,
+      status,
+      current_period_start,
+      current_period_end,
+      charge_at,
+      cancel_at_period_end,
+      canceled_at,
+      trial_end,
+      updated_at
+    `
+
+  let data: Record<string, unknown> | null = null
+  let error: { message: string } | null = null
+
+  const full = await supabase.from('billing_subscriptions').select(fullSelect).limit(1).maybeSingle()
+  data = (full.data as Record<string, unknown> | null) ?? null
+  error = full.error
+
+  // Additive columns may not exist until migration is applied — fall back.
+  if (error && /product_key|user_band_key|billing_interval|included_users/i.test(error.message)) {
+    const fallback = await supabase
+      .from('billing_subscriptions')
+      .select(
+        `
       id,
       agency_profile_id,
       razorpay_customer_id,
@@ -119,32 +152,70 @@ export async function fetchBillingSubscription(): Promise<{
       trial_end,
       updated_at
     `,
-    )
-    .limit(1)
-    .maybeSingle()
+      )
+      .limit(1)
+      .maybeSingle()
+    data = fallback.data
+      ? {
+          ...(fallback.data as Record<string, unknown>),
+          product_key: null,
+          user_band_key: null,
+          billing_interval: null,
+          included_users: null,
+        }
+      : null
+    error = fallback.error
+  }
 
   if (error) return { data: null, error: error.message }
   if (!data) return { data: null, error: null }
-  return { data: mapBilling(data as Record<string, unknown>), error: null }
+  return { data: mapBilling(data), error: null }
+}
+
+export async function fetchAgencyActiveUserCount(): Promise<{
+  count: number
+  error: string | null
+}> {
+  const authz = await rejectUnlessRole(isAdminDirectoryRole)
+  if (!authz.ok) return { count: 0, error: authz.message }
+
+  const { count, error } = await supabase
+    .from('users')
+    .select('id', { count: 'exact', head: true })
+    .is('archived_at', null)
+    .neq('role', 'alza_support')
+
+  if (error) return { count: 0, error: error.message }
+  return { count: count ?? 0, error: null }
 }
 
 export interface RazorpayCheckoutBootstrap {
   subscriptionId: string
   keyId: string
-  plan: BillingPlanKey
+  planKey: string
   agencyName: string
+  activationPending?: boolean
+  message?: string
 }
 
-export async function createRazorpaySubscription(plan: BillingPlanKey): Promise<{
+export async function createRazorpaySubscription(input: {
+  product: BillingProductKey
+  userBand: BillingCheckoutBandKey
+  interval: BillingInterval
+}): Promise<{
   data: RazorpayCheckoutBootstrap | null
   error: string | null
 }> {
   const authz = await rejectUnlessRole(isAdminDirectoryRole)
   if (!authz.ok) return { data: null, error: authz.message }
-  if (!isBillingPlanKey(plan)) return { data: null, error: 'Invalid plan selection.' }
 
+  // Browser sends logical selection only — never amounts or Razorpay plan IDs.
   const { data, error } = await supabase.functions.invoke('create-razorpay-subscription', {
-    body: { plan },
+    body: {
+      product: input.product,
+      userBand: input.userBand,
+      interval: input.interval,
+    },
   })
   if (error) {
     return { data: null, error: error.message || 'Unable to call create-razorpay-subscription.' }
@@ -154,15 +225,25 @@ export async function createRazorpaySubscription(plan: BillingPlanKey): Promise<
     ok?: boolean
     subscriptionId?: string
     keyId?: string
-    plan?: string
+    planKey?: string
     agencyName?: string
     message?: string
+    code?: string
   } | null
 
-  if (!payload?.ok || !payload.subscriptionId || !payload.keyId) {
+  if (!payload?.ok) {
     return {
       data: null,
-      error: payload?.message || 'create-razorpay-subscription did not return checkout data.',
+      error:
+        payload?.message ||
+        'Online subscription activation is being finalized. Contact ALZA.',
+    }
+  }
+
+  if (!payload.subscriptionId || !payload.keyId) {
+    return {
+      data: null,
+      error: 'Online subscription activation is being finalized. Contact ALZA.',
     }
   }
 
@@ -170,7 +251,7 @@ export async function createRazorpaySubscription(plan: BillingPlanKey): Promise<
     data: {
       subscriptionId: payload.subscriptionId,
       keyId: payload.keyId,
-      plan: isBillingPlanKey(payload.plan) ? payload.plan : plan,
+      planKey: payload.planKey || '',
       agencyName: payload.agencyName || 'ALZA Flow Workspace',
     },
     error: null,
@@ -192,25 +273,6 @@ export async function cancelRazorpaySubscription(): Promise<{ error: string | nu
     return { error: payload?.message || 'Cancellation failed.' }
   }
   return { error: null }
-}
-
-/** Show plan selection when there is no usable active/pending subscription. */
-export function shouldShowSubscribe(status: string | null | undefined): boolean {
-  const v = (status ?? '').trim().toLowerCase()
-  // `created` means a Razorpay subscription already exists (awaiting Checkout / webhook).
-  return (
-    !v ||
-    v === 'incomplete' ||
-    v === 'cancelled' ||
-    v === 'canceled' ||
-    v === 'completed' ||
-    v === 'halted'
-  )
-}
-
-export function canCancelSubscription(status: string | null | undefined): boolean {
-  const v = (status ?? '').trim().toLowerCase()
-  return v === 'authenticated' || v === 'active' || v === 'pending' || v === 'paused' || v === 'created'
 }
 
 declare global {
@@ -270,7 +332,6 @@ export async function openRazorpaySubscriptionCheckout(input: {
       },
       theme: { color: '#0B5FFF' },
       handler: () => {
-        // Browser callback is not authoritative — webhook mirrors status.
         resolve({ dismissed: false, error: null })
       },
       modal: {

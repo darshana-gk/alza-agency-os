@@ -42,8 +42,7 @@ async function mirrorSubscriptionEntity(
   const notes = asRecord(subscription.notes) ?? {}
   const agencyFromNotes = String(notes.agency_profile_id ?? '').trim() || null
   const planKeyRaw = String(notes.alza_plan ?? '').trim().toLowerCase()
-  const planKey =
-    planKeyRaw === 'essential' || planKeyRaw === 'professional' ? planKeyRaw : null
+  const planKey = planKeyRaw || null
 
   const payload: Record<string, unknown> = {
     razorpay_subscription_id: subscriptionId,
@@ -60,6 +59,12 @@ async function mirrorSubscriptionEntity(
   }
 
   if (planKey) payload.plan_key = planKey
+  const productKey = String(notes.alza_product ?? '').trim() || null
+  const userBand = String(notes.alza_user_band ?? '').trim() || null
+  const interval = String(notes.alza_interval ?? '').trim() || null
+  if (productKey) payload.product_key = productKey
+  if (userBand) payload.user_band_key = userBand
+  if (interval) payload.billing_interval = interval
 
   const status = String(payload.status)
   if (status === 'cancelled' || status === 'completed') {

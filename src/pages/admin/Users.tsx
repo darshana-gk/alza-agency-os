@@ -23,6 +23,8 @@ import {
   type TableSortState,
 } from '../../lib/tableSort'
 import { supabase } from '../../lib/supabase'
+import { fetchBillingSubscription } from '../../lib/billing'
+import { evaluateSeatEntitlement } from '../../lib/billingEntitlements'
 
 type UserStatus = 'active' | 'inactive'
 type InviteStatus = 'pending' | 'accepted' | null
@@ -640,6 +642,22 @@ export function UsersPage() {
 
     setSaving(true)
     setFormError(null)
+
+    // Soft seat guidance — warn when adding beyond subscribed band (no hard-block).
+    const billing = await fetchBillingSubscription()
+    const seat = evaluateSeatEntitlement({
+      currentUserCount: rows.filter((r) => !r.archivedAt).length,
+      planKey: billing.data?.planKey ?? null,
+      userBandKey: billing.data?.userBandKey ?? null,
+      addingUser: true,
+    })
+    if (seat.softBlock && seat.message) {
+      const proceed = window.confirm(`${seat.message}\n\nContinue inviting anyway?`)
+      if (!proceed) {
+        setSaving(false)
+        return
+      }
+    }
 
     const { data, error } = await supabase.functions.invoke('invite-alza-user', {
       body: {
