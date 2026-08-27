@@ -35,7 +35,7 @@ export async function requireOwnerOrAdmin(
   admin: SupabaseClient,
   authHeader: string | null,
 ): Promise<
-  | { ok: true; authUserId: string; profileId: string }
+  | { ok: true; authUserId: string; profileId: string; agencyProfileId: string | null }
   | { ok: false; response: Response }
 > {
   if (!authHeader) {
@@ -59,7 +59,7 @@ export async function requireOwnerOrAdmin(
 
   const { data: profile, error: profileError } = await admin
     .from('users')
-    .select('id, role, status, archived_at')
+    .select('id, role, status, archived_at, agency_profile_id')
     .eq('auth_user_id', user.id)
     .maybeSingle()
 
@@ -89,18 +89,70 @@ export async function requireOwnerOrAdmin(
     return { ok: false, response: fail('forbidden', 'Only Owner or Admin may manage billing.', 403) }
   }
 
-  return { ok: true, authUserId: user.id, profileId: String(profile.id) }
+  return {
+    ok: true,
+    authUserId: user.id,
+    profileId: String(profile.id),
+    agencyProfileId: (profile.agency_profile_id as string | null) ?? null,
+  }
 }
 
+/**
+ * @deprecated Prefer getCallerAgency — singleton lookup is unsafe for multi-agency identity.
+ * Kept only for non-billing legacy fallbacks; do not use for Razorpay create/cancel.
+ */
 export async function getSingletonAgency(admin: SupabaseClient) {
   const { data, error } = await admin
     .from('agency_profile')
-    .select('id, agency_name, email')
+    .select('id, agency_name, email, lifecycle')
+    .eq('lifecycle', 'active')
+    .order('created_at', { ascending: true })
     .limit(1)
     .maybeSingle()
   if (error) return { data: null, error: error.message }
-  if (!data) return { data: null, error: 'agency_profile is missing.' }
+  if (!data) {
+    const fallback = await admin
+      .from('agency_profile')
+      .select('id, agency_name, email, lifecycle')
+      .order('created_at', { ascending: true })
+      .limit(1)
+      .maybeSingle()
+    if (fallback.error) return { data: null, error: fallback.error.message }
+    if (!fallback.data) return { data: null, error: 'agency_profile is missing.' }
+    return { data: fallback.data, error: null }
+  }
   return { data, error: null }
+}
+
+/** Resolve the caller's membership agency (required for prospect + multi-agency billing). */
+export async function getCallerAgency(
+  admin: SupabaseClient,
+  agencyProfileId: string | null | undefined,
+) {
+  const id = String(agencyProfileId ?? '').trim()
+  if (!id) {
+    return {
+      data: null,
+      error: 'Your user is not linked to an agency workspace. Contact ALZA.',
+    }
+  }
+  const { data, error } = await admin
+    .from('agency_profile')
+    .select('id, agency_name, email, lifecycle')
+    .eq('id', id)
+    .maybeSingle()
+  if (error) return { data: null, error: error.message }
+  if (!data) return { data: null, error: 'Agency profile missing for this account.' }
+  return { data, error: null }
+}
+
+export function agencyLifecycleAllowsBilling(
+  lifecycle: string | null | undefined,
+): boolean {
+  const v = String(lifecycle ?? '').trim().toLowerCase()
+  // Missing column / unknown → allow (Production before migration).
+  if (!v) return true
+  return v === 'prospect' || v === 'billing_pending' || v === 'active'
 }
 
 export async function getOrCreateBillingRow(

@@ -1,11 +1,11 @@
 // Deno Edge Function: cancel-razorpay-subscription
-// Owner/Admin only. Cancels the workspace Razorpay subscription via API.
-// Secrets: RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET, SUPABASE_*
+// Owner/Admin only. Cancels the caller's agency Razorpay subscription via API.
 
 import {
   adminClient,
+  agencyLifecycleAllowsBilling,
+  getCallerAgency,
   getOrCreateBillingRow,
-  getSingletonAgency,
   requireOwnerOrAdmin,
   razorpayRequest,
   unixToIso,
@@ -25,9 +25,17 @@ Deno.serve(async (req) => {
   const authz = await requireOwnerOrAdmin(admin, req.headers.get('Authorization'))
   if (!authz.ok) return authz.response
 
-  const agency = await getSingletonAgency(admin)
+  const agency = await getCallerAgency(admin, authz.agencyProfileId)
   if (!agency.data) {
-    return fail('agency_missing', agency.error ?? 'Agency profile missing.', 500)
+    return fail('agency_missing', agency.error ?? 'Agency profile missing.', 400)
+  }
+
+  if (!agencyLifecycleAllowsBilling(agency.data.lifecycle as string | null)) {
+    return fail(
+      'agency_suspended',
+      'This workspace cannot manage billing while suspended. Contact ALZA.',
+      403,
+    )
   }
 
   const billing = await getOrCreateBillingRow(admin, String(agency.data.id))
@@ -45,7 +53,6 @@ Deno.serve(async (req) => {
     return fail('already_cancelled', 'Subscription is already cancelled or completed.', 400)
   }
 
-  // cancel_at_cycle_end=0 → cancel immediately (V1 simple confirmation flow).
   const cancelRes = await razorpayRequest(`/subscriptions/${subscriptionId}/cancel`, {
     method: 'POST',
     body: JSON.stringify({ cancel_at_cycle_end: 0 }),
