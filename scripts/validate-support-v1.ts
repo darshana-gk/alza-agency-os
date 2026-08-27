@@ -196,6 +196,18 @@ console.log('D. Migrations — foundation + assignment (not applied)')
     assign.includes('assignee must be an active ALZA support user'),
     'assignee must be alza_support',
   )
+
+  const agencyResolvePath = 'supabase/migrations/20260827121000_support_agency_resolve.sql'
+  assert('mig agency resolve file', existsSync(resolve(root, agencyResolvePath)), 'additive agency resolve exists')
+  const agencyResolve = read(agencyResolvePath)
+  assert('mig agency resolve replace only', agencyResolve.includes('CREATE OR REPLACE FUNCTION public.support_resolve_conversation'), 'CREATE OR REPLACE resolve')
+  assert('mig agency resolve alza any', agencyResolve.includes('is_alza_support()'), 'ALZA may resolve any')
+  assert(
+    'mig agency resolve own agency',
+    agencyResolve.includes('c.agency_profile_id = public.current_user_agency_profile_id()'),
+    'agency scoped to own agency_profile_id',
+  )
+  assert('mig agency resolve no backfill', !/UPDATE\s+public\.users|ALTER\s+TABLE|DROP\s+TABLE/i.test(agencyResolve), 'no table/data changes')
 }
 
 console.log('E. Email notify — templates + fail-soft')
