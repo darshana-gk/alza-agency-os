@@ -25,7 +25,7 @@ import {
 } from 'lucide-react'
 import type { NavGroup } from '@/types'
 import { useAuth } from '@/lib/auth'
-import { getNavVisibility, rolesOf } from '@/lib/permissions'
+import { getNavVisibility, isAlzaSupportRole, rolesOf } from '@/lib/permissions'
 import { buildSidebarNavItems } from '@/lib/sidebarNav'
 
 const ICONS: Record<string, LucideIcon> = {
@@ -97,6 +97,7 @@ function NavSection({ group }: { group: NavGroup }) {
 export function Sidebar() {
   const { profile } = useAuth()
   const nav = getNavVisibility(rolesOf(profile))
+  const hideAgencySupportCard = isAlzaSupportRole(rolesOf(profile))
 
   const { mainNav, adminNav } = useMemo(() => {
     const specs = buildSidebarNavItems(nav)
@@ -141,7 +142,7 @@ export function Sidebar() {
       </nav>
 
       <div className="border-t border-white/10 p-4">
-        {(nav.support || nav.alzaSupportInbox) && (
+        {(nav.support || nav.alzaSupportInbox) && !hideAgencySupportCard && (
           <Link
             to={nav.support ? '/support' : '/admin/support-inbox'}
             className="block rounded-lg bg-white/5 p-3 transition-colors hover:bg-white/10"
