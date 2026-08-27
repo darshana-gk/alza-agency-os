@@ -3,7 +3,12 @@ import { Link, useNavigate } from 'react-router-dom'
 import { KeyRound, Zap } from 'lucide-react'
 import { useAuth } from '../lib/auth'
 import { supabase } from '../lib/supabase'
-import { postPasswordResetPath, validateNewPassword } from '../lib/passwordRecovery'
+import {
+  capturePasswordRecoveryFromLocation,
+  getRecoveryTokenHash,
+  postPasswordResetPath,
+  validateNewPassword,
+} from '../lib/passwordRecovery'
 
 /**
  * Dedicated password-reset screen for Supabase PASSWORD_RECOVERY.
@@ -29,9 +34,29 @@ export function ResetPasswordPage() {
     let cancelled = false
 
     async function bootstrap() {
+      capturePasswordRecoveryFromLocation(window.location.href)
+      const tokenHash = getRecoveryTokenHash(window.location.href)
+
       await new Promise((r) => setTimeout(r, 50))
-      const { data, error: sessionError } = await supabase.auth.getSession()
+      let { data, error: sessionError } = await supabase.auth.getSession()
       if (cancelled) return
+
+      if (!data.session && tokenHash) {
+        const { error: otpError } = await supabase.auth.verifyOtp({
+          type: 'recovery',
+          token_hash: tokenHash,
+        })
+        if (cancelled) return
+        if (otpError) {
+          setError(otpError.message)
+          setReady(true)
+          return
+        }
+        const exchanged = await supabase.auth.getSession()
+        if (cancelled) return
+        data = exchanged.data
+        sessionError = exchanged.error
+      }
 
       if (sessionError) {
         setError(sessionError.message)
