@@ -40,6 +40,9 @@ export function buildSidebarNavItems(nav: NavVisibility): SidebarNavItemSpec[] {
   if (nav.onboardingImport) {
     items.push({ label: 'Onboarding Import', path: '/onboarding', section: 'administration' })
   }
+  if (nav.integrations) {
+    items.push({ label: 'Integrations', path: '/integrations', section: 'administration' })
+  }
   if (nav.producers) {
     items.push({ label: 'Producers', path: '/admin/producers', section: 'administration' })
   }
@@ -73,4 +76,8 @@ export function sidebarNavForRole(role: RoleInput): SidebarNavItemSpec[] {
 
 export function roleCanOpenOnboarding(role: RoleInput): boolean {
   return canAccessPath(role, '/onboarding')
+}
+
+export function roleCanOpenIntegrations(role: RoleInput): boolean {
+  return canAccessPath(role, '/integrations')
 }

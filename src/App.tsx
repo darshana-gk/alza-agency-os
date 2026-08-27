@@ -13,6 +13,7 @@ import { Reports } from '@/pages/Reports'
 import { NotificationsPage } from '@/pages/Notifications'
 import { ActivityHistoryPage } from '@/pages/ActivityHistory'
 import { Onboarding } from '@/pages/Onboarding'
+import { Integrations } from '@/pages/Integrations'
 import { SupportCenterPage } from '@/pages/SupportCenter'
 import { Producers } from '@/pages/admin/Producers'
 import { CSRs } from '@/pages/admin/CSRs'
@@ -155,6 +156,14 @@ function AuthenticatedApp() {
           element={
             <Guard path="/onboarding">
               <Onboarding />
+            </Guard>
+          }
+        />
+        <Route
+          path="integrations"
+          element={
+            <Guard path="/integrations">
+              <Integrations />
             </Guard>
           }
         />

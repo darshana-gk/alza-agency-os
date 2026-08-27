@@ -67,6 +67,24 @@ export function SupportCenterPage() {
   const [message, setMessage] = useState('')
   const [priority, setPriority] = useState<SupportPriority>('normal')
 
+  useEffect(() => {
+    const cat = searchParams.get('category')
+    const sub = searchParams.get('subject')
+    const msg = searchParams.get('message')
+    if (cat && SUPPORT_CATEGORIES.some((c) => c.value === cat)) {
+      setCategory(cat as SupportCategory)
+      setComposerOpen(true)
+    }
+    if (sub) {
+      setSubject(sub)
+      setComposerOpen(true)
+    }
+    if (msg) {
+      setMessage(msg)
+      setComposerOpen(true)
+    }
+  }, [searchParams])
+
   const loadList = useCallback(async () => {
     setLoading(true)
     setError(null)
