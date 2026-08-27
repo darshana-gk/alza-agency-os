@@ -16,6 +16,7 @@ import {
   FIELD_OWNERSHIP_RULES,
   INTEGRATION_AUDIT_EVENTS,
   INTEGRATION_CATEGORIES,
+  INTEGRATION_CATEGORY_BLURBS,
   INTEGRATION_CATEGORY_LABELS,
   INTEGRATION_PROVIDER_CATALOG,
   INTEGRATION_STATUSES,
@@ -349,14 +350,25 @@ console.log('N. Category grouping preserves catalog coverage')
   const groupedIds = groups.flatMap((g) => g.providers.map((p) => p.id))
   assertEq(groupedIds.length, INTEGRATION_PROVIDER_CATALOG.length, 'grouped count = catalog count')
   assertEq(new Set(groupedIds).size, INTEGRATION_PROVIDER_CATALOG.length, 'no duplicate ids in groups')
+  assertEq(groups[0]?.category, 'data_import_export', 'Data Import / Export first')
+  assertEq(groups[1]?.category, 'ams', 'AMS second')
+  assertEq(groups[2]?.category, 'carrier_mga_commission_feeds', 'Carrier/MGA third')
+  assertEq(INTEGRATION_CATEGORIES[0], 'data_import_export', 'category order starts with data import')
   assert(groups.some((g) => g.category === 'carrier_mga_commission_feeds'), 'carrier/mga section present')
   assert(groups.some((g) => g.category === 'payments'), 'payments section present')
   assert(groups.some((g) => g.category === 'banking'), 'banking section present')
   const blurb = oneLineProviderBlurb('First sentence. Second sentence that is longer.')
   assert(blurb === 'First sentence.', 'one-line blurb uses first sentence')
+  for (const cat of INTEGRATION_CATEGORIES) {
+    assert(Boolean(INTEGRATION_CATEGORY_BLURBS[cat]), `accordion blurb for ${cat}`)
+  }
   const page = readFileSync(resolve(root, 'src/pages/Integrations.tsx'), 'utf8')
   assert(page.includes('View Integration'), 'compact card CTA View Integration')
   assert(page.includes('ProviderDetailDrawer') || page.includes('detailCard'), 'detail drawer present')
+  assert(page.includes('aria-expanded'), 'category accordion aria-expanded')
+  assert(page.includes('userExpanded'), 'accordion default collapsed via userExpanded')
+  assert(page.includes('searchOrFilterActive'), 'search auto-expands matching categories')
+  assert(!page.includes('space-y-10'), 'not always-expanded stacked sections')
   assert(!page.includes('CONNECTOR_CAPABILITIES'), 'no engineering capabilities on cards')
   assert(!page.includes('CONNECTOR_SYNC_PIPELINE'), 'no sync pipeline dump on cards')
   assert(

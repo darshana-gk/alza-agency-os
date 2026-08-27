@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
   Cable,
@@ -8,11 +8,13 @@ import {
   Filter,
   X,
   ChevronRight,
+  ChevronDown,
 } from 'lucide-react'
 import { useAuth } from '../lib/auth'
 import { roleInputFromProfile } from '../lib/permissions'
 import {
   INTEGRATION_CATEGORIES,
+  INTEGRATION_CATEGORY_BLURBS,
   INTEGRATION_CATEGORY_LABELS,
   INTEGRATION_PROVIDER_CATALOG,
   ONBOARDING_FALLBACK_PATH,
@@ -63,6 +65,8 @@ export function Integrations() {
   const [availability, setAvailability] = useState<AvailabilityFilter>('all')
   const [query, setQuery] = useState('')
   const [detailId, setDetailId] = useState<string | null>(null)
+  const [userExpanded, setUserExpanded] = useState<Set<IntegrationCategory>>(() => new Set())
+  const [userCollapsed, setUserCollapsed] = useState<Set<IntegrationCategory>>(() => new Set())
 
   const cards = useMemo(() => {
     return INTEGRATION_PROVIDER_CATALOG.map((provider) => resolveProviderCardStatus(provider, null))
@@ -108,6 +112,42 @@ export function Integrations() {
     [detailId, filtered, cards],
   )
 
+  const searchOrFilterActive =
+    query.trim().length > 0 || category !== 'all' || availability !== 'all'
+
+  useEffect(() => {
+    setUserCollapsed(new Set())
+  }, [query, category, availability])
+
+  useEffect(() => {
+    if (!searchOrFilterActive) {
+      setUserExpanded(new Set())
+    }
+  }, [searchOrFilterActive])
+
+  function toggleCategory(id: IntegrationCategory) {
+    if (searchOrFilterActive) {
+      setUserCollapsed((prev) => {
+        const next = new Set(prev)
+        if (next.has(id)) next.delete(id)
+        else next.add(id)
+        return next
+      })
+      return
+    }
+    setUserExpanded((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  function isCategoryExpanded(id: IntegrationCategory): boolean {
+    if (searchOrFilterActive) return !userCollapsed.has(id)
+    return userExpanded.has(id)
+  }
+
   if (!canAccess) {
     return (
       <div className="rounded-xl border border-slate-200 bg-white p-8 text-sm text-slate-600 shadow-sm">
@@ -127,11 +167,7 @@ export function Integrations() {
 
       <div className="rounded-2xl border border-alza-blue-200/80 bg-alza-blue-50/70 p-5 shadow-sm sm:p-6">
         <p className="text-sm font-semibold text-alza-blue-900">Available now</p>
-        <p className="mt-1 max-w-2xl text-sm leading-relaxed text-slate-600">
-          File import is the working path today: CSV, XLSX, TXT, or paste. Third-party connectors are
-          Coming Soon until a real authenticated connection exists.
-        </p>
-        <div className="mt-4 flex flex-wrap gap-2">
+        <div className="mt-3 flex flex-wrap gap-2">
           <Link
             to={ONBOARDING_FALLBACK_PATH}
             className="inline-flex items-center gap-2 rounded-lg bg-alza-blue-700 px-4 py-2.5 text-sm font-medium text-white shadow-sm hover:bg-alza-blue-800"
@@ -212,30 +248,58 @@ export function Integrations() {
           No providers match your filters.
         </div>
       ) : (
-        <div className="space-y-10">
-          {sections.map((section) => (
-            <section key={section.category} className="space-y-4">
-              <div className="flex items-end justify-between gap-3 border-b border-slate-200 pb-2">
-                <div>
-                  <h2 className="text-base font-semibold text-slate-900">
-                    {INTEGRATION_CATEGORY_LABELS[section.category]}
-                  </h2>
-                  <p className="mt-0.5 text-xs text-slate-500">
-                    {section.cards.length} integration{section.cards.length === 1 ? '' : 's'}
-                  </p>
-                </div>
-              </div>
-              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
-                {section.cards.map((card) => (
-                  <CompactProviderCard
-                    key={card.provider.id}
-                    card={card}
-                    onView={() => setDetailId(card.provider.id)}
-                  />
-                ))}
-              </div>
-            </section>
-          ))}
+        <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+          {sections.map((section, index) => {
+            const expanded = isCategoryExpanded(section.category)
+            const count = section.cards.length
+            const panelId = `integration-category-${section.category}`
+            return (
+              <section
+                key={section.category}
+                className={index > 0 ? 'border-t border-slate-200' : undefined}
+              >
+                <h2 className="m-0">
+                  <button
+                    type="button"
+                    aria-expanded={expanded}
+                    aria-controls={panelId}
+                    onClick={() => toggleCategory(section.category)}
+                    className="flex w-full items-center gap-3 px-4 py-3.5 text-left hover:bg-slate-50"
+                  >
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-sm font-semibold text-slate-900">
+                        {INTEGRATION_CATEGORY_LABELS[section.category]}
+                      </span>
+                      <span className="mt-0.5 block text-xs text-slate-500">
+                        {INTEGRATION_CATEGORY_BLURBS[section.category]}
+                        {' · '}
+                        {count} integration{count === 1 ? '' : 's'}
+                      </span>
+                    </span>
+                    <ChevronDown
+                      className={`h-4 w-4 shrink-0 text-slate-400 transition-transform ${
+                        expanded ? 'rotate-180' : ''
+                      }`}
+                      aria-hidden
+                    />
+                  </button>
+                </h2>
+                {expanded ? (
+                  <div id={panelId} className="border-t border-slate-100 bg-slate-50/60 px-4 py-4">
+                    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+                      {section.cards.map((card) => (
+                        <CompactProviderCard
+                          key={card.provider.id}
+                          card={card}
+                          onView={() => setDetailId(card.provider.id)}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
+              </section>
+            )
+          })}
         </div>
       )}
 

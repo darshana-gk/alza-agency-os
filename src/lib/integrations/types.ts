@@ -3,34 +3,49 @@
  * No secrets. No live vendor credentials. No Connected without a real connection record.
  */
 
+/** Page/accordion order: live ALZA tools and core insurance first. */
 export const INTEGRATION_CATEGORIES = [
+  'data_import_export',
   'ams',
-  'crm',
   'carrier_mga_commission_feeds',
+  'crm',
+  'accounting',
   'payments',
   'banking',
-  'accounting',
   'documents',
   'email',
   'telephony',
   'identity',
-  'data_import_export',
 ] as const
 
 export type IntegrationCategory = (typeof INTEGRATION_CATEGORIES)[number]
 
 export const INTEGRATION_CATEGORY_LABELS: Record<IntegrationCategory, string> = {
+  data_import_export: 'Data Import / Export',
   ams: 'Agency Management Systems',
-  crm: 'CRM & Sales',
   carrier_mga_commission_feeds: 'Carrier/MGA Commission Feeds',
+  crm: 'CRM & Sales',
+  accounting: 'Accounting',
   payments: 'Payments & Premium Collection',
   banking: 'Banking',
-  accounting: 'Accounting',
   documents: 'Documents & eSignature',
   email: 'Email & Communications',
   telephony: 'Telephony & SMS',
   identity: 'Identity & SSO',
-  data_import_export: 'Data Import / Export',
+}
+
+export const INTEGRATION_CATEGORY_BLURBS: Record<IntegrationCategory, string> = {
+  data_import_export: 'CSV, XLSX, TXT, or paste',
+  ams: 'Agency management systems',
+  carrier_mga_commission_feeds: 'Commission statement feeds',
+  crm: 'Sales and pipeline systems',
+  accounting: 'Books and accounting references',
+  payments: 'Premium collection platforms',
+  banking: 'Deposit and bank signals',
+  documents: 'eSignature and documents',
+  email: 'Email and communications',
+  telephony: 'Voice and SMS',
+  identity: 'SSO and identity providers',
 }
 
 /** Catalog availability — what the product exposes in UI before a live connector exists. */
