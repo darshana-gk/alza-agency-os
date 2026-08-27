@@ -154,7 +154,7 @@ export function AlzaSupportInboxPage() {
   }
 
   async function handleReply() {
-    if (!profile || !selectedId) return
+    if (!profile || !selectedId || busy) return
     setBusy(true)
     setError(null)
     const result = await replyToSupportConversation({
@@ -447,7 +447,11 @@ export function AlzaSupportInboxPage() {
               >
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <p className="text-sm font-semibold text-slate-900">
-                    {isAlza ? 'ALZA Support' : m.senderName || 'Agency User'}
+                    {isAlza
+                      ? m.senderName
+                        ? `ALZA Support · ${m.senderName}`
+                        : 'ALZA Support'
+                      : m.senderName || 'Agency User'}
                   </p>
                   <p className="text-xs text-slate-500">{formatWhen(m.createdAt)}</p>
                 </div>
