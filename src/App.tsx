@@ -26,6 +26,7 @@ import { TestSupabase } from '@/pages/TestSupabase'
 import { LoginPage } from '@/pages/Login'
 import { AccessDeniedPage } from '@/pages/AccessDenied'
 import { SetPasswordPage } from '@/pages/SetPassword'
+import { ResetPasswordPage } from '@/pages/ResetPassword'
 import { useAuth } from '@/lib/auth'
 
 function Guard({ path, children }: { path: string; children: React.ReactNode }) {
@@ -254,6 +255,13 @@ function AuthenticatedApp() {
 
 export default function App() {
   const location = useLocation()
+  const { passwordRecoveryPending } = useAuth()
+
+  // Recovery emails from the Supabase dashboard typically land on Site URL `/`
+  // with hash/query type=recovery — not /auth/set-password. Intercept before Login.
+  if (passwordRecoveryPending || location.pathname.startsWith('/auth/reset-password')) {
+    return <ResetPasswordPage />
+  }
 
   // Public auth routes must work before/without the main session gate
   // (invite emails land here with tokens in the URL hash/query).
