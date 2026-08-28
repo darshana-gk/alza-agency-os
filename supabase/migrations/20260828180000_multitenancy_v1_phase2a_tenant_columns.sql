@@ -6,17 +6,23 @@
 --
 -- This migration:
 --   * adds nullable agency_profile_id (+ FK + non-unique index) where the column is missing
+--   * includes recovery_number_counters, transaction_number_counters, and
+--     producer_payment_batch_number_counters (year PK unchanged; numbering functions unchanged)
+--   * does NOT touch task_number_counters (product ownership unconfirmed)
 --   * backfills existing business rows to the single existing agency_profile (Tenant 1)
 --   * re-NULLs alza_support membership (platform role, not an agency member)
+--   * preserves historical updated_at by disabling only set_updated_at() row triggers
+--     for the duration of the backfill UPDATEs (see section 2)
 --
 -- This migration does NOT:
 --   * make new tenant columns NOT NULL
 --   * drop agency_profile.singleton_key
 --   * replace RLS / transaction permissions / approval RPCs
 --   * convert uniqueness to tenant-scoped
---   * change tenant-scoped counters
+--   * change counter PKs or next_* numbering functions
 --   * recalculate premiums, commissions, splits, receipts, or matches
 --   * change Billing, Support, or Integrations behavior
+--   * use session_replication_role = replica (would skip unrelated integrity triggers)
 --
 -- Existing tenant columns are not recreated:
 --   users, reconciliation_statements, reconciliation_column_mappings,
@@ -48,6 +54,8 @@ BEGIN
     'producer_commission_recoveries',
     'producer_recovery_allocations',
     'recovery_number_counters',
+    'transaction_number_counters',
+    'producer_payment_batch_number_counters',
     'reconciliation_statements',
     'reconciliation_column_mappings',
     'reconciliation_statement_rows',
@@ -88,6 +96,8 @@ BEGIN
     'producer_commission_recoveries',
     'producer_recovery_allocations',
     'recovery_number_counters',
+    'transaction_number_counters',
+    'producer_payment_batch_number_counters',
     'reconciliation_statement_rows',
     'activity_history',
     'supporting_documents'
@@ -161,6 +171,10 @@ COMMENT ON COLUMN public.producer_recovery_allocations.agency_profile_id IS
   'Phase 2A additive tenant key. Nullable until Phase 2B. Not used by RLS yet.';
 COMMENT ON COLUMN public.recovery_number_counters.agency_profile_id IS
   'Phase 2A additive tenant key. Nullable until Phase 2B. Counter PK remains year until Phase 2B.';
+COMMENT ON COLUMN public.transaction_number_counters.agency_profile_id IS
+  'Phase 2A additive tenant key. Nullable until Phase 2B. Counter PK remains year until Phase 2B.';
+COMMENT ON COLUMN public.producer_payment_batch_number_counters.agency_profile_id IS
+  'Phase 2A additive tenant key. Nullable until Phase 2B. Counter PK remains year until Phase 2B.';
 COMMENT ON COLUMN public.reconciliation_statement_rows.agency_profile_id IS
   'Phase 2A additive tenant key. Nullable until Phase 2B. Not used by RLS yet.';
 COMMENT ON COLUMN public.activity_history.agency_profile_id IS
@@ -190,6 +204,8 @@ DECLARE
   rows_missing_statement integer;
   docs_missing_txn integer;
   docs_missing_recovery integer;
+  trig record;
+  disabled jsonb := '[]'::jsonb;
 BEGIN
   LOCK TABLE public.agency_profile IN SHARE ROW EXCLUSIVE MODE;
 
@@ -441,67 +457,177 @@ BEGIN
     docs_missing_txn,
     docs_missing_recovery;
 
-  -- Platform support: never an agency member (known Support-foundation backfill).
-  UPDATE public.users u
-  SET agency_profile_id = NULL
-  WHERE (
-      lower(COALESCE(u.role, '')) = 'alza_support'
-      OR EXISTS (
-        SELECT 1
-        FROM public.user_roles ur
-        WHERE ur.user_id = u.id
-          AND lower(ur.role) = 'alza_support'
+  -- Timestamp preservation:
+  -- Live Production uses BEFORE UPDATE ... EXECUTE FUNCTION public.set_updated_at()
+  -- (predating this repo; not defined in migrations). Known Production names:
+  --   agency_commission_receipts_set_updated_at
+  --   carriers_set_updated_at
+  --   csrs_set_updated_at
+  --   mgas_set_updated_at
+  --   producer_commission_recoveries_set_updated_at
+  --   producer_payment_batches_set_updated_at
+  --   transactions_set_updated_at
+  --   users_set_updated_at
+  -- That function assigns NEW.updated_at := now(), so SET updated_at = updated_at
+  -- cannot preserve history. session_replication_role = replica is not used:
+  -- it would also skip integrity/security triggers (lifecycle, recovery cap,
+  -- alza_support lock). Catalog lookup disables only non-internal row triggers
+  -- whose function is public.set_updated_at on tables this backfill UPDATEs.
+  -- Re-enable is guaranteed on success and on abort (inner + outer EXCEPTION).
+  -- DISABLE TRIGGER ALL is not used.
+  BEGIN
+  FOR trig IN
+    SELECT c.relname AS table_name, t.tgname AS trigger_name
+    FROM pg_trigger t
+    JOIN pg_class c ON c.oid = t.tgrelid
+    JOIN pg_namespace n ON n.oid = c.relnamespace
+    JOIN pg_proc p ON p.oid = t.tgfoid
+    JOIN pg_namespace np ON np.oid = p.pronamespace
+    WHERE n.nspname = 'public'
+      AND np.nspname = 'public'
+      AND c.relkind = 'r'
+      AND NOT t.tgisinternal
+      AND p.proname = 'set_updated_at'
+      AND c.relname IN (
+        'users',
+        'reconciliation_statements',
+        'reconciliation_column_mappings',
+        'billing_subscriptions',
+        'support_conversations',
+        'clients',
+        'policies',
+        'transactions',
+        'carriers',
+        'mgas',
+        'producers',
+        'csrs',
+        'agency_commission_receipts',
+        'producer_payment_batches',
+        'producer_payment_batch_items',
+        'producer_commission_recoveries',
+        'producer_recovery_allocations',
+        'recovery_number_counters',
+        'transaction_number_counters',
+        'producer_payment_batch_number_counters',
+        'reconciliation_statement_rows',
+        'activity_history',
+        'supporting_documents'
       )
-    )
-    AND u.agency_profile_id IS NOT NULL;
-
-  -- Agency users with NULL membership → Tenant 1.
-  UPDATE public.users u
-  SET agency_profile_id = tenant1
-  WHERE u.agency_profile_id IS NULL
-    AND NOT (
-      lower(COALESCE(u.role, '')) = 'alza_support'
-      OR EXISTS (
-        SELECT 1
-        FROM public.user_roles ur
-        WHERE ur.user_id = u.id
-          AND lower(ur.role) = 'alza_support'
-      )
+    ORDER BY c.relname, t.tgname
+  LOOP
+    EXECUTE format(
+      'ALTER TABLE public.%I DISABLE TRIGGER %I',
+      trig.table_name,
+      trig.trigger_name
     );
+    disabled := disabled || jsonb_build_array(
+      jsonb_build_object('table_name', trig.table_name, 'trigger_name', trig.trigger_name)
+    );
+  END LOOP;
 
-  -- Existing nullable tenant columns (users handled above). These tables are
-  -- NOT NULL in repo DDL; UPDATE is a no-op if already populated.
-  UPDATE public.reconciliation_statements
-  SET agency_profile_id = tenant1
-  WHERE agency_profile_id IS NULL;
+  RAISE NOTICE 'Phase 2A disabled set_updated_at triggers: %', disabled;
 
-  UPDATE public.reconciliation_column_mappings
-  SET agency_profile_id = tenant1
-  WHERE agency_profile_id IS NULL;
+  BEGIN
+    -- Platform support: never an agency member (known Support-foundation backfill).
+    UPDATE public.users u
+    SET agency_profile_id = NULL
+    WHERE (
+        lower(COALESCE(u.role, '')) = 'alza_support'
+        OR EXISTS (
+          SELECT 1
+          FROM public.user_roles ur
+          WHERE ur.user_id = u.id
+            AND lower(ur.role) = 'alza_support'
+        )
+      )
+      AND u.agency_profile_id IS NOT NULL;
 
-  UPDATE public.billing_subscriptions
-  SET agency_profile_id = tenant1
-  WHERE agency_profile_id IS NULL;
+    -- Agency users with NULL membership → Tenant 1.
+    UPDATE public.users u
+    SET agency_profile_id = tenant1
+    WHERE u.agency_profile_id IS NULL
+      AND NOT (
+        lower(COALESCE(u.role, '')) = 'alza_support'
+        OR EXISTS (
+          SELECT 1
+          FROM public.user_roles ur
+          WHERE ur.user_id = u.id
+            AND lower(ur.role) = 'alza_support'
+        )
+      );
 
-  UPDATE public.support_conversations
-  SET agency_profile_id = tenant1
-  WHERE agency_profile_id IS NULL;
+    -- Existing nullable tenant columns (users handled above). These tables are
+    -- NOT NULL in repo DDL; UPDATE is a no-op if already populated.
+    UPDATE public.reconciliation_statements
+    SET agency_profile_id = tenant1
+    WHERE agency_profile_id IS NULL;
 
-  -- Newly added columns: stamp Tenant 1. Do not rewrite IDs or money columns.
-  UPDATE public.clients SET agency_profile_id = tenant1 WHERE agency_profile_id IS NULL;
-  UPDATE public.policies SET agency_profile_id = tenant1 WHERE agency_profile_id IS NULL;
-  UPDATE public.transactions SET agency_profile_id = tenant1 WHERE agency_profile_id IS NULL;
-  UPDATE public.carriers SET agency_profile_id = tenant1 WHERE agency_profile_id IS NULL;
-  UPDATE public.mgas SET agency_profile_id = tenant1 WHERE agency_profile_id IS NULL;
-  UPDATE public.producers SET agency_profile_id = tenant1 WHERE agency_profile_id IS NULL;
-  UPDATE public.csrs SET agency_profile_id = tenant1 WHERE agency_profile_id IS NULL;
-  UPDATE public.agency_commission_receipts SET agency_profile_id = tenant1 WHERE agency_profile_id IS NULL;
-  UPDATE public.producer_payment_batches SET agency_profile_id = tenant1 WHERE agency_profile_id IS NULL;
-  UPDATE public.producer_payment_batch_items SET agency_profile_id = tenant1 WHERE agency_profile_id IS NULL;
-  UPDATE public.producer_commission_recoveries SET agency_profile_id = tenant1 WHERE agency_profile_id IS NULL;
-  UPDATE public.producer_recovery_allocations SET agency_profile_id = tenant1 WHERE agency_profile_id IS NULL;
-  UPDATE public.recovery_number_counters SET agency_profile_id = tenant1 WHERE agency_profile_id IS NULL;
-  UPDATE public.reconciliation_statement_rows SET agency_profile_id = tenant1 WHERE agency_profile_id IS NULL;
-  UPDATE public.activity_history SET agency_profile_id = tenant1 WHERE agency_profile_id IS NULL;
-  UPDATE public.supporting_documents SET agency_profile_id = tenant1 WHERE agency_profile_id IS NULL;
+    UPDATE public.reconciliation_column_mappings
+    SET agency_profile_id = tenant1
+    WHERE agency_profile_id IS NULL;
+
+    UPDATE public.billing_subscriptions
+    SET agency_profile_id = tenant1
+    WHERE agency_profile_id IS NULL;
+
+    UPDATE public.support_conversations
+    SET agency_profile_id = tenant1
+    WHERE agency_profile_id IS NULL;
+
+    -- Newly added columns: stamp Tenant 1. Do not rewrite IDs or money columns.
+    UPDATE public.clients SET agency_profile_id = tenant1 WHERE agency_profile_id IS NULL;
+    UPDATE public.policies SET agency_profile_id = tenant1 WHERE agency_profile_id IS NULL;
+    UPDATE public.transactions SET agency_profile_id = tenant1 WHERE agency_profile_id IS NULL;
+    UPDATE public.carriers SET agency_profile_id = tenant1 WHERE agency_profile_id IS NULL;
+    UPDATE public.mgas SET agency_profile_id = tenant1 WHERE agency_profile_id IS NULL;
+    UPDATE public.producers SET agency_profile_id = tenant1 WHERE agency_profile_id IS NULL;
+    UPDATE public.csrs SET agency_profile_id = tenant1 WHERE agency_profile_id IS NULL;
+    UPDATE public.agency_commission_receipts SET agency_profile_id = tenant1 WHERE agency_profile_id IS NULL;
+    UPDATE public.producer_payment_batches SET agency_profile_id = tenant1 WHERE agency_profile_id IS NULL;
+    UPDATE public.producer_payment_batch_items SET agency_profile_id = tenant1 WHERE agency_profile_id IS NULL;
+    UPDATE public.producer_commission_recoveries SET agency_profile_id = tenant1 WHERE agency_profile_id IS NULL;
+    UPDATE public.producer_recovery_allocations SET agency_profile_id = tenant1 WHERE agency_profile_id IS NULL;
+    UPDATE public.recovery_number_counters SET agency_profile_id = tenant1 WHERE agency_profile_id IS NULL;
+    UPDATE public.transaction_number_counters SET agency_profile_id = tenant1 WHERE agency_profile_id IS NULL;
+    UPDATE public.producer_payment_batch_number_counters SET agency_profile_id = tenant1 WHERE agency_profile_id IS NULL;
+    UPDATE public.reconciliation_statement_rows SET agency_profile_id = tenant1 WHERE agency_profile_id IS NULL;
+    UPDATE public.activity_history SET agency_profile_id = tenant1 WHERE agency_profile_id IS NULL;
+    UPDATE public.supporting_documents SET agency_profile_id = tenant1 WHERE agency_profile_id IS NULL;
+  EXCEPTION WHEN OTHERS THEN
+    FOR trig IN
+      SELECT x.table_name, x.trigger_name
+      FROM jsonb_to_recordset(disabled) AS x(table_name text, trigger_name text)
+    LOOP
+      EXECUTE format(
+        'ALTER TABLE public.%I ENABLE TRIGGER %I',
+        trig.table_name,
+        trig.trigger_name
+      );
+    END LOOP;
+    RAISE;
+  END;
+
+  FOR trig IN
+    SELECT x.table_name, x.trigger_name
+    FROM jsonb_to_recordset(disabled) AS x(table_name text, trigger_name text)
+  LOOP
+    EXECUTE format(
+      'ALTER TABLE public.%I ENABLE TRIGGER %I',
+      trig.table_name,
+      trig.trigger_name
+    );
+  END LOOP;
+  EXCEPTION WHEN OTHERS THEN
+    FOR trig IN
+      SELECT x.table_name, x.trigger_name
+      FROM jsonb_to_recordset(disabled) AS x(table_name text, trigger_name text)
+    LOOP
+      EXECUTE format(
+        'ALTER TABLE public.%I ENABLE TRIGGER %I',
+        trig.table_name,
+        trig.trigger_name
+      );
+    END LOOP;
+    RAISE;
+  END;
 END $$;

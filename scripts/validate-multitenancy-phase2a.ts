@@ -13,8 +13,9 @@ const root = resolve(process.cwd())
 const migrationName = '20260828180000_multitenancy_v1_phase2a_tenant_columns.sql'
 const migrationPath = resolve(root, 'supabase/migrations', migrationName)
 const inspectPath = resolve(root, 'scripts/inspect-production-tenancy-schema.sql')
+const notesPath = resolve(root, 'docs/multitenancy-v1-implementation-notes.md')
 
-const NEW_TENANT_TABLES = [
+const ORIGINAL_16_NEW_TENANT_TABLES = [
   'clients',
   'policies',
   'transactions',
@@ -31,6 +32,18 @@ const NEW_TENANT_TABLES = [
   'reconciliation_statement_rows',
   'activity_history',
   'supporting_documents',
+] as const
+
+const COUNTER_TENANT_TABLES = [
+  'recovery_number_counters',
+  'transaction_number_counters',
+  'producer_payment_batch_number_counters',
+] as const
+
+const NEW_TENANT_TABLES = [
+  ...ORIGINAL_16_NEW_TENANT_TABLES,
+  'transaction_number_counters',
+  'producer_payment_batch_number_counters',
 ] as const
 
 const EXISTING_TENANT_TABLES = [
@@ -75,6 +88,10 @@ function assert(condition: unknown, message: string) {
   console.error(`  FAIL: ${message}`)
 }
 
+function assertEqCount(actual: number, expected: number, message: string) {
+  assert(actual === expected, `${message} (got ${actual}, expected ${expected})`)
+}
+
 function stripSqlComments(sql: string): string {
   return sql
     .replace(/\/\*[\s\S]*?\*\//g, ' ')
@@ -97,9 +114,26 @@ console.log('A. Migration file present + additive header')
 
 console.log('B. New tenant columns — present, nullable, not duplicated')
 {
+  assertEqCount(
+    ORIGINAL_16_NEW_TENANT_TABLES.length,
+    16,
+    'original 16 new tenant tables listed in validator',
+  )
+  for (const table of ORIGINAL_16_NEW_TENANT_TABLES) {
+    assert(sql.includes(`'${table}'`), `original new-column table listed: ${table}`)
+  }
   for (const table of NEW_TENANT_TABLES) {
     assert(sql.includes(`'${table}'`), `new-column table listed: ${table}`)
   }
+  for (const table of COUNTER_TENANT_TABLES) {
+    assert(sql.includes(`'${table}'`), `counter table tenant column: ${table}`)
+    assert(
+      sql.includes(`COMMENT ON COLUMN public.${table}.agency_profile_id`),
+      `${table}.agency_profile_id commented`,
+    )
+  }
+  assertEqCount(NEW_TENANT_TABLES.length, 18, '18 new tenant columns (16 original + 2 counters)')
+  assert(!/\btask_number_counters\b/.test(body), 'task_number_counters remains untouched')
   assert(
     /ALTER TABLE public\.%I ADD COLUMN agency_profile_id uuid/.test(sql) ||
       /ADD COLUMN agency_profile_id uuid/.test(sql),
@@ -117,6 +151,7 @@ console.log('B. New tenant columns — present, nullable, not duplicated')
   assert(sql.includes('CREATE INDEX IF NOT EXISTS'), 'non-unique tenant indexes')
   assert(!/CREATE UNIQUE INDEX/i.test(body), 'no unique index conversion')
   assert(!/ADD CONSTRAINT \S+ UNIQUE/i.test(body), 'no new UNIQUE constraints')
+  assert(!/PRIMARY KEY/i.test(body), 'does not change numbering counter PKs')
 }
 
 console.log('C. Existing tenant columns are not recreated')
@@ -201,6 +236,42 @@ console.log('H. RC app compatibility — inserts not forced to supply tenant')
 {
   assert(sql.includes('Nullable until Phase 2B'), 'documents nullable compatibility')
   assert(sql.includes('Not used by RLS yet'), 'documents RLS deferred')
+}
+
+console.log('I. Historical timestamp preservation — targeted set_updated_at only')
+{
+  assert(sql.includes('preserves historical updated_at'), 'documents timestamp preservation')
+  assert(sql.includes("p.proname = 'set_updated_at'"), 'discovers only set_updated_at triggers')
+  assert(sql.includes('DISABLE TRIGGER %I'), 'disables named triggers, not ALL')
+  assert(sql.includes('ENABLE TRIGGER %I'), 're-enables the same named triggers')
+  assert(/EXCEPTION WHEN OTHERS/i.test(body), 're-enables on abort')
+  assert(!/DISABLE TRIGGER ALL/i.test(body), 'does not DISABLE TRIGGER ALL')
+  assert(!/ENABLE TRIGGER ALL/i.test(body), 'does not ENABLE TRIGGER ALL')
+  assert(!/session_replication_role/i.test(body), 'does not set session_replication_role')
+  assert(sql.includes('agency_commission_receipts_set_updated_at'), 'names Production receipts trigger')
+  assert(sql.includes('carriers_set_updated_at'), 'names Production carriers trigger')
+  assert(sql.includes('csrs_set_updated_at'), 'names Production csrs trigger')
+  assert(sql.includes('mgas_set_updated_at'), 'names Production mgas trigger')
+  assert(sql.includes('producer_commission_recoveries_set_updated_at'), 'names Production recoveries trigger')
+  assert(sql.includes('producer_payment_batches_set_updated_at'), 'names Production batches trigger')
+  assert(sql.includes('transactions_set_updated_at'), 'names Production transactions trigger')
+  assert(sql.includes('users_set_updated_at'), 'names Production users trigger')
+}
+
+console.log('J. Later-phase Production findings are recorded, not fixed')
+{
+  assert(existsSync(notesPath), 'docs/multitenancy-v1-implementation-notes.md exists')
+  const notes = readFileSync(notesPath, 'utf8')
+  assert(notes.includes('Allow all users'), 'notes users RLS open')
+  assert(notes.includes('anonymous SELECT') || notes.includes('anon read clients'), 'notes clients anon SELECT')
+  assert(notes.includes('Directory SELECT is global'), 'notes directory reads global')
+  assert(notes.includes('transactions_update_ops'), 'notes CSR transaction UPDATE/DELETE too broad')
+  assert(notes.includes('ops-global'), 'notes reconciliation RLS ops-global')
+  assert(notes.includes('no tenant predicate'), 'notes billing SELECT lacks tenant predicate')
+  assert(notes.includes('agency-branding'), 'notes agency-branding bucket public')
+  assert(notes.includes('counters and numbers are global'), 'notes global numbering counters')
+  assert(notes.includes('transactions_transaction_number_key'), 'notes duplicate transaction-number unique indexes')
+  assert(notes.includes('task_number_counters'), 'notes task_number_counters deferred')
 }
 
 console.log(`\n${passed} passed, ${failed} failed`)
