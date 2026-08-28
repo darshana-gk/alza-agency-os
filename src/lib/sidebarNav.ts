@@ -7,10 +7,14 @@ import {
   type RoleInput,
 } from './permissions'
 
+export type AdminNavUmbrella = 'data_integrations' | 'agency_network'
+
 export type SidebarNavItemSpec = {
   label: string
   path: string
   section: 'main' | 'administration'
+  /** Administration-only umbrella. Standalone admin items omit this. */
+  adminGroup?: AdminNavUmbrella
 }
 
 /** Same placement rules the Sidebar UI uses. */
@@ -38,18 +42,52 @@ export function buildSidebarNavItems(nav: NavVisibility): SidebarNavItemSpec[] {
 
   // Owner/Admin-only onboarding belongs under Administration (not main ops nav).
   if (nav.onboardingImport) {
-    items.push({ label: 'Onboarding Import', path: '/onboarding', section: 'administration' })
+    items.push({
+      label: 'Onboarding Import',
+      path: '/onboarding',
+      section: 'administration',
+      adminGroup: 'data_integrations',
+    })
   }
   if (nav.integrations) {
-    items.push({ label: 'Integrations', path: '/integrations', section: 'administration' })
+    items.push({
+      label: 'Integrations',
+      path: '/integrations',
+      section: 'administration',
+      adminGroup: 'data_integrations',
+    })
   }
   if (nav.producers) {
-    items.push({ label: 'Producers', path: '/admin/producers', section: 'administration' })
+    items.push({
+      label: 'Producers',
+      path: '/admin/producers',
+      section: 'administration',
+      adminGroup: 'agency_network',
+    })
   }
-  if (nav.csrs) items.push({ label: 'CSRs', path: '/admin/csrs', section: 'administration' })
-  if (nav.mgas) items.push({ label: 'MGAs', path: '/admin/mgas', section: 'administration' })
+  if (nav.csrs) {
+    items.push({
+      label: 'CSRs',
+      path: '/admin/csrs',
+      section: 'administration',
+      adminGroup: 'agency_network',
+    })
+  }
+  if (nav.mgas) {
+    items.push({
+      label: 'MGAs',
+      path: '/admin/mgas',
+      section: 'administration',
+      adminGroup: 'agency_network',
+    })
+  }
   if (nav.carriers) {
-    items.push({ label: 'Carriers', path: '/admin/carriers', section: 'administration' })
+    items.push({
+      label: 'Carriers',
+      path: '/admin/carriers',
+      section: 'administration',
+      adminGroup: 'agency_network',
+    })
   }
   if (nav.users) items.push({ label: 'Users', path: '/admin/users', section: 'administration' })
   if (nav.agencySettings) {
@@ -80,4 +118,23 @@ export function roleCanOpenOnboarding(role: RoleInput): boolean {
 
 export function roleCanOpenIntegrations(role: RoleInput): boolean {
   return canAccessPath(role, '/integrations')
+}
+
+export const ADMIN_UMBRELLA_LABELS: Record<AdminNavUmbrella, string> = {
+  data_integrations: 'Data & Integrations',
+  agency_network: 'Agency Network',
+}
+
+export function navItemMatchesPath(itemPath: string, pathname: string): boolean {
+  return pathname === itemPath || pathname.startsWith(`${itemPath}/`)
+}
+
+export function adminGroupHasActivePath(
+  items: Pick<SidebarNavItemSpec, 'path' | 'adminGroup'>[],
+  group: AdminNavUmbrella,
+  pathname: string,
+): boolean {
+  return items.some(
+    (item) => item.adminGroup === group && navItemMatchesPath(item.path, pathname),
+  )
 }
