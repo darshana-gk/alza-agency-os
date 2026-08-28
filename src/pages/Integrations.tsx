@@ -173,7 +173,7 @@ export function Integrations() {
             className="inline-flex items-center gap-2 rounded-lg bg-alza-blue-700 px-4 py-2.5 text-sm font-medium text-white shadow-sm hover:bg-alza-blue-800"
           >
             <Upload className="h-4 w-4" />
-            Import Agency Data
+            Onboarding Data Import
           </Link>
           <Link
             to={RECONCILIATION_FALLBACK_PATH}

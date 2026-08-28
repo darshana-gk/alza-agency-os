@@ -325,10 +325,10 @@ export const INTEGRATION_PROVIDER_CATALOG: readonly IntegrationProviderDefinitio
   // —— Data Import / Export (live ALZA tools — not vendor connectors) ——
   {
     id: 'alza_onboarding_import',
-    name: 'Import Agency Data',
+    name: 'Onboarding Data Import',
     category: 'data_import_export',
     description:
-      'Import Master Agency Data, Clients, Policies, Carriers, MGAs, Producers, and CSRs via CSV, TXT, XLSX, or paste. Uses Onboarding Import.',
+      'Import Carriers, MGAs, Producers, CSRs, Clients, and Policies from CSV, XLSX, TXT, or pasted data.',
     availability: 'available',
     fallbackPath: '/onboarding',
     keywords: ['onboarding', 'csv', 'xlsx', 'txt', 'paste', 'master', 'import', 'export'],

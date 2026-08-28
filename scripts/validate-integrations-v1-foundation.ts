@@ -195,11 +195,12 @@ console.log('D. RBAC Owner/Admin + CSR/Producer blocked')
 console.log('E. Available now fallbacks')
 {
   const onboarding = getProviderById('alza_onboarding_import')
+  assertEq(onboarding?.name, 'Onboarding Data Import', 'onboarding catalog name')
   assertEq(onboarding?.fallbackPath, ONBOARDING_FALLBACK_PATH, 'fallback path /onboarding')
   assertEq(ONBOARDING_FALLBACK_PATH, '/onboarding', 'ONBOARDING_FALLBACK_PATH')
   const onboardingCard = resolveProviderCardStatus(onboarding!, null)
   assertEq(onboardingCard.action, 'import_agency_data', 'import agency action')
-  assert(onboardingCard.actionLabel.includes('Import'), 'import agency label')
+  assertEq(onboardingCard.actionLabel, 'Onboarding Data Import', 'onboarding action label')
   assertEq(onboardingCard.status, 'available', 'onboarding available')
 
   const statements = getProviderById('alza_commission_statement_import')

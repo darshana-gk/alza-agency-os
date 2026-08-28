@@ -37,7 +37,7 @@ export function resolveProviderCardStatus(
       statusLabel: INTEGRATION_STATUS_LABELS.available,
       lastSuccessfulSyncAt: null,
       action: 'import_agency_data',
-      actionLabel: 'Import Agency Data',
+      actionLabel: 'Onboarding Data Import',
       connectAllowed: false,
     }
   }
