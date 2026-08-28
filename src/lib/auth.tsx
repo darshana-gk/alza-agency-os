@@ -8,12 +8,37 @@ import {
   type ReactNode,
 } from 'react'
 import type { Session, User } from '@supabase/supabase-js'
+import {
+  capturePasswordRecoveryFromLocation,
+  clearPasswordRecoveryPending,
+  isPasswordRecoveryPending,
+  markPasswordRecoveryPending,
+} from './passwordRecovery'
 import { supabase } from './supabase'
 import {
   primaryAppRole,
   toAppRoles,
   type AppRole,
 } from './permissions'
+
+const recoveryPendingListeners = new Set<(pending: boolean) => void>()
+
+function emitPasswordRecoveryPending(pending: boolean) {
+  if (pending) markPasswordRecoveryPending()
+  else clearPasswordRecoveryPending()
+  recoveryPendingListeners.forEach((listener) => listener(pending))
+}
+
+// Register before React mounts. createClient() starts _initialize() asynchronously;
+// this listener must exist before PASSWORD_RECOVERY is emitted (setTimeout 0 after hash consume).
+if (typeof window !== 'undefined') {
+  capturePasswordRecoveryFromLocation(window.location.href)
+  supabase.auth.onAuthStateChange((event) => {
+    if (event === 'PASSWORD_RECOVERY') {
+      emitPasswordRecoveryPending(true)
+    }
+  })
+}
 
 export interface AppUserProfile {
   id: string
@@ -40,9 +65,12 @@ interface AuthContextValue {
   authUser: User | null
   profile: AppUserProfile | null
   accessDeniedReason: string | null
+  /** True while a Supabase PASSWORD_RECOVERY callback is in progress. */
+  passwordRecoveryPending: boolean
   signIn: (email: string, password: string) => Promise<{ error: string | null }>
   signOut: () => Promise<void>
-  refreshProfile: () => Promise<void>
+  refreshProfile: () => Promise<AppUserProfile | null>
+  completePasswordRecovery: () => void
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null)
@@ -173,8 +201,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [authUser, setAuthUser] = useState<User | null>(null)
   const [profile, setProfile] = useState<AppUserProfile | null>(null)
   const [accessDeniedReason, setAccessDeniedReason] = useState<string | null>(null)
+  const [passwordRecoveryPending, setPasswordRecoveryPending] = useState(
+    () => isPasswordRecoveryPending(),
+  )
 
-  const applySession = useCallback(async (nextSession: Session | null) => {
+  const applySession = useCallback(async (nextSession: Session | null): Promise<AppUserProfile | null> => {
     setSession(nextSession)
     setAuthUser(nextSession?.user ?? null)
 
@@ -182,7 +213,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setProfile(null)
       setAccessDeniedReason(null)
       setStatus('unauthenticated')
-      return
+      return null
     }
 
     const { profile: linkedProfile, reason } = await loadLinkedProfile(nextSession.user.id)
@@ -191,15 +222,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setProfile(null)
       setAccessDeniedReason(reason)
       setStatus('access_denied')
-      return
+      return null
     }
 
     setProfile(linkedProfile)
     setAccessDeniedReason(null)
     setStatus('authenticated')
+    return linkedProfile
   }, [])
 
   useEffect(() => {
+    const onPending = (pending: boolean) => setPasswordRecoveryPending(pending)
+    recoveryPendingListeners.add(onPending)
+    if (isPasswordRecoveryPending()) setPasswordRecoveryPending(true)
+
     let cancelled = false
 
     async function init() {
@@ -222,7 +258,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+    } = supabase.auth.onAuthStateChange((event, nextSession) => {
+      if (event === 'PASSWORD_RECOVERY') {
+        emitPasswordRecoveryPending(true)
+        setPasswordRecoveryPending(true)
+      }
       // Defer Supabase client calls to avoid auth deadlock in the callback.
       setTimeout(() => {
         void applySession(nextSession)
@@ -231,6 +271,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     return () => {
       cancelled = true
+      recoveryPendingListeners.delete(onPending)
       subscription.unsubscribe()
     }
   }, [applySession])
@@ -255,12 +296,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setProfile(null)
     setAccessDeniedReason(null)
     setStatus('unauthenticated')
+    emitPasswordRecoveryPending(false)
+    setPasswordRecoveryPending(false)
   }, [])
 
   const refreshProfile = useCallback(async () => {
-    if (!authUser) return
-    await applySession(session)
-  }, [applySession, authUser, session])
+    const { data } = await supabase.auth.getSession()
+    return applySession(data.session)
+  }, [applySession])
+
+  const completePasswordRecovery = useCallback(() => {
+    emitPasswordRecoveryPending(false)
+    setPasswordRecoveryPending(false)
+  }, [])
 
   const value = useMemo<AuthContextValue>(
     () => ({
@@ -269,11 +317,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       authUser,
       profile,
       accessDeniedReason,
+      passwordRecoveryPending,
       signIn,
       signOut,
       refreshProfile,
+      completePasswordRecovery,
     }),
-    [status, session, authUser, profile, accessDeniedReason, signIn, signOut, refreshProfile],
+    [
+      status,
+      session,
+      authUser,
+      profile,
+      accessDeniedReason,
+      passwordRecoveryPending,
+      signIn,
+      signOut,
+      refreshProfile,
+      completePasswordRecovery,
+    ],
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

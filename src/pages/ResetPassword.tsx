@@ -1,16 +1,22 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { KeyRound, Zap } from 'lucide-react'
+import { useAuth } from '../lib/auth'
 import { supabase } from '../lib/supabase'
-import { validateNewPassword } from '../lib/passwordRecovery'
+import {
+  capturePasswordRecoveryFromLocation,
+  getRecoveryTokenHash,
+  postPasswordResetPath,
+  validateNewPassword,
+} from '../lib/passwordRecovery'
 
 /**
- * Invite / recovery landing page.
- * Supabase invite emails redirect here with session tokens in the URL
- * (detectSessionInUrl consumes them). User sets a password, then continues.
+ * Dedicated password-reset screen for Supabase PASSWORD_RECOVERY.
+ * Must render even when the recovery email lands on `/` (not /auth/set-password).
  */
-export function SetPasswordPage() {
+export function ResetPasswordPage() {
   const navigate = useNavigate()
+  const { profile, refreshProfile, completePasswordRecovery } = useAuth()
   const [ready, setReady] = useState(false)
   const [hasSession, setHasSession] = useState(false)
   const [email, setEmail] = useState<string | null>(null)
@@ -21,17 +27,36 @@ export function SetPasswordPage() {
   const [saving, setSaving] = useState(false)
 
   useEffect(() => {
-    document.title = 'ALZA Flow · Set Password'
+    document.title = 'ALZA Flow · Reset Password'
   }, [])
 
   useEffect(() => {
     let cancelled = false
 
     async function bootstrap() {
-      // Give detectSessionInUrl a moment to exchange hash/query tokens.
+      capturePasswordRecoveryFromLocation(window.location.href)
+      const tokenHash = getRecoveryTokenHash(window.location.href)
+
       await new Promise((r) => setTimeout(r, 50))
-      const { data, error: sessionError } = await supabase.auth.getSession()
+      let { data, error: sessionError } = await supabase.auth.getSession()
       if (cancelled) return
+
+      if (!data.session && tokenHash) {
+        const { error: otpError } = await supabase.auth.verifyOtp({
+          type: 'recovery',
+          token_hash: tokenHash,
+        })
+        if (cancelled) return
+        if (otpError) {
+          setError(otpError.message)
+          setReady(true)
+          return
+        }
+        const exchanged = await supabase.auth.getSession()
+        if (cancelled) return
+        data = exchanged.data
+        sessionError = exchanged.error
+      }
 
       if (sessionError) {
         setError(sessionError.message)
@@ -44,7 +69,7 @@ export function SetPasswordPage() {
       setEmail(session?.user?.email ?? null)
       if (!session) {
         setError(
-          'This invite or password link is missing, expired, or already used. Ask an Owner/Admin to send a new invite.',
+          'This reset link is missing, expired, or already used. Request a new password recovery email and open it once.',
         )
       }
       setReady(true)
@@ -62,9 +87,10 @@ export function SetPasswordPage() {
     setSuccess(null)
 
     if (!hasSession) {
-      setError('No active invite session. Open the link from your invite email again.')
+      setError('No active reset session. Open the Reset password link from your email again.')
       return
     }
+
     const check = validateNewPassword(password, confirm)
     if (!check.ok) {
       setError(check.error)
@@ -79,13 +105,14 @@ export function SetPasswordPage() {
       return
     }
 
-    // Completing password setup accepts the invite in application state.
-    await supabase.rpc('mark_current_user_invite_accepted')
+    const nextProfile = await refreshProfile()
     setSaving(false)
+    setSuccess('Password updated. Continuing to ALZA Flow…')
 
-    setSuccess('Password saved. Continuing to ALZA Flow…')
-    setTimeout(() => {
-      navigate('/', { replace: true })
+    const next = postPasswordResetPath(nextProfile?.roles ?? nextProfile?.role ?? profile?.roles ?? profile?.role)
+    window.setTimeout(() => {
+      completePasswordRecovery()
+      navigate(next, { replace: true })
     }, 600)
   }
 
@@ -103,18 +130,18 @@ export function SetPasswordPage() {
           </div>
           <h1 className="text-2xl font-bold tracking-wide text-slate-900">ALZA FLOW</h1>
           <p className="mt-1 text-xs font-medium text-slate-500">by ALZA Business Solutions LLP</p>
-          <p className="mt-3 text-sm text-slate-600">Set your password to activate your agency account.</p>
+          <p className="mt-3 text-sm text-slate-600">Choose a new password for your account.</p>
         </div>
 
         <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
           {!ready ? (
-            <p className="text-sm text-slate-600">Validating invite link…</p>
+            <p className="text-sm text-slate-600">Validating reset link…</p>
           ) : (
             <form onSubmit={handleSubmit} className="space-y-4">
               <div className="flex items-start gap-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-3">
                 <KeyRound className="mt-0.5 h-4 w-4 shrink-0 text-alza-blue-700" />
                 <div className="min-w-0 text-sm text-slate-700">
-                  <p className="font-medium text-slate-900">Invite acceptance</p>
+                  <p className="font-medium text-slate-900">Reset password</p>
                   <p className="mt-0.5 truncate text-slate-600">{email || 'No email on session'}</p>
                 </div>
               </div>
@@ -133,7 +160,7 @@ export function SetPasswordPage() {
               </label>
 
               <label className="block">
-                <span className="mb-1.5 block text-xs font-medium text-slate-500">Confirm password</span>
+                <span className="mb-1.5 block text-xs font-medium text-slate-500">Confirm new password</span>
                 <input
                   type="password"
                   autoComplete="new-password"
@@ -161,15 +188,19 @@ export function SetPasswordPage() {
                 disabled={!hasSession || saving}
                 className="inline-flex h-11 w-full items-center justify-center rounded-lg gradient-alza text-sm font-medium text-white shadow-sm transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
               >
-                {saving ? 'Saving…' : 'Save password & continue'}
+                {saving ? 'Updating…' : 'Update Password'}
               </button>
             </form>
           )}
         </div>
 
         <p className="mt-6 text-center text-xs text-slate-500">
-          Already activated?{' '}
-          <Link to="/" className="font-medium text-alza-blue-700 hover:underline">
+          Remembered your password?{' '}
+          <Link
+            to="/"
+            className="font-medium text-alza-blue-700 hover:underline"
+            onClick={() => completePasswordRecovery()}
+          >
             Sign in
           </Link>
         </p>

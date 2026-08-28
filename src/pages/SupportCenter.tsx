@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Link, useSearchParams } from 'react-router-dom'
+import { useSearchParams } from 'react-router-dom'
 import { LifeBuoy, MessageSquarePlus, ArrowLeft } from 'lucide-react'
 import { SortableTh } from '../components/ui/SortableTh'
 import { useAuth } from '../lib/auth'
@@ -12,6 +12,7 @@ import {
   fetchSupportMessages,
   reopenSupportConversation,
   replyToSupportConversation,
+  resolveSupportConversation,
   supportCategoryLabel,
   supportPriorityLabel,
   supportStatusClass,
@@ -66,6 +67,24 @@ export function SupportCenterPage() {
   const [subject, setSubject] = useState('')
   const [message, setMessage] = useState('')
   const [priority, setPriority] = useState<SupportPriority>('normal')
+
+  useEffect(() => {
+    const cat = searchParams.get('category')
+    const sub = searchParams.get('subject')
+    const msg = searchParams.get('message')
+    if (cat && SUPPORT_CATEGORIES.some((c) => c.value === cat)) {
+      setCategory(cat as SupportCategory)
+      setComposerOpen(true)
+    }
+    if (sub) {
+      setSubject(sub)
+      setComposerOpen(true)
+    }
+    if (msg) {
+      setMessage(msg)
+      setComposerOpen(true)
+    }
+  }, [searchParams])
 
   const loadList = useCallback(async () => {
     setLoading(true)
@@ -136,7 +155,7 @@ export function SupportCenterPage() {
   }
 
   async function handleReply() {
-    if (!profile || !selectedId) return
+    if (!profile || !selectedId || busy) return
     setBusy(true)
     setError(null)
     const result = await replyToSupportConversation({
@@ -159,6 +178,20 @@ export function SupportCenterPage() {
     if (!profile || !selectedId) return
     setBusy(true)
     const result = await reopenSupportConversation({ conversationId: selectedId, profile })
+    setBusy(false)
+    if (result.error) {
+      setError(result.error)
+      return
+    }
+    await loadDetail(selectedId)
+    await loadList()
+  }
+
+  async function handleResolve() {
+    if (!profile || !selectedId) return
+    setBusy(true)
+    setError(null)
+    const result = await resolveSupportConversation({ conversationId: selectedId, profile })
     setBusy(false)
     if (result.error) {
       setError(result.error)
@@ -282,7 +315,11 @@ export function SupportCenterPage() {
               >
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <p className="text-sm font-semibold text-slate-900">
-                    {isAlza ? 'ALZA Support' : m.senderName || 'Agency User'}
+                    {isAlza
+                      ? m.senderName
+                        ? `ALZA Support · ${m.senderName}`
+                        : 'ALZA Support'
+                      : m.senderName || 'Agency User'}
                   </p>
                   <p className="text-xs text-slate-500">{formatWhen(m.createdAt)}</p>
                 </div>
@@ -319,14 +356,24 @@ export function SupportCenterPage() {
                 placeholder="Type your reply…"
               />
             </label>
-            <button
-              type="button"
-              disabled={busy || !reply.trim()}
-              onClick={() => void handleReply()}
-              className="mt-3 h-10 rounded-lg bg-alza-blue-700 px-4 text-sm font-medium text-white hover:bg-alza-blue-800 disabled:opacity-50"
-            >
-              Send Reply
-            </button>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <button
+                type="button"
+                disabled={busy || !reply.trim()}
+                onClick={() => void handleReply()}
+                className="h-10 rounded-lg bg-alza-blue-700 px-4 text-sm font-medium text-white hover:bg-alza-blue-800 disabled:opacity-50"
+              >
+                Send Reply
+              </button>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => void handleResolve()}
+                className="h-10 rounded-lg border border-slate-200 px-4 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+              >
+                Mark Resolved
+              </button>
+            </div>
           </div>
         )}
       </div>
@@ -342,8 +389,7 @@ export function SupportCenterPage() {
             Help &amp; Support
           </h1>
           <p className="mt-1 max-w-2xl text-sm text-slate-500">
-            Create a support request and talk with ALZA here. Help articles and training will appear in this
-            area later.
+            Submit a request to ALZA Support and track the full conversation for your agency.
           </p>
         </div>
         <button
@@ -357,14 +403,6 @@ export function SupportCenterPage() {
           <MessageSquarePlus className="h-4 w-4" />
           New Support Request
         </button>
-      </div>
-
-      <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-500">
-        <span className="font-medium text-slate-700">Support Requests</span>
-        <span className="mx-2 text-slate-300">·</span>
-        Help Articles (coming soon)
-        <span className="mx-2 text-slate-300">·</span>
-        Video Tutorials (coming soon)
       </div>
 
       {error && (
@@ -551,14 +589,6 @@ export function SupportCenterPage() {
           </div>
         </div>
       )}
-
-      <p className="text-xs text-slate-400">
-        Prefer the sidebar shortcut?{' '}
-        <Link to="/support" className="text-alza-blue-700 hover:underline">
-          Help &amp; Support
-        </Link>{' '}
-        is always available here.
-      </p>
     </div>
   )
 }

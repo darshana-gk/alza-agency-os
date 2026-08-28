@@ -1,13 +1,16 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { Zap } from 'lucide-react'
 import { useAuth } from '../lib/auth'
+import { supabase } from '../lib/supabase'
 
 export function LoginPage() {
   const { signIn } = useAuth()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
+  const [notice, setNotice] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
+  const [recovering, setRecovering] = useState(false)
 
   useEffect(() => {
     document.title = 'ALZA Flow'
@@ -16,6 +19,7 @@ export function LoginPage() {
   async function handleSubmit(e: FormEvent) {
     e.preventDefault()
     setError(null)
+    setNotice(null)
 
     if (!email.trim() || !password) {
       setError('Enter your email and password to sign in.')
@@ -29,6 +33,29 @@ export function LoginPage() {
     if (result.error) {
       setError(result.error)
     }
+  }
+
+  async function handleForgotPassword() {
+    setError(null)
+    setNotice(null)
+
+    if (!email.trim()) {
+      setError('Enter your email to reset your password.')
+      return
+    }
+
+    setRecovering(true)
+    const { error: resetError } = await supabase.auth.resetPasswordForEmail(email.trim(), {
+      redirectTo: `${window.location.origin}/auth/reset-password`,
+    })
+    setRecovering(false)
+
+    if (resetError) {
+      setError(resetError.message)
+      return
+    }
+
+    setNotice('Check your email for a password reset link. Open it once, then choose a new password.')
   }
 
   return (
@@ -83,13 +110,27 @@ export function LoginPage() {
                 {error}
               </div>
             )}
+            {notice && (
+              <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
+                {notice}
+              </div>
+            )}
 
             <button
               type="submit"
-              disabled={loading}
+              disabled={loading || recovering}
               className="inline-flex h-11 w-full items-center justify-center rounded-lg gradient-alza text-sm font-medium text-white shadow-sm transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {loading ? 'Signing in…' : 'Sign In'}
+            </button>
+
+            <button
+              type="button"
+              disabled={loading || recovering}
+              onClick={() => void handleForgotPassword()}
+              className="w-full text-center text-sm font-medium text-alza-blue-700 hover:underline disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {recovering ? 'Sending reset email…' : 'Forgot password?'}
             </button>
           </form>
         </div>
