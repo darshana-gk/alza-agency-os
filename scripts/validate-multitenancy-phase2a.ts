@@ -221,7 +221,12 @@ console.log('G. No application / Edge / Billing / Support / Integrations edits i
       stamp > '20260827121000' &&
       f !== migrationName &&
       !f.startsWith('20260828200000_multitenancy_v1_phase2b_') &&
-      !f.startsWith('20260828210000_multitenancy_v1_phase2b_')
+      !f.startsWith('20260828210000_multitenancy_v1_phase2b_') &&
+      !f.startsWith('20260828220000_multitenancy_v1_phase3a_') &&
+      !f.startsWith('20260828230000_multitenancy_v1_phase3b_') &&
+      !f.startsWith('20260828240000_multitenancy_v1_phase3c_') &&
+      !f.startsWith('20260828250000_multitenancy_v1_phase3d_') &&
+      !f.startsWith('20260828260000_multitenancy_v1_phase3e_')
     )
   })
   assert(extra.length === 0, `no extra post-RC migrations (${extra.join(', ') || 'none'})`)

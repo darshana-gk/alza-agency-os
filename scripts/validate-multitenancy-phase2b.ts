@@ -179,9 +179,16 @@ console.log('G. No Phase 3 RLS / app / Billing / Support / Integrations / task c
   const extra = readdirSync(resolve(root, 'supabase/migrations')).filter((f) => {
     if (!f.endsWith('.sql')) return false
     const stamp = f.slice(0, 14)
-    return stamp > '20260828210000'
+    return (
+      stamp > '20260828210000' &&
+      !f.startsWith('20260828220000_multitenancy_v1_phase3a_') &&
+      !f.startsWith('20260828230000_multitenancy_v1_phase3b_') &&
+      !f.startsWith('20260828240000_multitenancy_v1_phase3c_') &&
+      !f.startsWith('20260828250000_multitenancy_v1_phase3d_') &&
+      !f.startsWith('20260828260000_multitenancy_v1_phase3e_')
+    )
   })
-  assert(extra.length === 0, `no migrations after 2B-finalize (${extra.join(', ') || 'none'})`)
+  assert(extra.length === 0, `no unexpected migrations after 2B-finalize (${extra.join(', ') || 'none'})`)
 }
 
 console.log('H. Implementation notes record 2B decisions')
