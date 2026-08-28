@@ -223,6 +223,7 @@ console.log('G. No application / Edge / Billing / Support / Integrations edits i
       !f.startsWith('20260828200000_multitenancy_v1_phase2b_') &&
       !f.startsWith('20260828210000_multitenancy_v1_phase2b_') &&
       !f.startsWith('20260828220000_multitenancy_v1_phase3a_') &&
+      !f.startsWith('20260828220100_multitenancy_v1_phase3a_') &&
       !f.startsWith('20260828230000_multitenancy_v1_phase3b_') &&
       !f.startsWith('20260828240000_multitenancy_v1_phase3c_') &&
       !f.startsWith('20260828250000_multitenancy_v1_phase3d_') &&

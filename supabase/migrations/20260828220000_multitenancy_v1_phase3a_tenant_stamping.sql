@@ -52,12 +52,16 @@ SECURITY DEFINER
 SET search_path TO 'public'
 AS $$
 DECLARE
+  jwt_uid uuid;
   session_agency uuid;
   resolved uuid;
 BEGIN
+  -- Classify by request JWT, not current_user. Stamp triggers are SECURITY DEFINER
+  -- so current_user is postgres even for authenticated PostgREST callers.
+  jwt_uid := auth.uid();
   session_agency := public.current_user_agency_profile_id();
 
-  IF current_user IN ('authenticated', 'anon') THEN
+  IF jwt_uid IS NOT NULL THEN
     IF session_agency IS NULL THEN
       RAISE EXCEPTION
         'Phase 3A stamp: authenticated caller has no active agency membership (inactive, archived, or platform-only)';
@@ -74,7 +78,8 @@ BEGIN
     RETURN resolved;
   END IF;
 
-  -- service_role / postgres / dashboard: explicit or parent. Never session. Never singleton.
+  -- auth.uid() is null: postgres / service_role / dashboard. Explicit or parent.
+  -- Never session. Never first/singleton agency.
   resolved := COALESCE(p_supplied, p_parent);
   IF resolved IS NULL THEN
     RAISE EXCEPTION
@@ -89,7 +94,7 @@ END;
 $$;
 
 COMMENT ON FUNCTION public.multitenancy_resolve_insert_agency(uuid, uuid) IS
-  'Phase 3A: resolve INSERT tenant from caller session, supplied value, or parent. Never first/singleton agency.';
+  'Phase 3A: JWT callers (auth.uid() + active membership) stamp from session/parent. service_role/postgres require explicit tenant or parent. Never first/singleton agency. Does not use current_user.';
 
 REVOKE ALL ON FUNCTION public.multitenancy_resolve_insert_agency(uuid, uuid) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.multitenancy_resolve_insert_agency(uuid, uuid) TO postgres, service_role;
@@ -337,7 +342,7 @@ BEGIN
     RAISE EXCEPTION 'Phase 3A stamp: users.agency_profile_id cannot be changed once set';
   END IF;
 
-  IF current_user IN ('authenticated', 'anon') THEN
+  IF auth.uid() IS NOT NULL THEN
     session_agency := public.current_user_agency_profile_id();
     IF session_agency IS NULL THEN
       RAISE EXCEPTION 'Phase 3A stamp: authenticated caller cannot write users without agency membership';
