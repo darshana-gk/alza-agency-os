@@ -217,7 +217,12 @@ console.log('G. No application / Edge / Billing / Support / Integrations edits i
   const extra = migrations.filter((f) => {
     if (!f.endsWith('.sql')) return false
     const stamp = f.slice(0, 14)
-    return stamp > '20260827121000' && f !== migrationName
+    return (
+      stamp > '20260827121000' &&
+      f !== migrationName &&
+      !f.startsWith('20260828200000_multitenancy_v1_phase2b_') &&
+      !f.startsWith('20260828210000_multitenancy_v1_phase2b_')
+    )
   })
   assert(extra.length === 0, `no extra post-RC migrations (${extra.join(', ') || 'none'})`)
 

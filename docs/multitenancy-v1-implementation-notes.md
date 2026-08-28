@@ -38,6 +38,59 @@ Known Production trigger names (catalog may find extras on staging):
 
 `session_replication_role = replica` is **not** used: it would also skip unrelated integrity/security triggers (lifecycle, recovery cap, `alza_support` lock). `DISABLE TRIGGER ALL` is **not** used.
 
+## Phase 2B (authored, not applied)
+
+Two migrations: **2B-prep** then **2B-finalize**. Do not apply until dedicated staging review.
+
+### Numbering
+
+Counters move from `PRIMARY KEY (year)` to `PRIMARY KEY (agency_profile_id, year)`.
+
+`next_transaction_number` / `next_producer_payment_batch_number` / `next_recovery_number` allocate from that identity.
+
+Agency for a **new** number is:
+
+1. `NEW.agency_profile_id` on the inserting row, else
+2. `current_user_agency_profile_id()` (authenticated membership)
+
+Never the first/singleton `agency_profile` row. The helper does **not** stamp `agency_profile_id` onto the row — that remains Phase 3/4. If neither source is present, numbering **raises** rather than guessing.
+
+Historical `transaction_number` / `batch_number` / `recovery_number` values are never rewritten. Counter `last_value` is raised with `GREATEST(existing, max parsed suffix)`.
+
+### Uniqueness
+
+| Number | Rule |
+|---|---|
+| `client_number` | unique `(agency_profile_id, client_number)` when both present |
+| `policy_number` | unique `(client_id, policy_number)` — **per client, not per agency** |
+| `transaction_number` | unique `(agency_profile_id, transaction_number)`; drop `transactions_transaction_number_key` **and** `transactions_transaction_number_uidx` |
+| `batch_number` | unique `(agency_profile_id, batch_number)` |
+| `recovery_number` | unique `(agency_profile_id, recovery_number)` |
+| Directory names (carrier/MGA/producer/CSR) | **no unique index** — labels, duplicates exist, two agencies may share a name; isolation is Phase 3 RLS |
+
+NULL-agency unique bridges remain until Phase 3 stamps RC inserts.
+
+### Cross-tenant FKs
+
+`UNIQUE (id, agency_profile_id)` on parents + composite FKs `(parent_id, agency_profile_id)`. MATCH SIMPLE: a NULL tenant on either side is not checked. Producer TEXT on transactions is not FK-enforceable.
+
+### NOT NULL
+
+- **Counters:** `agency_profile_id SET NOT NULL` in 2B (only numbering functions write them).
+- **App-written rows (clients, policies, transactions, …):** remain nullable until Phase 3/4 stamps inserts. `CHECK (... IS NOT NULL) NOT VALID` still rejects new NULL inserts, so it is **not** used.
+
+### Singleton
+
+Keep `agency_profile_singleton` until Phase 3/4. Removing it would allow Agency 2 before RLS/application isolation.
+
+### `task_number_counters`
+
+No repo application references (only Phase 2A exclusion). Production table exists; product ownership unconfirmed. **Not altered in 2B.**
+
+### Agency B
+
+Do not insert Tenant 2 until Phase 3/4: tenant stamping, RLS, NOT NULL, drop NULL-agency unique bridges, drop singleton.
+
 ## Production findings deferred to later phases
 
 Do not fix in Phase 2A. Track through Phase 3/4 (security) and Phase 2B (uniqueness):
