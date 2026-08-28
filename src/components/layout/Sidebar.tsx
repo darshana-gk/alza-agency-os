@@ -217,13 +217,16 @@ export function Sidebar() {
   const { profile } = useAuth()
   const nav = getNavVisibility(rolesOf(profile))
 
-  const { mainNav, adminSpecs } = useMemo(() => {
+  const { mainNav, adminSpecs, billingItem } = useMemo(() => {
     const specs = buildSidebarNavItems(nav)
+    const admin = specs.filter((item) => item.section === 'administration')
+    const billing = admin.find((item) => item.path === '/admin/subscription-billing')
     return {
       mainNav: {
         items: specs.filter((item) => item.section === 'main').map(specToNavItem),
       } satisfies NavGroup,
-      adminSpecs: specs.filter((item) => item.section === 'administration'),
+      adminSpecs: admin.filter((item) => item.path !== '/admin/subscription-billing'),
+      billingItem: billing ? specToNavItem(billing) : null,
     }
   }, [nav])
 
@@ -241,7 +244,7 @@ export function Sidebar() {
         </div>
       </div>
 
-      <nav className="flex-1 overflow-y-auto px-3 py-4">
+      <nav className="min-h-0 flex-1 overflow-y-auto px-3 py-4">
         <NavSection group={mainNav} />
         {nav.administration && (
           <>
@@ -250,6 +253,14 @@ export function Sidebar() {
           </>
         )}
       </nav>
+
+      {billingItem ? (
+        <div className="shrink-0 border-t border-white/10 px-3 py-3">
+          <ul>
+            <NavLinkItem item={billingItem} />
+          </ul>
+        </div>
+      ) : null}
     </aside>
   )
 }
