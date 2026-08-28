@@ -11,7 +11,11 @@
 --   * does NOT rewrite transaction_number / batch_number / recovery_number
 --   * adds UNIQUE (id, agency_profile_id) keys so 2B-finalize can add composite FKs
 --   * adds tenant-scoped unique indexes that coexist with today's global number uniques
---   * adds NULL-agency unique bridges so RC inserts without a tenant cannot collide
+--   * RETAINS global transaction/batch/recovery uniques (dropped in Phase 3, not 2B)
+--     so (Agency A, NUM) and (NULL, NUM) cannot coexist and later collide on stamp
+--   * adds a transitional global unique on client_number (Production has none) for the
+--     same stamp-safety reason; drop it in Phase 3 when tenant uniqueness is enough
+--   * adds NULL-agency unique bridges (NULL-bucket only; not sufficient without global)
 --   * SET NOT NULL on numbering COUNTER tables only (functions write them)
 --   * adds unique (agency_profile_id, year) on counters (PK swap is 2B-finalize)
 --   * installs numbering helper (does not replace next_* yet)
@@ -112,6 +116,45 @@ BEGIN
     RAISE EXCEPTION
       'Phase 2B-prep abort: numbering counters still have NULL agency_profile_id';
   END IF;
+
+  -- Global duplicate numbers would already violate Production uniques; abort with a
+  -- named message anyway so a missing/renamed unique cannot silently proceed.
+  IF EXISTS (
+    SELECT 1 FROM public.transactions
+    WHERE transaction_number IS NOT NULL AND btrim(transaction_number) <> ''
+    GROUP BY transaction_number
+    HAVING COUNT(*) > 1
+  ) THEN
+    RAISE EXCEPTION 'Phase 2B-prep abort: duplicate transaction_number values exist';
+  END IF;
+
+  IF EXISTS (
+    SELECT 1 FROM public.producer_payment_batches
+    WHERE batch_number IS NOT NULL AND btrim(batch_number) <> ''
+    GROUP BY batch_number
+    HAVING COUNT(*) > 1
+  ) THEN
+    RAISE EXCEPTION 'Phase 2B-prep abort: duplicate batch_number values exist';
+  END IF;
+
+  IF EXISTS (
+    SELECT 1 FROM public.producer_commission_recoveries
+    WHERE recovery_number IS NOT NULL AND btrim(recovery_number) <> ''
+    GROUP BY recovery_number
+    HAVING COUNT(*) > 1
+  ) THEN
+    RAISE EXCEPTION 'Phase 2B-prep abort: duplicate recovery_number values exist';
+  END IF;
+
+  IF EXISTS (
+    SELECT 1 FROM public.clients
+    WHERE client_number IS NOT NULL AND btrim(client_number) <> ''
+    GROUP BY lower(btrim(client_number))
+    HAVING COUNT(*) > 1
+  ) THEN
+    RAISE EXCEPTION
+      'Phase 2B-prep abort: duplicate client_number values exist (case-insensitive)';
+  END IF;
 END $$;
 
 -- ---------------------------------------------------------------------------
@@ -157,9 +200,15 @@ GRANT EXECUTE ON FUNCTION public.multitenancy_numbering_agency(uuid) TO authenti
 
 -- ---------------------------------------------------------------------------
 -- 2) Preserve historical numbers: raise counter last_value to max existing suffix.
---    Never UPDATE the business-number columns.
+--    Never UPDATE the business-number columns. Never reduce last_value.
+--    Malformed / non-matching strings are ignored for counter math (row preserved).
+--    Parsed year comes from the number, not CURRENT_DATE.
 -- ---------------------------------------------------------------------------
 DO $$
+DECLARE
+  txn_underrun integer;
+  batch_underrun integer;
+  rec_underrun integer;
 BEGIN
   -- Transactions TRX-YYYY-######
   INSERT INTO public.transaction_number_counters (year, last_value, agency_profile_id)
@@ -177,7 +226,8 @@ BEGIN
       EXCLUDED.last_value
     );
 
-  -- Batches PREFIX-YYYY-###### (Production generator uses PPB-)
+  -- Batches PREFIX-YYYY-###### (Production generator uses PPB-; generic parse
+  -- never misses a higher suffix from a historical prefix).
   INSERT INTO public.producer_payment_batch_number_counters (year, last_value, agency_profile_id)
   SELECT
     (regexp_match(b.batch_number, '^[A-Za-z]+-([0-9]{4})-([0-9]+)$'))[1]::integer,
@@ -208,6 +258,58 @@ BEGIN
       public.recovery_number_counters.last_value,
       EXCLUDED.last_value
     );
+
+  -- Monotonicity: last_value must be >= every parsed historical suffix.
+  SELECT COUNT(*) INTO txn_underrun
+  FROM (
+    SELECT
+      t.agency_profile_id,
+      (regexp_match(t.transaction_number, '^TRX-([0-9]{4})-([0-9]+)$'))[1]::integer AS yr,
+      MAX((regexp_match(t.transaction_number, '^TRX-([0-9]{4})-([0-9]+)$'))[2]::integer) AS mx
+    FROM public.transactions t
+    WHERE t.transaction_number ~ '^TRX-[0-9]{4}-[0-9]+$'
+      AND t.agency_profile_id IS NOT NULL
+    GROUP BY t.agency_profile_id, 2
+  ) s
+  JOIN public.transaction_number_counters c
+    ON c.agency_profile_id = s.agency_profile_id AND c.year = s.yr
+  WHERE c.last_value < s.mx;
+
+  SELECT COUNT(*) INTO batch_underrun
+  FROM (
+    SELECT
+      b.agency_profile_id,
+      (regexp_match(b.batch_number, '^[A-Za-z]+-([0-9]{4})-([0-9]+)$'))[1]::integer AS yr,
+      MAX((regexp_match(b.batch_number, '^[A-Za-z]+-([0-9]{4})-([0-9]+)$'))[2]::integer) AS mx
+    FROM public.producer_payment_batches b
+    WHERE b.batch_number ~ '^[A-Za-z]+-[0-9]{4}-[0-9]+$'
+      AND b.agency_profile_id IS NOT NULL
+    GROUP BY b.agency_profile_id, 2
+  ) s
+  JOIN public.producer_payment_batch_number_counters c
+    ON c.agency_profile_id = s.agency_profile_id AND c.year = s.yr
+  WHERE c.last_value < s.mx;
+
+  SELECT COUNT(*) INTO rec_underrun
+  FROM (
+    SELECT
+      r.agency_profile_id,
+      (regexp_match(r.recovery_number, '^RCV-([0-9]{4})-([0-9]+)$'))[1]::integer AS yr,
+      MAX((regexp_match(r.recovery_number, '^RCV-([0-9]{4})-([0-9]+)$'))[2]::integer) AS mx
+    FROM public.producer_commission_recoveries r
+    WHERE r.recovery_number ~ '^RCV-[0-9]{4}-[0-9]+$'
+      AND r.agency_profile_id IS NOT NULL
+    GROUP BY r.agency_profile_id, 2
+  ) s
+  JOIN public.recovery_number_counters c
+    ON c.agency_profile_id = s.agency_profile_id AND c.year = s.yr
+  WHERE c.last_value < s.mx;
+
+  IF txn_underrun > 0 OR batch_underrun > 0 OR rec_underrun > 0 THEN
+    RAISE EXCEPTION
+      'Phase 2B-prep abort: counter last_value underran historical max suffix (txn %, batch %, recovery %)',
+      txn_underrun, batch_underrun, rec_underrun;
+  END IF;
 END $$;
 
 -- Counter tables are written only by numbering functions. Safe to NOT NULL in 2B.
@@ -256,7 +358,14 @@ BEGIN
 END $$;
 
 -- ---------------------------------------------------------------------------
--- 4) Tenant-scoped number uniqueness (coexists with global uniques until finalize)
+-- 4) Tenant-scoped number uniqueness (coexists with global uniques until Phase 3)
+--
+-- NULL-agency bridges only unique the NULL bucket. They do NOT prevent
+-- (Agency A, NUM) and (NULL, NUM) from coexisting. That coexistence would
+-- become a unique violation when Phase 3 stamps NULL → Agency A.
+-- Stamp-safety therefore requires a global unique on the number itself:
+--   * transactions/batches/recoveries: keep Production global uniques
+--   * clients: add a transitional global unique (Production has none)
 -- ---------------------------------------------------------------------------
 DO $$
 BEGIN
@@ -293,6 +402,13 @@ CREATE UNIQUE INDEX IF NOT EXISTS clients_null_agency_client_number_uidx
   ON public.clients (lower(btrim(client_number)))
   WHERE agency_profile_id IS NULL
     AND client_number IS NOT NULL
+    AND btrim(client_number) <> '';
+
+-- Transitional: unique across stamped + NULL rows so Phase 3 stamping cannot collide.
+-- Drop in Phase 3 after insert-stamping (Agency B may then share client numbers).
+CREATE UNIQUE INDEX IF NOT EXISTS clients_transitional_global_client_number_uidx
+  ON public.clients (lower(btrim(client_number)))
+  WHERE client_number IS NOT NULL
     AND btrim(client_number) <> '';
 
 -- Product contract: policy number unique per client, not per agency.
@@ -341,10 +457,16 @@ CREATE UNIQUE INDEX IF NOT EXISTS producer_commission_recoveries_null_agency_rec
 -- Directory names: no unique index. See docs/multitenancy-v1-implementation-notes.md.
 
 COMMENT ON INDEX public.clients_agency_client_number_uidx IS
-  'Phase 2B: tenant-scoped client_number. Global uniqueness is not required.';
+  'Phase 2B: tenant-scoped client_number. End-state uniqueness; Agency B sharing waits until Phase 3 drops the transitional global unique.';
+COMMENT ON INDEX public.clients_null_agency_client_number_uidx IS
+  'Phase 2B: NULL-bucket client_number unique. Not sufficient for stamp-safety without clients_transitional_global_client_number_uidx.';
+COMMENT ON INDEX public.clients_transitional_global_client_number_uidx IS
+  'Phase 2B transitional: client_number unique across stamped and NULL rows so Phase 3 stamping cannot collide. Drop in Phase 3 after insert-stamping.';
 COMMENT ON INDEX public.policies_client_policy_number_uidx IS
   'Phase 2B: policy_number unique per client, not per agency.';
 COMMENT ON INDEX public.transactions_agency_transaction_number_uidx IS
-  'Phase 2B: tenant-scoped transaction_number. Global unique dropped in 2B-finalize.';
+  'Phase 2B: tenant-scoped transaction_number. Production global unique is retained until Phase 3.';
+COMMENT ON INDEX public.transactions_null_agency_transaction_number_uidx IS
+  'Phase 2B: NULL-bucket transaction_number unique. Stamp-safety depends on retaining transactions_transaction_number_key / _uidx until Phase 3.';
 COMMENT ON INDEX public.transaction_number_counters_agency_year_uidx IS
   'Phase 2B-prep: counter identity (agency_profile_id, year). Promoted to PK in 2B-finalize.';

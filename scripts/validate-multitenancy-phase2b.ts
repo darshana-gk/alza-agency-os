@@ -95,24 +95,36 @@ console.log('C. Historical numbers preserved')
   assert(!/SET\s+recovery_number\s*=/i.test(finBody), 'finalize does not rewrite recovery_number')
 }
 
-console.log('D. Tenant-scoped uniqueness + duplicate global txn indexes')
+console.log('D. Tenant-scoped uniqueness + global uniques retained until Phase 3')
 {
   assert(prep.includes('clients_agency_client_number_uidx'), 'tenant-scoped client_number')
+  assert(prep.includes('clients_transitional_global_client_number_uidx'), 'transitional global client_number for stamp-safety')
   assert(prep.includes('policies_client_policy_number_uidx'), 'policy_number unique per client')
   assert(prep.includes('not per agency'), 'policy uniqueness is not agency-global')
   assert(prep.includes('transactions_agency_transaction_number_uidx'), 'tenant-scoped transaction_number')
   assert(prep.includes('producer_payment_batches_agency_batch_number_uidx'), 'tenant-scoped batch_number')
   assert(prep.includes('producer_commission_recoveries_agency_recovery_number_uidx'), 'tenant-scoped recovery_number')
-  assert(fin.includes('DROP CONSTRAINT IF EXISTS transactions_transaction_number_key'), 'drops transactions_transaction_number_key')
-  assert(fin.includes('DROP INDEX IF EXISTS public.transactions_transaction_number_uidx'), 'drops transactions_transaction_number_uidx')
+  assert(prep.includes('transactions_null_agency_transaction_number_uidx'), 'NULL-agency transaction_number bridge')
+  assert(prep.includes('producer_payment_batches_null_agency_batch_number_uidx'), 'NULL-agency batch_number bridge')
+  assert(prep.includes('producer_commission_recoveries_null_agency_recovery_number_uidx'), 'NULL-agency recovery_number bridge')
+  assert(prep.includes('clients_null_agency_client_number_uidx'), 'NULL-agency client_number bridge')
   assert(
-    fin.includes('DROP CONSTRAINT IF EXISTS producer_payment_batches_batch_number_key'),
-    'drops global batch_number unique',
+    !/DROP CONSTRAINT[\s\S]{0,40}transactions_transaction_number_key/i.test(finBody),
+    'finalize does not drop transactions_transaction_number_key',
   )
   assert(
-    fin.includes('DROP CONSTRAINT IF EXISTS producer_commission_recoveries_recovery_number_key'),
-    'drops global recovery_number unique',
+    !/DROP INDEX[\s\S]{0,80}transactions_transaction_number_uidx/i.test(finBody),
+    'finalize does not drop transactions_transaction_number_uidx',
   )
+  assert(
+    !/DROP CONSTRAINT[\s\S]{0,40}producer_payment_batches_batch_number_key/i.test(finBody),
+    'finalize does not drop global batch_number unique',
+  )
+  assert(
+    !/DROP CONSTRAINT[\s\S]{0,40}producer_commission_recoveries_recovery_number_key/i.test(finBody),
+    'finalize does not drop global recovery_number unique',
+  )
+  assert(fin.includes('Retain global number uniqueness until Phase 3'), 'finalize documents global unique retention')
   assert(prep.includes('Directory names: no unique index'), 'directory uniqueness deferred/not added')
 }
 
@@ -132,6 +144,10 @@ console.log('E. Cross-tenant relationship integrity')
   assert(fin.includes('recon_rows_transaction_tenant_fkey'), 'recon row → matched transaction tenant FK')
   assert(fin.includes('supporting_docs_transaction_tenant_fkey'), 'supporting document → transaction tenant FK')
   assert(fin.includes('supporting_docs_recovery_tenant_fkey'), 'supporting document → recovery tenant FK')
+  assert(fin.includes('A + B     → rejected'), 'MATCH SIMPLE matrix documents A+B rejection')
+  assert(fin.includes('NULL + A  → allowed'), 'MATCH SIMPLE matrix documents NULL child skip')
+  assert(fin.includes('A + NULL  → rejected'), 'MATCH SIMPLE matrix documents stamped child vs NULL parent')
+  assert(fin.includes('NULL+NULL → allowed'), 'MATCH SIMPLE matrix documents NULL/NULL skip')
 }
 
 console.log('F. NOT NULL timing + singleton retained')
@@ -177,6 +193,124 @@ console.log('H. Implementation notes record 2B decisions')
   assert(notes.includes('per client'), 'notes cover policy uniqueness per client')
   assert(notes.includes('Directory'), 'notes cover directory uniqueness decision')
   assert(notes.includes('Phase 3'), 'notes cover Phase 3 dependencies')
+  assert(notes.includes('retain') || notes.includes('Retain') || notes.includes('retained'), 'notes retain global number uniques until Phase 3')
+}
+
+type NumberedRow = { agency: string | null; number: string }
+
+function violatesTenantPartial(rows: NumberedRow[]): boolean {
+  const seen = new Set<string>()
+  for (const r of rows) {
+    if (r.agency === null) continue
+    const k = `${r.agency}::${r.number}`
+    if (seen.has(k)) return true
+    seen.add(k)
+  }
+  return false
+}
+
+function violatesNullPartial(rows: NumberedRow[]): boolean {
+  const seen = new Set<string>()
+  for (const r of rows) {
+    if (r.agency !== null) continue
+    if (seen.has(r.number)) return true
+    seen.add(r.number)
+  }
+  return false
+}
+
+function violatesGlobal(rows: NumberedRow[]): boolean {
+  const seen = new Set<string>()
+  for (const r of rows) {
+    if (seen.has(r.number)) return true
+    seen.add(r.number)
+  }
+  return false
+}
+
+console.log('I. Transitional NULL uniqueness + future tenant-stamping collision safety')
+{
+  const agencyANullSameNumber: NumberedRow[] = [
+    { agency: 'A', number: 'TRX-2026-000050' },
+    { agency: null, number: 'TRX-2026-000050' },
+  ]
+  assert(!violatesTenantPartial(agencyANullSameNumber), 'partial tenant unique allows A + NULL same number')
+  assert(!violatesNullPartial(agencyANullSameNumber), 'NULL-bucket unique allows A + NULL same number')
+  assert(violatesGlobal(agencyANullSameNumber), 'global unique rejects A + NULL same number')
+
+  const stamped = agencyANullSameNumber.map((r) => ({
+    agency: r.agency ?? 'A',
+    number: r.number,
+  }))
+  assert(violatesTenantPartial(stamped), 'stamping NULL → A would violate tenant unique if global was dropped')
+  assert(prep.includes('do NOT prevent'), 'prep documents NULL-bridge stamp-safety hole')
+  assert(prep.includes('Stamp-safety therefore requires a global unique'), 'prep requires global unique for stamp-safety')
+
+  const twoNullDup: NumberedRow[] = [
+    { agency: null, number: 'TRX-2026-000051' },
+    { agency: null, number: 'TRX-2026-000051' },
+  ]
+  assert(violatesNullPartial(twoNullDup), 'NULL bridge rejects two NULL rows with the same number')
+  assert(violatesGlobal(twoNullDup), 'global unique also rejects two NULL rows with the same number')
+
+  const twoAgenciesSameNumber: NumberedRow[] = [
+    { agency: 'A', number: 'TRX-2026-000001' },
+    { agency: 'B', number: 'TRX-2026-000001' },
+  ]
+  assert(!violatesTenantPartial(twoAgenciesSameNumber), 'tenant unique allows Agency A and B to share a number')
+  assert(violatesGlobal(twoAgenciesSameNumber), 'global unique still blocks A/B sharing until Phase 3 (singleton also blocks Agency B)')
+
+  const generatedSharedCounter: NumberedRow[] = [
+    { agency: 'A', number: 'TRX-2026-000101' },
+    { agency: null, number: 'TRX-2026-000102' },
+  ]
+  assert(!violatesGlobal(generatedSharedCounter), 'shared Agency-A counter yields distinct numbers for stamped vs NULL inserts')
+  const stampedGenerated = generatedSharedCounter.map((r) => ({
+    agency: r.agency ?? 'A',
+    number: r.number,
+  }))
+  assert(!violatesTenantPartial(stampedGenerated), 'shared-counter generated numbers remain stamp-safe')
+}
+
+console.log('J. Counter concurrency + independent agency sequences')
+{
+  assert(fin.includes('VOLATILE'), 'next_* functions are VOLATILE (not STABLE/cached)')
+  assert(finBody.includes('SET last_value = c.last_value + 1'), 'increment stored last_value under row lock')
+  assert(!/SET last_value = EXCLUDED\.last_value/i.test(finBody), 'does not reset last_value to EXCLUDED (would duplicate 1)')
+  assert(fin.includes('serialize on this unique row'), 'documents concurrent same-(agency, year) row lock')
+  assert(finBody.includes('ON CONFLICT (agency_profile_id, year)'), 'conflict target is (agency, year) not (year)')
+  assert(finBody.includes('VALUES (agency, yr, 1)'), 'first insert for an agency-year starts at 1')
+}
+
+console.log('K. Historical counter monotonicity')
+{
+  assert(prep.includes('Never reduce last_value'), 'prep states last_value is monotonic')
+  assert(prep.includes('GREATEST('), 'GREATEST vs historical max')
+  assert(prep.includes('counter last_value underran historical max suffix'), 'postcondition aborts if last_value < max suffix')
+  assert(prep.includes('Malformed / non-matching strings are ignored'), 'malformed numbers ignored for counter math')
+  assert(prep.includes('Parsed year comes from the number, not CURRENT_DATE'), 'year parsed from the stored number')
+  assert(prep.includes('^[A-Za-z]+-([0-9]{4})-([0-9]+)$'), 'batch parse uses generic PREFIX-YYYY-n so a high suffix cannot be missed')
+}
+
+console.log('L. Migration preflight guards')
+{
+  assert(prep.includes('duplicate transaction_number values exist'), 'prep aborts on duplicate transaction numbers')
+  assert(prep.includes('duplicate batch_number values exist'), 'prep aborts on duplicate batch numbers')
+  assert(prep.includes('duplicate recovery_number values exist'), 'prep aborts on duplicate recovery numbers')
+  assert(prep.includes('duplicate client_number values exist'), 'prep aborts on duplicate client numbers')
+  assert(prep.includes('duplicate client_number within an agency'), 'prep aborts on per-agency client_number dup')
+  assert(prep.includes('duplicate policy_number within a client'), 'prep aborts on per-client policy_number dup')
+  assert(prep.includes('numbered transactions still have NULL agency_profile_id'), 'prep aborts numbered NULL transactions')
+  assert(fin.includes('policy/client tenant mismatch'), 'finalize aborts policy/client tenant mismatch')
+  assert(fin.includes('transaction/client tenant mismatch'), 'finalize aborts transaction/client tenant mismatch')
+  assert(fin.includes('transaction/policy tenant mismatch'), 'finalize aborts transaction/policy tenant mismatch')
+  assert(fin.includes('receipt/transaction tenant mismatch'), 'finalize aborts receipt/transaction tenant mismatch')
+  assert(fin.includes('batch item/batch tenant mismatch'), 'finalize aborts batch item tenant mismatch')
+  assert(fin.includes('recovery/transaction tenant mismatch'), 'finalize aborts recovery tenant mismatch')
+  assert(fin.includes('allocation/recovery tenant mismatch'), 'finalize aborts allocation tenant mismatch')
+  assert(fin.includes('recon row/statement tenant mismatch'), 'finalize aborts recon tenant mismatch')
+  assert(fin.includes('supporting document/transaction tenant mismatch'), 'finalize aborts supporting-doc tenant mismatch')
+  assert(fin.includes('2B-prep transitional client_number unique missing'), 'finalize requires transitional client unique')
 }
 
 console.log(`\n${passed} passed, ${failed} failed`)

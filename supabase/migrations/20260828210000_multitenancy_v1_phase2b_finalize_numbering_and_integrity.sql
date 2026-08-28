@@ -11,7 +11,9 @@
 --   * never uses first-agency / singleton fallback
 --   * does NOT stamp agency_profile_id onto the row (Phase 3/4)
 --   * does NOT rewrite historical transaction/batch/recovery numbers
---   * drops both global transaction_number unique indexes
+--   * RETAINS both global transaction_number unique indexes until Phase 3
+--     (dropping them in 2B would allow Agency-A + NULL to share a number)
+--   * RETAINS global batch_number and recovery_number uniques until Phase 3
 --   * converts counter PRIMARY KEY from (year) to (agency_profile_id, year)
 --   * adds composite FKs so child.agency_profile_id must match parent
 --
@@ -58,6 +60,217 @@ BEGIN
   ) THEN
     RAISE EXCEPTION 'Phase 2B-finalize abort: 2B-prep tenant transaction unique missing';
   END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_class c
+    JOIN pg_namespace n ON n.oid = c.relnamespace
+    WHERE n.nspname = 'public'
+      AND c.relname = 'clients_transitional_global_client_number_uidx'
+  ) THEN
+    RAISE EXCEPTION 'Phase 2B-finalize abort: 2B-prep transitional client_number unique missing';
+  END IF;
+END $$;
+
+-- Parent/child tenant mismatch (both sides non-NULL) would fail composite FKs
+-- with a cryptic message. Abort here with the relationship named.
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1
+    FROM public.policies p
+    JOIN public.clients c ON c.id = p.client_id
+    WHERE p.agency_profile_id IS NOT NULL
+      AND c.agency_profile_id IS NOT NULL
+      AND p.agency_profile_id IS DISTINCT FROM c.agency_profile_id
+  ) THEN
+    RAISE EXCEPTION 'Phase 2B-finalize abort: policy/client tenant mismatch';
+  END IF;
+
+  IF EXISTS (
+    SELECT 1
+    FROM public.transactions t
+    JOIN public.clients c ON c.id = t.client_id
+    WHERE t.client_id IS NOT NULL
+      AND t.agency_profile_id IS NOT NULL
+      AND c.agency_profile_id IS NOT NULL
+      AND t.agency_profile_id IS DISTINCT FROM c.agency_profile_id
+  ) THEN
+    RAISE EXCEPTION 'Phase 2B-finalize abort: transaction/client tenant mismatch';
+  END IF;
+
+  IF EXISTS (
+    SELECT 1
+    FROM public.transactions t
+    JOIN public.policies p ON p.id = t.policy_id
+    WHERE t.policy_id IS NOT NULL
+      AND t.agency_profile_id IS NOT NULL
+      AND p.agency_profile_id IS NOT NULL
+      AND t.agency_profile_id IS DISTINCT FROM p.agency_profile_id
+  ) THEN
+    RAISE EXCEPTION 'Phase 2B-finalize abort: transaction/policy tenant mismatch';
+  END IF;
+
+  IF EXISTS (
+    SELECT 1
+    FROM public.agency_commission_receipts r
+    JOIN public.transactions t ON t.id = r.transaction_id
+    WHERE r.transaction_id IS NOT NULL
+      AND r.agency_profile_id IS NOT NULL
+      AND t.agency_profile_id IS NOT NULL
+      AND r.agency_profile_id IS DISTINCT FROM t.agency_profile_id
+  ) THEN
+    RAISE EXCEPTION 'Phase 2B-finalize abort: receipt/transaction tenant mismatch';
+  END IF;
+
+  IF EXISTS (
+    SELECT 1
+    FROM public.agency_commission_receipts r
+    JOIN public.clients c ON c.id = r.client_id
+    WHERE r.client_id IS NOT NULL
+      AND r.agency_profile_id IS NOT NULL
+      AND c.agency_profile_id IS NOT NULL
+      AND r.agency_profile_id IS DISTINCT FROM c.agency_profile_id
+  ) THEN
+    RAISE EXCEPTION 'Phase 2B-finalize abort: receipt/client tenant mismatch';
+  END IF;
+
+  IF EXISTS (
+    SELECT 1
+    FROM public.agency_commission_receipts r
+    JOIN public.policies p ON p.id = r.policy_id
+    WHERE r.policy_id IS NOT NULL
+      AND r.agency_profile_id IS NOT NULL
+      AND p.agency_profile_id IS NOT NULL
+      AND r.agency_profile_id IS DISTINCT FROM p.agency_profile_id
+  ) THEN
+    RAISE EXCEPTION 'Phase 2B-finalize abort: receipt/policy tenant mismatch';
+  END IF;
+
+  IF EXISTS (
+    SELECT 1
+    FROM public.producer_payment_batch_items i
+    JOIN public.producer_payment_batches b ON b.id = i.batch_id
+    WHERE i.batch_id IS NOT NULL
+      AND i.agency_profile_id IS NOT NULL
+      AND b.agency_profile_id IS NOT NULL
+      AND i.agency_profile_id IS DISTINCT FROM b.agency_profile_id
+  ) THEN
+    RAISE EXCEPTION 'Phase 2B-finalize abort: batch item/batch tenant mismatch';
+  END IF;
+
+  IF EXISTS (
+    SELECT 1
+    FROM public.producer_payment_batch_items i
+    JOIN public.transactions t ON t.id = i.transaction_id
+    WHERE i.transaction_id IS NOT NULL
+      AND i.agency_profile_id IS NOT NULL
+      AND t.agency_profile_id IS NOT NULL
+      AND i.agency_profile_id IS DISTINCT FROM t.agency_profile_id
+  ) THEN
+    RAISE EXCEPTION 'Phase 2B-finalize abort: batch item/transaction tenant mismatch';
+  END IF;
+
+  IF EXISTS (
+    SELECT 1
+    FROM public.producer_commission_recoveries r
+    JOIN public.transactions t ON t.id = r.transaction_id
+    WHERE r.transaction_id IS NOT NULL
+      AND r.agency_profile_id IS NOT NULL
+      AND t.agency_profile_id IS NOT NULL
+      AND r.agency_profile_id IS DISTINCT FROM t.agency_profile_id
+  ) THEN
+    RAISE EXCEPTION 'Phase 2B-finalize abort: recovery/transaction tenant mismatch';
+  END IF;
+
+  IF EXISTS (
+    SELECT 1
+    FROM public.producer_recovery_allocations a
+    JOIN public.producer_commission_recoveries r ON r.id = a.recovery_id
+    WHERE a.recovery_id IS NOT NULL
+      AND a.agency_profile_id IS NOT NULL
+      AND r.agency_profile_id IS NOT NULL
+      AND a.agency_profile_id IS DISTINCT FROM r.agency_profile_id
+  ) THEN
+    RAISE EXCEPTION 'Phase 2B-finalize abort: allocation/recovery tenant mismatch';
+  END IF;
+
+  IF EXISTS (
+    SELECT 1
+    FROM public.producer_recovery_allocations a
+    JOIN public.producer_payment_batches b ON b.id = a.payment_batch_id
+    WHERE a.payment_batch_id IS NOT NULL
+      AND a.agency_profile_id IS NOT NULL
+      AND b.agency_profile_id IS NOT NULL
+      AND a.agency_profile_id IS DISTINCT FROM b.agency_profile_id
+  ) THEN
+    RAISE EXCEPTION 'Phase 2B-finalize abort: allocation/batch tenant mismatch';
+  END IF;
+
+  IF EXISTS (
+    SELECT 1
+    FROM public.reconciliation_statement_rows r
+    JOIN public.reconciliation_statements s ON s.id = r.statement_id
+    WHERE r.statement_id IS NOT NULL
+      AND r.agency_profile_id IS NOT NULL
+      AND s.agency_profile_id IS NOT NULL
+      AND r.agency_profile_id IS DISTINCT FROM s.agency_profile_id
+  ) THEN
+    RAISE EXCEPTION 'Phase 2B-finalize abort: recon row/statement tenant mismatch';
+  END IF;
+
+  IF EXISTS (
+    SELECT 1
+    FROM public.reconciliation_statement_rows r
+    JOIN public.transactions t ON t.id = r.matched_transaction_id
+    WHERE r.matched_transaction_id IS NOT NULL
+      AND r.agency_profile_id IS NOT NULL
+      AND t.agency_profile_id IS NOT NULL
+      AND r.agency_profile_id IS DISTINCT FROM t.agency_profile_id
+  ) THEN
+    RAISE EXCEPTION 'Phase 2B-finalize abort: recon row/matched transaction tenant mismatch';
+  END IF;
+
+  IF EXISTS (
+    SELECT 1
+    FROM information_schema.columns
+    WHERE table_schema = 'public'
+      AND table_name = 'reconciliation_statement_rows'
+      AND column_name = 'receipt_id'
+  ) AND EXISTS (
+    SELECT 1
+    FROM public.reconciliation_statement_rows r
+    JOIN public.agency_commission_receipts rec ON rec.id = r.receipt_id
+    WHERE r.receipt_id IS NOT NULL
+      AND r.agency_profile_id IS NOT NULL
+      AND rec.agency_profile_id IS NOT NULL
+      AND r.agency_profile_id IS DISTINCT FROM rec.agency_profile_id
+  ) THEN
+    RAISE EXCEPTION 'Phase 2B-finalize abort: recon row/receipt tenant mismatch';
+  END IF;
+
+  IF EXISTS (
+    SELECT 1
+    FROM public.supporting_documents d
+    JOIN public.transactions t ON t.id = d.transaction_id
+    WHERE d.transaction_id IS NOT NULL
+      AND d.agency_profile_id IS NOT NULL
+      AND t.agency_profile_id IS NOT NULL
+      AND d.agency_profile_id IS DISTINCT FROM t.agency_profile_id
+  ) THEN
+    RAISE EXCEPTION 'Phase 2B-finalize abort: supporting document/transaction tenant mismatch';
+  END IF;
+
+  IF EXISTS (
+    SELECT 1
+    FROM public.supporting_documents d
+    JOIN public.producer_commission_recoveries r ON r.id = d.recovery_id
+    WHERE d.recovery_id IS NOT NULL
+      AND d.agency_profile_id IS NOT NULL
+      AND r.agency_profile_id IS NOT NULL
+      AND d.agency_profile_id IS DISTINCT FROM r.agency_profile_id
+  ) THEN
+    RAISE EXCEPTION 'Phase 2B-finalize abort: supporting document/recovery tenant mismatch';
+  END IF;
 END $$;
 
 -- ---------------------------------------------------------------------------
@@ -67,6 +280,7 @@ END $$;
 CREATE OR REPLACE FUNCTION public.next_transaction_number(p_agency uuid)
 RETURNS text
 LANGUAGE plpgsql
+VOLATILE
 SECURITY DEFINER
 SET search_path TO 'public'
 AS $$
@@ -82,6 +296,8 @@ BEGIN
   ON CONFLICT (agency_profile_id, year) DO UPDATE
     SET last_value = c.last_value + 1
   RETURNING last_value INTO next_val;
+  -- Concurrent same-(agency, year) inserts serialize on this unique row.
+  -- Increment the stored last_value, never EXCLUDED.last_value (would reset to 1).
 
   RETURN 'TRX-' || yr::text || '-' || lpad(next_val::text, 6, '0');
 END;
@@ -90,6 +306,7 @@ $$;
 CREATE OR REPLACE FUNCTION public.next_transaction_number()
 RETURNS text
 LANGUAGE plpgsql
+VOLATILE
 SECURITY DEFINER
 SET search_path TO 'public'
 AS $$
@@ -115,6 +332,7 @@ $$;
 CREATE OR REPLACE FUNCTION public.next_producer_payment_batch_number(p_agency uuid)
 RETURNS text
 LANGUAGE plpgsql
+VOLATILE
 SECURITY DEFINER
 SET search_path TO 'public'
 AS $$
@@ -130,6 +348,7 @@ BEGIN
   ON CONFLICT (agency_profile_id, year) DO UPDATE
     SET last_value = c.last_value + 1
   RETURNING last_value INTO next_val;
+  -- Concurrent same-(agency, year) inserts serialize on this unique row.
 
   RETURN 'PPB-' || yr::text || '-' || lpad(next_val::text, 6, '0');
 END;
@@ -138,6 +357,7 @@ $$;
 CREATE OR REPLACE FUNCTION public.next_producer_payment_batch_number()
 RETURNS text
 LANGUAGE plpgsql
+VOLATILE
 SECURITY DEFINER
 SET search_path TO 'public'
 AS $$
@@ -163,6 +383,7 @@ $$;
 CREATE OR REPLACE FUNCTION public.next_recovery_number(p_agency uuid)
 RETURNS text
 LANGUAGE plpgsql
+VOLATILE
 SECURITY DEFINER
 SET search_path TO 'public'
 AS $$
@@ -178,6 +399,7 @@ BEGIN
   ON CONFLICT (agency_profile_id, year) DO UPDATE
     SET last_value = c.last_value + 1
   RETURNING last_value INTO next_val;
+  -- Concurrent same-(agency, year) inserts serialize on this unique row.
 
   RETURN 'RCV-' || yr::text || '-' || lpad(next_val::text, 6, '0');
 END;
@@ -186,6 +408,7 @@ $$;
 CREATE OR REPLACE FUNCTION public.next_recovery_number()
 RETURNS text
 LANGUAGE plpgsql
+VOLATILE
 SECURITY DEFINER
 SET search_path TO 'public'
 AS $$
@@ -270,23 +493,30 @@ ALTER TABLE public.recovery_number_counters
   PRIMARY KEY USING INDEX recovery_number_counters_agency_year_uidx;
 
 -- ---------------------------------------------------------------------------
--- 3) Drop global number uniqueness (both Production transaction indexes)
+-- 3) Retain global number uniqueness until Phase 3 insert-stamping
+--
+-- Do NOT drop:
+--   transactions_transaction_number_key
+--   transactions_transaction_number_uidx
+--   producer_payment_batches_batch_number_key
+--   producer_commission_recoveries_recovery_number_key
+--
+-- Tenant-scoped uniques are already additive from 2B-prep. Dropping the global
+-- uniques here would allow (Agency A, NUM) and (NULL, NUM) to coexist, and
+-- Phase 3 UPDATE agency_profile_id = A would then violate the tenant unique.
+-- Drop both duplicate transaction indexes together in Phase 3, after rows are
+-- stamped and NULL-agency bridges are no longer required.
 -- ---------------------------------------------------------------------------
-ALTER TABLE public.transactions
-  DROP CONSTRAINT IF EXISTS transactions_transaction_number_key;
-DROP INDEX IF EXISTS public.transactions_transaction_number_uidx;
-DROP INDEX IF EXISTS public.transactions_transaction_number_key;
-
-ALTER TABLE public.producer_payment_batches
-  DROP CONSTRAINT IF EXISTS producer_payment_batches_batch_number_key;
-DROP INDEX IF EXISTS public.producer_payment_batches_batch_number_key;
-
-ALTER TABLE public.producer_commission_recoveries
-  DROP CONSTRAINT IF EXISTS producer_commission_recoveries_recovery_number_key;
-DROP INDEX IF EXISTS public.producer_commission_recoveries_recovery_number_key;
 
 -- ---------------------------------------------------------------------------
 -- 4) Composite tenant FKs (MATCH SIMPLE: NULL agency on either side skips)
+--
+-- MATCH SIMPLE matrix (child.agency_profile_id, parent.agency_profile_id):
+--   A + A     → allowed if parent id matches
+--   A + B     → rejected (lookup (parent_id, A) does not find B)
+--   NULL + A  → allowed (NULL on child skips the check) — Phase 3 stamps close this
+--   A + NULL  → rejected (lookup (parent_id, A) does not find NULL parent)
+--   NULL+NULL → allowed (NULL on child skips the check) — Phase 3 stamps close this
 -- ---------------------------------------------------------------------------
 DO $$
 BEGIN
@@ -410,8 +640,8 @@ BEGIN
 END $$;
 
 COMMENT ON CONSTRAINT policies_client_tenant_fkey ON public.policies IS
-  'Phase 2B: policy and client must share agency_profile_id when both are non-NULL (MATCH SIMPLE).';
+  'Phase 2B: policy and client must share agency_profile_id when both are non-NULL (MATCH SIMPLE). NULL-tenant RC inserts skip until Phase 3 stamps.';
 COMMENT ON CONSTRAINT transactions_client_tenant_fkey ON public.transactions IS
-  'Phase 2B: transaction and client must share agency_profile_id when both are non-NULL.';
+  'Phase 2B: transaction and client must share agency_profile_id when both are non-NULL (MATCH SIMPLE).';
 COMMENT ON CONSTRAINT transactions_policy_tenant_fkey ON public.transactions IS
-  'Phase 2B: transaction and policy must share agency_profile_id when both are non-NULL.';
+  'Phase 2B: transaction and policy must share agency_profile_id when both are non-NULL (MATCH SIMPLE).';

@@ -61,18 +61,20 @@ Historical `transaction_number` / `batch_number` / `recovery_number` values are 
 
 | Number | Rule |
 |---|---|
-| `client_number` | unique `(agency_profile_id, client_number)` when both present |
+| `client_number` | unique `(agency_profile_id, client_number)` when both present; **plus** transitional global unique on `lower(btrim(client_number))` until Phase 3 stamping (Production had no global unique; without it NULL + Tenant-1 could share a number) |
 | `policy_number` | unique `(client_id, policy_number)` — **per client, not per agency** |
-| `transaction_number` | unique `(agency_profile_id, transaction_number)`; drop `transactions_transaction_number_key` **and** `transactions_transaction_number_uidx` |
-| `batch_number` | unique `(agency_profile_id, batch_number)` |
-| `recovery_number` | unique `(agency_profile_id, recovery_number)` |
+| `transaction_number` | unique `(agency_profile_id, transaction_number)` **additive**; **retain** `transactions_transaction_number_key` **and** `transactions_transaction_number_uidx` until Phase 3 |
+| `batch_number` | unique `(agency_profile_id, batch_number)` **additive**; **retain** global `producer_payment_batches_batch_number_key` until Phase 3 |
+| `recovery_number` | unique `(agency_profile_id, recovery_number)` **additive**; **retain** global `producer_commission_recoveries_recovery_number_key` until Phase 3 |
 | Directory names (carrier/MGA/producer/CSR) | **no unique index** — labels, duplicates exist, two agencies may share a name; isolation is Phase 3 RLS |
 
-NULL-agency unique bridges remain until Phase 3 stamps RC inserts.
+NULL-agency unique bridges unique only the NULL bucket. They do **not** prevent `(Agency A, NUM)` + `(NULL, NUM)`. Stamp-safety is the retained/added **global** unique on the number. Drop global uniques in Phase 3 only after insert-stamping and backfill of remaining NULL numbered rows.
 
 ### Cross-tenant FKs
 
-`UNIQUE (id, agency_profile_id)` on parents + composite FKs `(parent_id, agency_profile_id)`. MATCH SIMPLE: a NULL tenant on either side is not checked. Producer TEXT on transactions is not FK-enforceable.
+`UNIQUE (id, agency_profile_id)` on parents + composite FKs `(parent_id, agency_profile_id)`. MATCH SIMPLE: a NULL tenant on either side is not checked (RC inserts stay valid). Producer TEXT on transactions is not FK-enforceable.
+
+MATCH SIMPLE gaps close in Phase 3/4 when inserts stamp `agency_profile_id` and remaining NULL business rows are backfilled, then `SET NOT NULL`. Stamp **parents before children** (clients → policies → transactions → receipts/batches/recoveries → items/allocations/recon rows/docs). `A` child + NULL parent is rejected by the composite FKs.
 
 ### NOT NULL
 
@@ -104,7 +106,7 @@ Do not fix in Phase 2A. Track through Phase 3/4 (security) and Phase 2B (uniquen
 | Reconciliation RLS is ops-global (`is_ops_staff()`, no tenant predicate) | Phase 3 |
 | `billing_subscriptions` SELECT is any Owner/Admin, no tenant predicate | Phase 3 |
 | `agency-branding` bucket is public (entire-bucket SELECT) | Phase 3/4 storage |
-| Transaction / batch / recovery **counters and numbers are global** (`year` PK; global UNIQUE on numbers) | Phase 2B |
-| Duplicate global unique indexes on `transactions.transaction_number` (`transactions_transaction_number_key` and `transactions_transaction_number_uidx`) | Phase 2B |
+| Transaction / batch / recovery **counters and numbers are global** (`year` PK; global UNIQUE on numbers) | Phase 2B moves counters to `(agency, year)`; **global number uniques retained** until Phase 3 stamping |
+| Duplicate global unique indexes on `transactions.transaction_number` (`transactions_transaction_number_key` and `transactions_transaction_number_uidx`) | Phase 3 (drop **both** together after stamping; do not drop in 2B) |
 | `task_number_counters` exists on Production; product ownership unconfirmed — **not** in Phase 2A | decide before 2B |
 | Broad `anon` table GRANTs; isolation is policy-only | Phase 3 |
