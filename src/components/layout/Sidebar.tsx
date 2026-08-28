@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { NavLink, Link, useLocation } from 'react-router-dom'
+import { NavLink, useLocation } from 'react-router-dom'
 import {
   LayoutDashboard,
   Users,
@@ -26,7 +26,7 @@ import {
 } from 'lucide-react'
 import type { NavGroup, NavItem } from '@/types'
 import { useAuth } from '@/lib/auth'
-import { getNavVisibility, isAlzaSupportRole, rolesOf } from '@/lib/permissions'
+import { getNavVisibility, rolesOf } from '@/lib/permissions'
 import {
   ADMIN_UMBRELLA_LABELS,
   adminGroupHasActivePath,
@@ -216,7 +216,6 @@ function AdministrationNav({ specs }: { specs: SidebarNavItemSpec[] }) {
 export function Sidebar() {
   const { profile } = useAuth()
   const nav = getNavVisibility(rolesOf(profile))
-  const hideAgencySupportCard = isAlzaSupportRole(rolesOf(profile))
 
   const { mainNav, adminSpecs } = useMemo(() => {
     const specs = buildSidebarNavItems(nav)
@@ -251,18 +250,6 @@ export function Sidebar() {
           </>
         )}
       </nav>
-
-      <div className="border-t border-white/10 p-4">
-        {(nav.support || nav.alzaSupportInbox) && !hideAgencySupportCard && (
-          <Link
-            to={nav.support ? '/support' : '/admin/support-inbox'}
-            className="block rounded-lg bg-white/5 p-3 transition-colors hover:bg-white/10"
-          >
-            <p className="text-xs font-medium text-white">Need help?</p>
-            <p className="mt-0.5 text-[11px] text-slate-400">Contact ALZA support</p>
-          </Link>
-        )}
-      </div>
     </aside>
   )
 }
