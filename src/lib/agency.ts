@@ -75,7 +75,20 @@ function mapAgency(row: Record<string, unknown>): AgencyProfile {
   }
 }
 
-export async function fetchAgencyProfile(): Promise<{
+/** Resolve the authenticated user's agency from membership (never LIMIT 1 / singleton). */
+export async function resolveCurrentAgencyProfileId(): Promise<{
+  agencyProfileId: string | null
+  error: string | null
+}> {
+  const { data, error } = await supabase.rpc('current_user_agency_profile_id')
+  if (error) {
+    return { agencyProfileId: null, error: error.message }
+  }
+  const id = data == null || data === '' ? null : String(data)
+  return { agencyProfileId: id, error: null }
+}
+
+async function fetchAgencyProfileById(agencyProfileId: string): Promise<{
   data: AgencyProfile | null
   error: string | null
   missingTable?: boolean
@@ -83,7 +96,7 @@ export async function fetchAgencyProfile(): Promise<{
   const first = await supabase
     .from('agency_profile')
     .select(AGENCY_SELECT_WITH_SCHEDULE)
-    .limit(1)
+    .eq('id', agencyProfileId)
     .maybeSingle()
 
   let data: unknown = first.data
@@ -93,7 +106,7 @@ export async function fetchAgencyProfile(): Promise<{
     const retry = await supabase
       .from('agency_profile')
       .select(AGENCY_SELECT_LEGACY)
-      .limit(1)
+      .eq('id', agencyProfileId)
       .maybeSingle()
     data = retry.data
     error = retry.error
@@ -111,8 +124,31 @@ export async function fetchAgencyProfile(): Promise<{
     }
   }
 
-  if (!data) return { data: null, error: null }
+  if (!data) {
+    return {
+      data: null,
+      error: 'Agency profile was not found for your membership.',
+    }
+  }
   return { data: mapAgency(data as Record<string, unknown>), error: null }
+}
+
+export async function fetchAgencyProfile(): Promise<{
+  data: AgencyProfile | null
+  error: string | null
+  missingTable?: boolean
+}> {
+  const { agencyProfileId, error: resolveError } = await resolveCurrentAgencyProfileId()
+  if (resolveError) {
+    return { data: null, error: resolveError }
+  }
+  if (!agencyProfileId) {
+    return {
+      data: null,
+      error: 'Agency membership is required to load agency profile.',
+    }
+  }
+  return fetchAgencyProfileById(agencyProfileId)
 }
 
 export async function saveAgencyProfile(input: AgencyProfileInput): Promise<{
@@ -125,6 +161,15 @@ export async function saveAgencyProfile(input: AgencyProfileInput): Promise<{
   const agencyName = input.agencyName.trim()
   if (!agencyName) {
     return { data: null, error: 'Agency display name is required.' }
+  }
+
+  const { agencyProfileId, error: resolveError } = await resolveCurrentAgencyProfileId()
+  if (resolveError) return { data: null, error: resolveError }
+  if (!agencyProfileId) {
+    return {
+      data: null,
+      error: 'Agency membership is required to save agency profile.',
+    }
   }
 
   const identityPayload = {
@@ -146,36 +191,33 @@ export async function saveAgencyProfile(input: AgencyProfileInput): Promise<{
   }
   const payload = { ...identityPayload, ...schedulePayload }
 
-  const existing = await fetchAgencyProfile()
-  if (existing.error && existing.missingTable) {
-    return {
-      data: null,
-      error:
-        'agency_profile table is not available. Apply migration 20260812220000_agency_profile_and_user_invite_foundation.sql first.',
-    }
-  }
-
-  async function persist(
-    rowPayload: Record<string, unknown>,
-    select: string,
-    id?: string,
-  ) {
-    if (id) {
-      return supabase.from('agency_profile').update(rowPayload).eq('id', id).select(select).single()
-    }
+  async function persist(rowPayload: Record<string, unknown>, select: string) {
     return supabase
       .from('agency_profile')
-      .insert({ ...rowPayload, singleton_key: true })
+      .update(rowPayload)
+      .eq('id', agencyProfileId)
       .select(select)
       .single()
   }
 
-  const existingId = existing.data?.id
-  let result = await persist(payload, AGENCY_SELECT_WITH_SCHEDULE, existingId)
+  let result = await persist(payload, AGENCY_SELECT_WITH_SCHEDULE)
   if (result.error && isMissingColumnError(result.error)) {
-    result = await persist(identityPayload, AGENCY_SELECT_LEGACY, existingId)
+    result = await persist(identityPayload, AGENCY_SELECT_LEGACY)
   }
-  if (result.error) return { data: null, error: result.error.message }
+  if (result.error) {
+    const missing =
+      result.error.message.toLowerCase().includes('agency_profile') ||
+      result.error.code === '42P01' ||
+      result.error.code === 'PGRST205'
+    if (missing) {
+      return {
+        data: null,
+        error:
+          'agency_profile table is not available. Apply migration 20260812220000_agency_profile_and_user_invite_foundation.sql first.',
+      }
+    }
+    return { data: null, error: result.error.message }
+  }
   if (!result.data) return { data: null, error: 'Agency profile save returned no row.' }
   return { data: mapAgency(result.data as unknown as Record<string, unknown>), error: null }
 }
@@ -194,19 +236,18 @@ export async function uploadAgencyLogo(file: File): Promise<{
     return { logoUrl: null, error: 'Logo must be 2 MB or smaller.' }
   }
 
-  const profile = await fetchAgencyProfile()
-  if (profile.error || !profile.data?.id) {
+  const { agencyProfileId, error: resolveError } = await resolveCurrentAgencyProfileId()
+  if (resolveError) return { logoUrl: null, error: resolveError }
+  if (!agencyProfileId) {
     return {
       logoUrl: null,
-      error:
-        profile.error ??
-        'Save agency profile first (or apply agency_profile migration).',
+      error: 'Agency membership is required before uploading a logo.',
     }
   }
 
   const ext =
     file.type === 'image/png' ? 'png' : file.type === 'image/webp' ? 'webp' : 'jpg'
-  const path = `logo/${profile.data.id}.${ext}`
+  const path = `logo/${agencyProfileId}.${ext}`
 
   const { error: uploadError } = await supabase.storage
     .from('agency-branding')
@@ -229,7 +270,7 @@ export async function uploadAgencyLogo(file: File): Promise<{
   const { error: updateError } = await supabase
     .from('agency_profile')
     .update({ logo_url: logoUrl, updated_at: new Date().toISOString() })
-    .eq('id', profile.data.id)
+    .eq('id', agencyProfileId)
 
   if (updateError) return { logoUrl: null, error: updateError.message }
   return { logoUrl, error: null }

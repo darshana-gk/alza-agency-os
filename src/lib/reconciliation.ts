@@ -1,5 +1,5 @@
 import { recordActivity } from './activity'
-import { fetchAgencyProfile } from './agency'
+import { resolveCurrentAgencyProfileId } from './agency'
 import { formatCurrency } from './commission'
 import {
   canAccessReconciliation,
@@ -1027,13 +1027,16 @@ export async function saveColumnMapping(input: {
 }> {
   const authz = await requireOps()
   if (!authz.ok) return { data: null, error: authz.message }
-  const agency = await fetchAgencyProfile()
-  if (!agency.data?.id) return { data: null, error: 'Agency profile is required before saving mappings.' }
+  const { agencyProfileId, error: agencyError } = await resolveCurrentAgencyProfileId()
+  if (agencyError) return { data: null, error: agencyError }
+  if (!agencyProfileId) {
+    return { data: null, error: 'Agency membership is required before saving mappings.' }
+  }
   const name = input.name.trim()
   if (!name) return { data: null, error: 'Mapping name is required.' }
 
   const payload = {
-    agency_profile_id: agency.data.id,
+    agency_profile_id: agencyProfileId,
     name,
     mapping: input.mapping,
     carrier: input.carrier ?? null,
@@ -1046,7 +1049,7 @@ export async function saveColumnMapping(input: {
   const { data: existingByName } = await supabase
     .from('reconciliation_column_mappings')
     .select('id, name, carrier, mga, carrier_id, mga_id, mapping')
-    .eq('agency_profile_id', agency.data.id)
+    .eq('agency_profile_id', agencyProfileId)
     .eq('name', name)
     .maybeSingle()
 
@@ -1221,9 +1224,10 @@ export async function importReconciliationStatement(input: {
     return { data: null, error: 'Select a carrier or MGA.' }
   }
 
-  const agency = await fetchAgencyProfile()
-  if (!agency.data?.id) {
-    return { data: null, error: 'Agency profile is required before importing statements.' }
+  const { agencyProfileId, error: agencyError } = await resolveCurrentAgencyProfileId()
+  if (agencyError) return { data: null, error: agencyError }
+  if (!agencyProfileId) {
+    return { data: null, error: 'Agency membership is required before importing statements.' }
   }
 
   const parsed = await parseStatementFile(input.file)
@@ -1234,7 +1238,7 @@ export async function importReconciliationStatement(input: {
   const role = await loadCurrentAppRole()
 
   const insertPayload = {
-    agency_profile_id: agency.data.id,
+    agency_profile_id: agencyProfileId,
     carrier: input.carrier,
     mga: input.mga,
     carrier_id: input.carrierId,
@@ -1269,7 +1273,7 @@ export async function importReconciliationStatement(input: {
         .from('reconciliation_statements')
         .select(STATEMENT_SELECT)
         .eq('file_hash', fileHash)
-        .eq('agency_profile_id', agency.data.id)
+        .eq('agency_profile_id', agencyProfileId)
         .maybeSingle()
       if (existing && Number(existing.row_count ?? 0) === 0) {
         statementId = String(existing.id)
@@ -1285,7 +1289,7 @@ export async function importReconciliationStatement(input: {
 
   if (!statementId) return { data: null, error: 'Unable to create statement.' }
 
-  const storagePath = `${agency.data.id}/${statementId}/${input.file.name}`
+  const storagePath = `${agencyProfileId}/${statementId}/${input.file.name}`
   const { error: uploadError } = await supabase.storage
     .from('reconciliation-statements')
     .upload(storagePath, input.file, { upsert: true })
@@ -1433,12 +1437,44 @@ export async function manualMatchRow(params: {
   const authz = await requireOps()
   if (!authz.ok) return { error: authz.message }
 
+  const { data: targetRow } = await supabase
+    .from('reconciliation_statement_rows')
+    .select(
+      `
+      id, statement_id,
+      reconciliation_statements ( id, agency_profile_id, file_name )
+    `,
+    )
+    .eq('id', params.rowId)
+    .maybeSingle()
+  if (!targetRow) return { error: 'Reconciliation row not found.' }
+
+  const statementEmbed = firstEmbed(
+    targetRow.reconciliation_statements as
+      | { id?: string; agency_profile_id?: string | null; file_name?: string | null }
+      | { id?: string; agency_profile_id?: string | null; file_name?: string | null }[]
+      | null,
+  )
+  const statementAgencyId = String(statementEmbed?.agency_profile_id ?? '').trim()
+  if (!statementAgencyId) {
+    return { error: 'Statement agency is required before manual matching.' }
+  }
+
   const { data: txnGuard } = await supabase
     .from('transactions')
-    .select('id, agency_commission_confirmed, agency_commission_receipt_id, transaction_number')
+    .select(
+      'id, agency_profile_id, agency_commission_confirmed, agency_commission_receipt_id, transaction_number',
+    )
     .eq('id', params.transactionId)
     .maybeSingle()
-  if (txnGuard?.agency_commission_confirmed || txnGuard?.agency_commission_receipt_id) {
+  if (!txnGuard) return { error: 'Transaction not found.' }
+  const txnAgencyId = String(txnGuard.agency_profile_id ?? '').trim()
+  if (!txnAgencyId || txnAgencyId !== statementAgencyId) {
+    return {
+      error: 'Selected transaction and reconciliation statement must belong to the same agency.',
+    }
+  }
+  if (txnGuard.agency_commission_confirmed || txnGuard.agency_commission_receipt_id) {
     return {
       error: `Transaction ${txnGuard.transaction_number || params.transactionId} already has a confirmed agency commission receipt and cannot be matched again.`,
       occupancy: {
@@ -1512,11 +1548,6 @@ export async function manualMatchRow(params: {
       occupancy,
     }
   }
-  const { data: targetRow } = await supabase
-    .from('reconciliation_statement_rows')
-    .select('id, statement_id')
-    .eq('id', params.rowId)
-    .maybeSingle()
   const classified = classifySignedVariance({
     commissionAmount: params.commissionAmount,
     expectedCommission: params.expectedCommission,

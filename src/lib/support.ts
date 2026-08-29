@@ -1,4 +1,4 @@
-import { fetchAgencyProfile } from './agency'
+import { resolveCurrentAgencyProfileId } from './agency'
 import { recordActivity } from './activity'
 import type { AppUserProfile } from './auth'
 import {
@@ -272,12 +272,12 @@ export async function createSupportRequest(input: {
     return { data: null, error: 'Choose a valid category.' }
   }
 
-  const agency = await fetchAgencyProfile()
-  const { data: membershipAgencyId } = await supabase.rpc('current_user_agency_profile_id')
-  const agencyProfileId =
-    (typeof membershipAgencyId === 'string' && membershipAgencyId) || agency.data?.id || null
+  const { agencyProfileId, error: agencyError } = await resolveCurrentAgencyProfileId()
+  if (agencyError) {
+    return { data: null, error: agencyError }
+  }
   if (!agencyProfileId) {
-    return { data: null, error: agency.error ?? 'Agency membership is required to create a support request.' }
+    return { data: null, error: 'Agency membership is required to create a support request.' }
   }
 
   const { data: conv, error: convError } = await supabase

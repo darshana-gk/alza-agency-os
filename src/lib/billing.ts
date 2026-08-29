@@ -1,4 +1,5 @@
 import { supabase } from './supabase'
+import { resolveCurrentAgencyProfileId } from './agency'
 import { isAdminDirectoryRole, rejectUnlessRole } from './permissions'
 import {
   canCancelSubscription,
@@ -103,6 +104,12 @@ export async function fetchBillingSubscription(): Promise<{
   const authz = await rejectUnlessRole(isAdminDirectoryRole)
   if (!authz.ok) return { data: null, error: authz.message }
 
+  const { agencyProfileId, error: agencyError } = await resolveCurrentAgencyProfileId()
+  if (agencyError) return { data: null, error: agencyError }
+  if (!agencyProfileId) {
+    return { data: null, error: 'Agency membership is required to view billing.' }
+  }
+
   const fullSelect = `
       id,
       agency_profile_id,
@@ -127,7 +134,11 @@ export async function fetchBillingSubscription(): Promise<{
   let data: Record<string, unknown> | null = null
   let error: { message: string } | null = null
 
-  const full = await supabase.from('billing_subscriptions').select(fullSelect).limit(1).maybeSingle()
+  const full = await supabase
+    .from('billing_subscriptions')
+    .select(fullSelect)
+    .eq('agency_profile_id', agencyProfileId)
+    .maybeSingle()
   data = (full.data as Record<string, unknown> | null) ?? null
   error = full.error
 
@@ -153,7 +164,7 @@ export async function fetchBillingSubscription(): Promise<{
       updated_at
     `,
       )
-      .limit(1)
+      .eq('agency_profile_id', agencyProfileId)
       .maybeSingle()
     data = fallback.data
       ? {
@@ -179,26 +190,21 @@ export async function fetchAgencyActiveUserCount(): Promise<{
   const authz = await rejectUnlessRole(isAdminDirectoryRole)
   if (!authz.ok) return { count: 0, error: authz.message }
 
-  const { count, error } = await supabase
+  const { agencyProfileId, error: agencyError } = await resolveCurrentAgencyProfileId()
+  if (agencyError) return { count: 0, error: agencyError }
+  if (!agencyProfileId) {
+    return { count: 0, error: 'Agency membership is required to count active users.' }
+  }
+
+  const scoped = await supabase
     .from('users')
     .select('id', { count: 'exact', head: true })
     .is('archived_at', null)
     .neq('role', 'alza_support')
+    .eq('agency_profile_id', agencyProfileId)
 
-  // Prefer same-agency users when membership RPC is available.
-  const agencyRpc = await supabase.rpc('current_user_agency_profile_id')
-  if (!agencyRpc.error && agencyRpc.data) {
-    const scoped = await supabase
-      .from('users')
-      .select('id', { count: 'exact', head: true })
-      .is('archived_at', null)
-      .neq('role', 'alza_support')
-      .eq('agency_profile_id', String(agencyRpc.data))
-    if (!scoped.error) return { count: scoped.count ?? 0, error: null }
-  }
-
-  if (error) return { count: 0, error: error.message }
-  return { count: count ?? 0, error: null }
+  if (scoped.error) return { count: 0, error: scoped.error.message }
+  return { count: scoped.count ?? 0, error: null }
 }
 
 export interface RazorpayCheckoutBootstrap {

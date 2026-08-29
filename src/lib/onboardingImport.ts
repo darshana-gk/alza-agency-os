@@ -18,6 +18,45 @@ import {
 import { supabase } from './supabase'
 import { recordActivity } from './activity'
 
+/** Spreadsheet keys that must never choose tenant ownership on import. */
+export const FORBIDDEN_ONBOARDING_TENANT_KEYS = [
+  'agency_profile_id',
+  'agency_id',
+  'tenant_id',
+  'singleton_key',
+] as const
+
+function normalizeOnboardingHeaderKey(value: string): string {
+  return value.trim().toLowerCase().replace(/\s+/g, '_')
+}
+
+/** Strip injected tenant columns from a parsed row; report any non-empty rejected values. */
+export function stripForbiddenOnboardingTenantFields(row: Record<string, unknown>): {
+  row: Record<string, unknown>
+  rejected: string[]
+} {
+  const rejected: string[] = []
+  const next: Record<string, unknown> = { ...row }
+  for (const [key, value] of Object.entries(row)) {
+    const norm = normalizeOnboardingHeaderKey(key)
+    if (
+      (FORBIDDEN_ONBOARDING_TENANT_KEYS as readonly string[]).includes(norm) &&
+      value != null &&
+      String(value).trim() !== ''
+    ) {
+      rejected.push(key)
+    }
+    if ((FORBIDDEN_ONBOARDING_TENANT_KEYS as readonly string[]).includes(norm)) {
+      delete next[key]
+    }
+  }
+  return { row: next, rejected }
+}
+
+export function sanitizeOnboardingRows(rows: Record<string, unknown>[]): Record<string, unknown>[] {
+  return rows.map((row) => stripForbiddenOnboardingTenantFields(row).row)
+}
+
 export type OnboardingEntity =
   | 'clients'
   | 'policies'
@@ -677,7 +716,7 @@ export function buildOnboardingMappingUiState(
 } {
   return {
     headers: parsed.headers,
-    rows: parsed.rows,
+    rows: sanitizeOnboardingRows(parsed.rows),
     mapping: suggestOnboardingMapping(entity, parsed.headers),
   }
 }
@@ -978,10 +1017,18 @@ export function evaluateOnboardingRows(input: {
   const seenInFile = new Set<string>()
 
   for (let i = 0; i < input.rows.length; i++) {
-    const row = input.rows[i]
+    const stripped = stripForbiddenOnboardingTenantFields(input.rows[i])
+    const row = stripped.row
     const state: { status: OnboardingRowStatus; reasons: string[] } = {
       status: 'ready',
       reasons: [],
+    }
+    if (stripped.rejected.length) {
+      mark(
+        state,
+        'invalid',
+        `Tenant ownership cannot be imported (${stripped.rejected.join(', ')}).`,
+      )
     }
     const display: Record<string, string> = {}
     const payload: Record<string, unknown> = {}

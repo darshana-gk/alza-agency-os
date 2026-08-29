@@ -55,6 +55,8 @@ export interface AppUserProfile {
   producerId: string | null
   /** Canonical producers.producer_name via producer_id (preferred for book locks). */
   linkedProducerName: string | null
+  /** Tenant membership; NULL for platform-scoped alza_support. */
+  agencyProfileId: string | null
 }
 
 type AuthStatus = 'loading' | 'unauthenticated' | 'authenticated' | 'access_denied'
@@ -84,6 +86,7 @@ interface UserRow {
   status: string | null
   archived_at: string | null
   producer_id?: string | null
+  agency_profile_id?: string | null
   producers?: { producer_name: string | null } | { producer_name: string | null }[] | null
 }
 
@@ -110,6 +113,7 @@ function mapProfile(row: UserRow, roles: AppRole[]): AppUserProfile {
     archivedAt: row.archived_at,
     producerId: (row.producer_id ?? '').trim() || null,
     linkedProducerName: linkedProducerNameFromRow(row),
+    agencyProfileId: (row.agency_profile_id ?? '').trim() || null,
   }
 }
 
@@ -120,7 +124,7 @@ async function loadLinkedProfile(authUserId: string): Promise<{
   const { data, error } = await supabase
     .from('users')
     .select(
-      'id, auth_user_id, full_name, email, role, status, archived_at, invite_status, producer_id, producers(producer_name)',
+      'id, auth_user_id, full_name, email, role, status, archived_at, invite_status, producer_id, agency_profile_id, producers(producer_name)',
     )
     .eq('auth_user_id', authUserId)
     .maybeSingle()
@@ -128,7 +132,13 @@ async function loadLinkedProfile(authUserId: string): Promise<{
   let row = data as (UserRow & { invite_status?: string | null }) | null
   let loadError = error
 
-  if (error && (error.message.includes('invite_status') || error.message.includes('producer_id') || error.message.includes('producers'))) {
+  if (
+    error &&
+    (error.message.includes('invite_status') ||
+      error.message.includes('producer_id') ||
+      error.message.includes('agency_profile_id') ||
+      error.message.includes('producers'))
+  ) {
     const fallback = await supabase
       .from('users')
       .select('id, auth_user_id, full_name, email, role, status, archived_at')
