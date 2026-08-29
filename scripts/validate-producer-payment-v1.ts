@@ -759,15 +759,15 @@ assert(
   'C: receipt confirm does not regress paid → expected',
 )
 assert(
-  RECEIPT_CLIENT.includes('receiptConfirmShouldResetReviewStatus') &&
-    RECEIPT_CLIENT.includes("txnPatch.review_status = 'expected'") &&
-    !/update\(\s*\{[^}]*review_status:\s*'expected'/.test(RECEIPT_CLIENT) &&
-    RECEIPT_CLIENT.includes(".eq('agency_commission_confirmed', false)") &&
+  RECEIPT_CLIENT.includes('CONFIRM_AGENCY_COMMISSION_RECEIVED_RPC') &&
+    RECEIPT_CLIENT.includes('supabase.rpc(CONFIRM_AGENCY_COMMISSION_RECEIVED_RPC') &&
+    !RECEIPT_CLIENT.includes(".from('agency_commission_receipts')") &&
+    !RECEIPT_CLIENT.includes('txnPatch') &&
     !RECEIPT_CLIENT.includes('producer_payment_status:') &&
     !RECEIPT_CLIENT.includes('paid_date:') &&
     !RECEIPT_CLIENT.includes('paid_amount:') &&
     !RECEIPT_CLIENT.includes('payment_batch_id:'),
-  'D/E: receipt confirm does not write producer payment status or paid_date; review reset is conditional',
+  'D/E: receipt confirm uses atomic RPC; client does not write payment fields or patch review_status',
 )
 assertEq(
   getTransactionWorkflowStatus({

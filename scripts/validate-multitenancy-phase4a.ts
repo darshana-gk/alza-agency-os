@@ -134,17 +134,14 @@ console.log('H. Role resolution expectations (static contract)')
   }
 }
 
-console.log('I. Deferred singleton sites documented')
+console.log('I. Phase 4B cutover complete — privileged workflow writes use RPCs')
 {
-  const edgeInvite = existsSync(resolve(root, 'supabase/functions/invite-alza-user/index.ts'))
-    ? readFileSync(resolve(root, 'supabase/functions/invite-alza-user/index.ts'), 'utf8')
-    : ''
-  assert(edgeInvite.includes('limit(1)'), 'invite edge still has singleton fallback (4C)')
-  assert(!edgeInvite.includes('resolveCurrentAgencyProfileId'), 'invite not wired in 4A (expected)')
   const commission = readSrc('src/lib/commission.ts')
+  assert(commission.includes('submit_transaction_for_review'), 'commission wires submit RPC')
+  assert(commission.includes('confirm_agency_commission_received'), 'commission wires receipt RPC')
   assert(
-    /\.from\('transactions'\)[\s\S]{0,40}\.update/.test(commission),
-    'commission direct UPDATE deferred to 4B',
+    !/confirmAgencyCommissionReceived[\s\S]{0,2000}\.from\('agency_commission_receipts'\)/.test(commission),
+    'receipt confirm no longer inserts receipts directly',
   )
   const documents = readSrc('src/lib/documents.ts')
   assert(documents.includes('`${input.entityType}/${input.entityId}/'), 'storage legacy path deferred to 4E')

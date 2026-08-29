@@ -374,8 +374,34 @@ export type ProducerPaymentConfirmMethodValue =
   (typeof PRODUCER_PAYMENT_CONFIRM_METHODS)[number]['value']
 
 export const CONFIRM_PRODUCER_PAID_RPC = 'confirm_producer_paid_outside_alza_flow'
+export const SUBMIT_TRANSACTION_FOR_REVIEW_RPC = 'submit_transaction_for_review'
+export const CONFIRM_AGENCY_COMMISSION_RECEIVED_RPC = 'confirm_agency_commission_received'
+export const APPROVE_TRANSACTION_REVIEW_RPC = 'approve_transaction_review'
+export const RETURN_TRANSACTION_FOR_CORRECTION_RPC = 'return_transaction_for_correction'
+export const MARK_PRODUCER_COMMISSION_READY_RPC = 'mark_producer_commission_ready'
+export const VOID_TRANSACTION_RPC = 'void_transaction'
 export const PAYMENT_CHANNEL_OUTSIDE_ALZA_FLOW = 'outside_alza_flow'
 export const PAYMENT_CHANNEL_ALZA_FLOW_PAY = 'alza_flow_pay'
+
+function workflowRpcMissingMessage(): string {
+  return 'Workflow RPC is not available. Apply the Phase 3C multitenancy migration before performing this action.'
+}
+
+function formatWorkflowRpcError(
+  error: { message?: string; code?: string } | null | undefined,
+  fallback: string,
+): string {
+  const raw = (error?.message ?? '').trim()
+  if (!raw) return fallback
+  if (
+    error?.code === 'PGRST202' ||
+    /Could not find the function/i.test(raw) ||
+    /schema cache/i.test(raw)
+  ) {
+    return workflowRpcMissingMessage()
+  }
+  return raw
+}
 
 export function formatProducerPaymentMethodLabel(value: string | null | undefined): string {
   const raw = (value ?? '').trim()
@@ -1571,15 +1597,9 @@ export async function voidTransaction(transactionId: string, reason: string) {
     }
   }
 
-  const actorId = authz.profileId ?? (await currentAppUserId())
-  const { data: row, error: fetchError } = await supabase
+  const { data: meta, error: fetchError } = await supabase
     .from('transactions')
-    .select(
-      `
-      id, transaction_number, producer_payment_status, payment_batch_id, paid_date,
-      archived_at, voided_at, agency_commission_confirmed, review_status, client_id, policy_id
-    `,
-    )
+    .select('id, transaction_number, client_id, policy_id')
     .eq('id', transactionId)
     .maybeSingle()
 
@@ -1593,91 +1613,48 @@ export async function voidTransaction(transactionId: string, reason: string) {
       },
     }
   }
-  if (!row || row.archived_at || row.voided_at) {
+
+  const { data, error } = await supabase.rpc(VOID_TRANSACTION_RPC, {
+    p_transaction_id: transactionId,
+    p_reason: trimmed,
+  })
+
+  if (error) {
     return {
       error: {
-        message: 'Transaction not found or already archived/voided.',
+        message: formatWorkflowRpcError(error, 'Unable to void transaction.'),
         table: 'transactions',
-        operation: 'void_validation',
-      },
-    }
-  }
-  if (row.payment_batch_id || row.paid_date || row.producer_payment_status === 'paid') {
-    return {
-      error: {
-        message:
-          'Cannot void a paid or batched transaction. Create a Return Premium / Recovery instead to preserve ledger integrity.',
-        table: 'transactions',
-        operation: 'void_validation',
+        operation: 'rpc_void_transaction',
+        details: error,
       },
     }
   }
 
-  const { count: recoveryCount } = await supabase
-    .from('producer_commission_recoveries')
-    .select('id', { count: 'exact', head: true })
-    .eq('transaction_id', transactionId)
-    .is('voided_at', null)
-
-  if ((recoveryCount ?? 0) > 0) {
+  const payload = data as { id?: string; voided?: boolean } | null
+  if (!payload?.id) {
     return {
       error: {
-        message:
-          'Cannot void a transaction linked to recoveries. Settle or void recoveries first, or use a reversal transaction.',
+        message: 'Void RPC returned an unexpected response.',
         table: 'transactions',
-        operation: 'void_validation',
+        operation: 'rpc_void_transaction',
       },
     }
   }
 
   const voidedAt = new Date().toISOString()
-  const { data: updated, error } = await supabase
-    .from('transactions')
-    .update({
-      voided_at: voidedAt,
-      voided_by: actorId,
-      void_reason: trimmed,
-      producer_payment_status: 'not_ready',
-    })
-    .eq('id', transactionId)
-    .is('voided_at', null)
-    .is('payment_batch_id', null)
-    .is('paid_date', null)
-    .select('id, transaction_number')
-
-  if (error) {
-    return {
-      error: {
-        message: error.message,
-        table: 'transactions',
-        operation: 'void_update',
-        details: error,
-      },
-    }
-  }
-  if (!updated?.length) {
-    return {
-      error: {
-        message: 'Void did not update any row.',
-        table: 'transactions',
-        operation: 'void_validation',
-      },
-    }
-  }
-
   await recordActivity({
     action: 'transaction_void',
     entityType: 'transaction',
     entityId: transactionId,
-    recordReference: String(updated[0].transaction_number ?? ''),
-    clientId: row.client_id as string | null,
-    policyId: row.policy_id as string | null,
+    recordReference: String(meta?.transaction_number ?? ''),
+    clientId: (meta?.client_id as string | null) ?? null,
+    policyId: (meta?.policy_id as string | null) ?? null,
     transactionId,
     oldValue: { voided: false },
     newValue: { voided: true, reason: trimmed, voidedAt },
   })
 
-  return { data: { id: updated[0].id as string }, error: null }
+  return { data: { id: payload.id }, error: null }
 }
 
 export function isAssignableProducer(producer: string | null | undefined): boolean {
@@ -2311,18 +2288,7 @@ export async function approveTransactionReview(transactionId: string) {
 
   const { data: row, error: fetchError } = await supabase
     .from('transactions')
-    .select(
-      `
-      id,
-      agency_commission_confirmed,
-      review_status,
-      producer_payment_status,
-      payment_batch_id,
-      archived_at,
-      paid_date,
-      reviewer_user_id
-    `,
-    )
+    .select('id, review_status, reviewer_user_id')
     .eq('id', transactionId)
     .maybeSingle()
 
@@ -2364,60 +2330,32 @@ export async function approveTransactionReview(transactionId: string) {
   }
 
   const reviewStatus = normalizeReviewStatus(row.review_status)
-  const paymentStatus = normalizePaymentStatus(row.producer_payment_status)
 
-  if (
-    row.archived_at ||
-    paymentStatus === 'paid' ||
-    row.paid_date ||
-    row.payment_batch_id ||
-    !row.agency_commission_confirmed ||
-    reviewStatus !== 'matched'
-  ) {
-    return {
-      error: {
-        message:
-          'Transaction cannot be approved. It must be submitted for review (matched), confirmed, and not paid/batched/archived.',
-        table: 'transactions',
-        operation: 'approve_validation',
-      },
-    }
-  }
-
-  const { data: updated, error } = await supabase
-    .from('transactions')
-    .update({
-      review_status: 'approved',
-      reviewed_by: actorId,
-      reviewed_date: new Date().toISOString(),
-    })
-    .eq('id', transactionId)
-    .eq('agency_commission_confirmed', true)
-    .eq('review_status', 'matched')
-    .is('archived_at', null)
-    .is('payment_batch_id', null)
-    .is('paid_date', null)
-    .neq('producer_payment_status', 'paid')
-    .select('id')
+  const { data, error } = await supabase.rpc(APPROVE_TRANSACTION_REVIEW_RPC, {
+    p_transaction_id: transactionId,
+  })
 
   if (error) {
     return {
       error: {
-        message: error.message,
+        message: formatWorkflowRpcError(
+          error,
+          'Transaction cannot be approved. It must be submitted for review (matched), confirmed, and not paid/batched/archived.',
+        ),
         table: 'transactions',
-        operation: 'approve_update',
+        operation: 'rpc_approve_transaction_review',
         details: error,
       },
     }
   }
 
-  if (!updated || updated.length === 0) {
+  const payload = data as { id?: string; review_status?: string } | null
+  if (!payload?.id) {
     return {
       error: {
-        message:
-          'Approve did not update any row. The transaction may no longer be eligible.',
+        message: 'Approve RPC returned an unexpected response.',
         table: 'transactions',
-        operation: 'approve_validation',
+        operation: 'rpc_approve_transaction_review',
       },
     }
   }
@@ -2431,7 +2369,7 @@ export async function approveTransactionReview(transactionId: string) {
     newValue: { reviewStatus: 'approved', ownerOverride: gate.ownerOverride },
   })
 
-  return { data: { id: updated[0].id as string, ownerOverride: gate.ownerOverride }, error: null }
+  return { data: { id: payload.id, ownerOverride: gate.ownerOverride }, error: null }
 }
 
 /**
@@ -2460,14 +2398,6 @@ export async function submitTransactionForReview(transaction: CommissionTransact
     }
   }
 
-  // When a CSR submits/resubmits, stamp transactions.csr + csr_user_id to their profile
-  // so correction queues / notifications resolve by stable identity.
-  const submitPatch: Record<string, unknown> = {
-    review_status: 'matched',
-    review_return_reason: null,
-    review_returned_at: null,
-    review_returned_by: null,
-  }
   const wasReturned =
     Boolean(transaction.reviewReturnedAt) || Boolean(transaction.reviewReturnReason?.trim())
   if (authz.roles.includes('csr') && authz.profileId) {
@@ -2477,47 +2407,42 @@ export async function submitTransactionForReview(transaction: CommissionTransact
       .eq('id', authz.profileId)
       .maybeSingle()
     const csrName = String(me?.full_name ?? '').trim()
-    if (csrName) {
-      submitPatch.csr = csrName
-      submitPatch.csr_user_id = authz.profileId
+    if (csrName && transaction.csr !== csrName) {
+      await supabase.from('transactions').update({ csr: csrName }).eq('id', transaction.id)
     }
   } else if (!transaction.csrUserId && transaction.csr && transaction.csr !== '—') {
     const resolved = await resolveCsrUserIdByName(transaction.csr)
-    if (resolved) submitPatch.csr_user_id = resolved
+    if (resolved) {
+      await supabase.from('transactions').update({ csr_user_id: resolved }).eq('id', transaction.id)
+    }
   }
 
-  const { data: updated, error } = await supabase
-    .from('transactions')
-    .update(submitPatch)
-    .eq('id', transaction.id)
-    .eq('agency_commission_confirmed', true)
-    .eq('review_status', 'expected')
-    .eq('producer_payment_status', 'not_ready')
-    .eq('reviewer_user_id', transaction.reviewerUserId as string)
-    .is('archived_at', null)
-    .is('payment_batch_id', null)
-    .is('paid_date', null)
-    .select('id')
+  const { data, error } = await supabase.rpc(SUBMIT_TRANSACTION_FOR_REVIEW_RPC, {
+    p_transaction_id: transaction.id,
+  })
 
   if (error) {
     return {
       error: {
-        message: error.message,
+        message: formatWorkflowRpcError(
+          error,
+          'Submit for Review did not update any row. It may already be submitted or no longer eligible.',
+        ),
         table: 'transactions',
-        operation: 'submit_review_update',
+        operation: 'rpc_submit_transaction_for_review',
         details: error,
       },
       email: null as { sent: boolean; code?: string; message: string } | null,
     }
   }
 
-  if (!updated || updated.length === 0) {
+  const payload = data as { id?: string; review_status?: string } | null
+  if (!payload?.id) {
     return {
       error: {
-        message:
-          'Submit for Review did not update any row. It may already be submitted or no longer eligible.',
+        message: 'Submit for Review RPC returned an unexpected response.',
         table: 'transactions',
-        operation: 'submit_review_validation',
+        operation: 'rpc_submit_transaction_for_review',
       },
       email: null as { sent: boolean; code?: string; message: string } | null,
     }
@@ -2604,7 +2529,7 @@ export async function submitTransactionForReview(transaction: CommissionTransact
     newValue: { reviewStatus: 'matched', resubmit: wasReturned },
   })
 
-  return { data: { id: updated[0].id as string }, error: null, email }
+  return { data: { id: payload.id }, error: null, email }
 }
 
 /** Owner/Admin Return for Correction → review_status = expected + reason audit. */
@@ -2729,49 +2654,43 @@ export async function returnTransactionForCorrection(
   }
 
   const returnedAt = new Date().toISOString()
-  const returnPatch: Record<string, unknown> = {
-    review_status: 'expected',
-    review_return_reason: trimmedReason,
-    review_returned_at: returnedAt,
-    review_returned_by: actorId,
-  }
-  // Ensure stable CSR link for correction queue when missing.
-  if (!row.csr_user_id && row.csr) {
+  let resolvedCsrUserId = row.csr_user_id as string | null
+  // Ensure stable CSR link for correction queue when missing (non-privileged field).
+  if (!resolvedCsrUserId && row.csr) {
     const resolved = await resolveCsrUserIdByName(String(row.csr))
-    if (resolved) returnPatch.csr_user_id = resolved
+    if (resolved) {
+      resolvedCsrUserId = resolved
+      await supabase.from('transactions').update({ csr_user_id: resolved }).eq('id', transactionId)
+    }
   }
 
-  const { data: updated, error } = await supabase
-    .from('transactions')
-    .update(returnPatch)
-    .eq('id', transactionId)
-    .eq('agency_commission_confirmed', true)
-    .in('review_status', ['matched', 'approved'])
-    .eq('producer_payment_status', 'not_ready')
-    .is('archived_at', null)
-    .is('payment_batch_id', null)
-    .is('paid_date', null)
-    .select('id')
+  const { data, error } = await supabase.rpc(RETURN_TRANSACTION_FOR_CORRECTION_RPC, {
+    p_transaction_id: transactionId,
+    p_reason: trimmedReason,
+  })
 
   if (error) {
     return {
       error: {
-        message: error.message,
+        message: formatWorkflowRpcError(
+          error,
+          'Return for Correction did not update any row. The transaction may no longer be eligible.',
+        ),
         table: 'transactions',
-        operation: 'return_update',
+        operation: 'rpc_return_transaction_for_correction',
         details: error,
       },
       email: null as { sent: boolean; code?: string; message: string } | null,
     }
   }
 
-  if (!updated || updated.length === 0) {
+  const payload = data as { id?: string; review_status?: string } | null
+  if (!payload?.id) {
     return {
       error: {
-        message:
-          'Return for Correction did not update any row. The transaction may no longer be eligible.',
+        message: 'Return for Correction RPC returned an unexpected response.',
         table: 'transactions',
-        operation: 'return_validation',
+        operation: 'rpc_return_transaction_for_correction',
       },
       email: null as { sent: boolean; code?: string; message: string } | null,
     }
@@ -2841,11 +2760,11 @@ export async function returnTransactionForCorrection(
       returnedAt,
       ownerOverride: gate.ownerOverride,
       csr: row.csr ?? null,
-      csrUserId: (returnPatch.csr_user_id as string | undefined) ?? row.csr_user_id ?? null,
+      csrUserId: resolvedCsrUserId,
     },
   })
 
-  return { data: { id: updated[0].id as string }, error: null, email }
+  return { data: { id: payload.id }, error: null, email }
 }
 
 export async function archiveTransaction(transactionId: string) {
@@ -3038,154 +2957,44 @@ export async function confirmAgencyCommissionReceived(input: ConfirmReceiptInput
       : '',
   ].filter(Boolean)
   const notes = noteParts.join(' ') || null
+  const receivedDate = input.receivedDate.trim().slice(0, 10)
 
-  const { data: currentRow, error: currentError } = await supabase
-    .from('transactions')
-    .select(
-      `
-      id,
-      agency_commission_confirmed,
-      agency_commission_receipt_id,
-      producer_payment_status,
-      payment_batch_id,
-      paid_date,
-      review_status
-    `,
-    )
-    .eq('id', transaction.id)
-    .maybeSingle()
-
-  if (currentError) {
-    return {
-      error: {
-        message: currentError.message,
-        table: 'transactions',
-        operation: 'confirm_receipt_fetch',
-        details: currentError,
-      },
-    }
-  }
-  if (!currentRow) {
-    return {
-      error: {
-        message: 'Transaction not found for receipt confirmation.',
-        table: 'transactions',
-        operation: 'confirm_receipt_validation',
-      },
-    }
-  }
-  if (currentRow.agency_commission_confirmed || currentRow.agency_commission_receipt_id) {
-    return {
-      data: {
-        receiptId: currentRow.agency_commission_receipt_id,
-        duplicate: true,
-      },
-      error: null,
-    }
-  }
-
-  const resetReview = receiptConfirmShouldResetReviewStatus({
-    producerPaymentStatus: currentRow.producer_payment_status as string | null,
-    paidDate: currentRow.paid_date as string | null,
-    paymentBatchId: currentRow.payment_batch_id as string | null,
-    reviewStatus: currentRow.review_status as string | null,
+  const { data, error } = await supabase.rpc(CONFIRM_AGENCY_COMMISSION_RECEIVED_RPC, {
+    p_transaction_id: transaction.id,
+    p_amount_received: input.amountReceived,
+    p_received_date: receivedDate,
+    p_deposit_reference: input.depositReference.trim() || null,
+    p_external_invoice_id: input.externalInvoiceId.trim() || null,
+    p_notes: notes,
+    p_variance_acknowledged: hasVariance ? input.varianceAcknowledged : false,
   })
 
-  const receiptPayload = {
-    client_id: transaction.clientId || null,
-    policy_id: transaction.policyId || null,
-    transaction_id: transaction.id,
-    matched_transaction_id: transaction.id,
-    producer: transaction.producer === '—' ? null : transaction.producer,
-    source: 'manual',
-    external_invoice_id: input.externalInvoiceId.trim() || null,
-    deposit_reference: input.depositReference.trim() || null,
-    notes,
-    policy_number: transaction.policyNumber === '—' ? null : transaction.policyNumber,
-    client_name: transaction.clientName,
-    settlement_date: input.receivedDate,
-    imported_at: new Date().toISOString(),
-    reconciliation_status: 'matched',
-    match_confidence: 'none',
-  }
-
-  const { data: receipt, error: receiptError } = await supabase
-    .from('agency_commission_receipts')
-    .insert(receiptPayload)
-    .select('id')
-    .single()
-
-  if (receiptError) {
-    const dupCode = (receiptError as { code?: string }).code
-    const dupMsg = String(receiptError.message ?? '').toLowerCase()
-    const isDuplicate =
-      dupCode === '23505' ||
-      dupMsg.includes('agency_commission_receipts_transaction_id') ||
-      dupMsg.includes('duplicate key')
-    if (isDuplicate) {
-      const { data: existingReceipt } = await supabase
-        .from('agency_commission_receipts')
-        .select('id')
-        .eq('transaction_id', transaction.id)
-        .maybeSingle()
-      const { data: currentTxn } = await supabase
-        .from('transactions')
-        .select('agency_commission_confirmed, agency_commission_receipt_id')
-        .eq('id', transaction.id)
-        .maybeSingle()
-      if (currentTxn?.agency_commission_confirmed || currentTxn?.agency_commission_receipt_id) {
-        return {
-          data: { receiptId: existingReceipt?.id ?? currentTxn.agency_commission_receipt_id, duplicate: true },
-          error: null,
-        }
-      }
-    }
+  if (error) {
     return {
       error: {
-        message: receiptError.message,
-        table: 'agency_commission_receipts',
-        operation: 'insert',
-        details: receiptError,
-      },
-    }
-  }
-
-  // Receipt confirm records agency money received. It must not:
-  // - auto-approve or auto-submit for review
-  // - change producer_payment_status / paid_date / payment_batch_id
-  // - reset review_status when producer payment has already progressed
-  const txnPatch: Record<string, unknown> = {
-    amount_received: input.amountReceived,
-    received_date: input.receivedDate,
-    agency_commission_confirmed: true,
-    agency_commission_receipt_id: receipt.id,
-  }
-  if (resetReview) {
-    txnPatch.review_status = 'expected'
-  }
-
-  const { data: updatedTxn, error: txnError } = await supabase
-    .from('transactions')
-    .update(txnPatch)
-    .eq('id', transaction.id)
-    .eq('agency_commission_confirmed', false)
-    .select('id')
-
-  if (txnError) {
-    return {
-      error: {
-        message: txnError.message,
+        message: formatWorkflowRpcError(error, 'Unable to confirm agency commission receipt.'),
         table: 'transactions',
-        operation: 'update_after_receipt_insert',
-        details: txnError,
-        receiptId: receipt.id,
+        operation: 'rpc_confirm_agency_commission_received',
+        details: error,
       },
     }
   }
 
-  if (!updatedTxn || updatedTxn.length === 0) {
+  const payload = data as { id?: string; duplicate?: boolean; receipt_id?: string } | null
+  const receiptId = payload?.receipt_id
+  if (!receiptId) {
     return {
-      data: { receiptId: receipt.id as string, duplicate: true },
+      error: {
+        message: 'Receipt confirmation RPC returned no receipt id.',
+        table: 'transactions',
+        operation: 'rpc_confirm_agency_commission_received',
+      },
+    }
+  }
+
+  if (payload?.duplicate) {
+    return {
+      data: { receiptId, duplicate: true },
       error: null,
     }
   }
@@ -3205,14 +3014,14 @@ export async function confirmAgencyCommissionReceived(input: ConfirmReceiptInput
     newValue: {
       agencyCommissionConfirmed: true,
       amountReceived: input.amountReceived,
-      receivedDate: input.receivedDate,
-      receiptId: receipt.id as string,
+      receivedDate,
+      receiptId,
       variance,
       hasVariance,
     },
   })
 
-  return { data: { receiptId: receipt.id as string }, error: null }
+  return { data: { receiptId }, error: null }
 }
 
 export async function markProducerCommissionReady(transactionId: string) {
@@ -3225,20 +3034,7 @@ export async function markProducerCommissionReady(transactionId: string) {
   const actorId = authz.profileId ?? (await currentAppUserId())
   const { data: row, error: fetchError } = await supabase
     .from('transactions')
-    .select(
-      `
-      id,
-      agency_commission_confirmed,
-      review_status,
-      producer,
-      producer_commission_amount,
-      producer_payment_status,
-      payment_batch_id,
-      archived_at,
-      paid_date,
-      reviewer_user_id
-    `,
-    )
+    .select('id, review_status, producer, producer_commission_amount, producer_payment_status, reviewer_user_id')
     .eq('id', transactionId)
     .maybeSingle()
 
@@ -3281,62 +3077,33 @@ export async function markProducerCommissionReady(transactionId: string) {
 
   const producer = (row.producer ?? '').trim()
   const paymentStatus = normalizePaymentStatus(row.producer_payment_status)
-  const reviewStatus = normalizeReviewStatus(row.review_status)
   const producerAmount = toNumber(row.producer_commission_amount)
 
-  if (
-    !row.agency_commission_confirmed ||
-    reviewStatus !== 'approved' ||
-    !isAssignableProducer(producer) ||
-    producerAmount <= 0 ||
-    paymentStatus !== 'not_ready' ||
-    row.payment_batch_id ||
-    row.archived_at ||
-    row.paid_date
-  ) {
-    return {
-      error: {
-        message:
-          'Transaction does not meet Mark Ready requirements (confirmed, approved, producer, positive producer commission, not_ready, no batch, not archived, not paid).',
-        table: 'transactions',
-        operation: 'mark_ready_validation',
-      },
-    }
-  }
-
-  const { data: updated, error } = await supabase
-    .from('transactions')
-    .update({ producer_payment_status: 'ready' })
-    .eq('id', transactionId)
-    .eq('agency_commission_confirmed', true)
-    .eq('review_status', 'approved')
-    .eq('producer_payment_status', 'not_ready')
-    .is('payment_batch_id', null)
-    .is('archived_at', null)
-    .is('paid_date', null)
-    .gt('producer_commission_amount', 0)
-    .not('producer', 'is', null)
-    .neq('producer', '')
-    .select('id')
+  const { data, error } = await supabase.rpc(MARK_PRODUCER_COMMISSION_READY_RPC, {
+    p_transaction_id: transactionId,
+  })
 
   if (error) {
     return {
       error: {
-        message: error.message,
+        message: formatWorkflowRpcError(
+          error,
+          'Transaction does not meet Mark Ready requirements (confirmed, approved, producer, positive producer commission, not_ready, no batch, not archived, not paid).',
+        ),
         table: 'transactions',
-        operation: 'update_producer_payment_status',
+        operation: 'rpc_mark_producer_commission_ready',
         details: error,
       },
     }
   }
 
-  if (!updated || updated.length === 0) {
+  const payload = data as { id?: string; producer_payment_status?: string } | null
+  if (!payload?.id) {
     return {
       error: {
-        message:
-          'Mark Ready did not update any row. The transaction may no longer meet readiness requirements.',
+        message: 'Mark Ready RPC returned an unexpected response.',
         table: 'transactions',
-        operation: 'mark_ready_validation',
+        operation: 'rpc_mark_producer_commission_ready',
       },
     }
   }
