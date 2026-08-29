@@ -100,15 +100,25 @@ async function authorizeCaller(adminClient: SupabaseClient, authHeader: string) 
     callerProfile &&
     !callerProfile.archived_at &&
     String(callerProfile.status ?? '').toLowerCase() === 'active'
+  const callerAgencyProfileId = String(callerProfile?.agency_profile_id ?? '').trim()
 
   if (!callerActive || (callerRole !== 'owner' && callerRole !== 'admin')) {
     return { error: fail('forbidden', 'Only Owner or Admin may invite users.', 403) }
+  }
+  if (callerRole === 'alza_support' || !callerAgencyProfileId) {
+    return {
+      error: fail(
+        'forbidden',
+        'Agency membership is required to invite users. ALZA Support cannot use agency invite.',
+        403,
+      ),
+    }
   }
 
   return {
     callerRole,
     callerAuth,
-    callerAgencyProfileId: (callerProfile?.agency_profile_id as string | null) ?? null,
+    callerAgencyProfileId,
   }
 }
 
@@ -136,15 +146,16 @@ async function sendExistingUserAcceptanceEmail(
 async function handleResend(opts: {
   adminClient: SupabaseClient
   callerRole: string
+  callerAgencyProfileId: string
   email: string
   inviteRedirectTo: string
   appOrigin: string
 }) {
-  const { adminClient, callerRole, email, inviteRedirectTo, appOrigin } = opts
+  const { adminClient, callerRole, callerAgencyProfileId, email, inviteRedirectTo, appOrigin } = opts
 
   const { data: profile, error: profileError } = await adminClient
     .from('users')
-    .select('id, email, full_name, role, status, archived_at, auth_user_id, invite_status')
+    .select('id, email, full_name, role, status, archived_at, auth_user_id, invite_status, agency_profile_id')
     .ilike('email', email)
     .maybeSingle()
 
@@ -153,6 +164,9 @@ async function handleResend(opts: {
   }
   if (!profile) {
     return fail('profile_not_found', 'No ALZA user profile found for that email.', 404)
+  }
+  if (String(profile.agency_profile_id ?? '') !== callerAgencyProfileId) {
+    return fail('forbidden', 'That user does not belong to your agency workspace.', 403)
   }
   if (profile.archived_at) {
     return fail('archived_user', 'Cannot resend invite for an archived user.')
@@ -245,7 +259,7 @@ async function handleResend(opts: {
 async function handleInvite(opts: {
   adminClient: SupabaseClient
   callerRole: string
-  callerAgencyProfileId: string | null
+  callerAgencyProfileId: string
   body: Record<string, unknown>
   inviteRedirectTo: string
 }) {
@@ -265,6 +279,12 @@ async function handleInvite(opts: {
     ),
   ]
   if (!roles.includes(role)) roles.unshift(role)
+
+  for (const forbiddenKey of ['agency_profile_id', 'agency_id', 'tenant_id', 'singleton_key']) {
+    if (forbiddenKey in body && body[forbiddenKey] != null && String(body[forbiddenKey]).trim() !== '') {
+      return fail('forbidden_tenant_override', 'Agency assignment cannot be overridden on invite.')
+    }
+  }
 
   if (role === ('alza_support' as InviteRole) || rawRoles.some((r) => String(r).toLowerCase() === 'alza_support')) {
     return fail('invalid_role', 'ALZA Support is a platform role and cannot be invited from Agency Users.')
@@ -328,18 +348,7 @@ async function handleInvite(opts: {
   }
 
   const nowIso = new Date().toISOString()
-
-  // Prefer inviter membership; fall back to singleton agency workspace.
-  let agencyProfileId: string | null = callerAgencyProfileId
-  if (!agencyProfileId) {
-    const { data: agencyRow } = await adminClient
-      .from('agency_profile')
-      .select('id')
-      .order('created_at', { ascending: true })
-      .limit(1)
-      .maybeSingle()
-    agencyProfileId = agencyRow?.id ?? null
-  }
+  const agencyProfileId = callerAgencyProfileId
 
   const { data: existingProfile } = await adminClient
     .from('users')
@@ -468,6 +477,7 @@ Deno.serve(async (req) => {
       return await handleResend({
         adminClient,
         callerRole: authz.callerRole!,
+        callerAgencyProfileId: authz.callerAgencyProfileId!,
         email,
         inviteRedirectTo,
         appOrigin: appOrigin.origin,
@@ -481,7 +491,7 @@ Deno.serve(async (req) => {
     return await handleInvite({
       adminClient,
       callerRole: authz.callerRole!,
-      callerAgencyProfileId: authz.callerAgencyProfileId ?? null,
+      callerAgencyProfileId: authz.callerAgencyProfileId!,
       body,
       inviteRedirectTo,
     })

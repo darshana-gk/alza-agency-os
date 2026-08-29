@@ -134,15 +134,14 @@ console.log('H. Role resolution expectations (static contract)')
   }
 }
 
-console.log('I. Phase 4B cutover complete — privileged workflow writes use RPCs')
+console.log('I. Phase 4C edge tenant isolation')
 {
-  const commission = readSrc('src/lib/commission.ts')
-  assert(commission.includes('submit_transaction_for_review'), 'commission wires submit RPC')
-  assert(commission.includes('confirm_agency_commission_received'), 'commission wires receipt RPC')
-  assert(
-    !/confirmAgencyCommissionReceived[\s\S]{0,2000}\.from\('agency_commission_receipts'\)/.test(commission),
-    'receipt confirm no longer inserts receipts directly',
-  )
+  const invite = existsSync(resolve(root, 'supabase/functions/invite-alza-user/index.ts'))
+    ? readFileSync(resolve(root, 'supabase/functions/invite-alza-user/index.ts'), 'utf8')
+    : ''
+  assert(!/\.from\('agency_profile'\)[\s\S]{0,80}\.limit\(1\)/.test(invite), 'invite has no singleton fallback (4C)')
+  const matching = readSrc('supabase/functions/run-reconciliation-matching/index.ts')
+  assert(matching.includes("eq('agency_profile_id', statementAgencyId)"), 'matching scoped by agency (4C)')
   const documents = readSrc('src/lib/documents.ts')
   assert(documents.includes('`${input.entityType}/${input.entityId}/'), 'storage legacy path deferred to 4E')
 }

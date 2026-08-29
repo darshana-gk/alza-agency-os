@@ -1,9 +1,14 @@
 // Deno Edge Function: confirm-reconciliation-receipts
-// Mirrors confirmAgencyCommissionReceived() receipt payload + transaction update.
+// Tenant-scoped receipt confirmation via Phase 3C confirm_agency_commission_received RPC.
 // Does not modify producer splits, broker fees, recoveries, payouts, or approval workflow
-// beyond optionally setting review_status = 'expected' on the pre-review path only.
+// beyond what the receipt RPC allows on the pre-review path.
 
-import { authorizeOwnerAdmin, serviceClient } from '../_shared/opsAuth.ts'
+import {
+  assertCallerAgencyMatches,
+  authorizeOwnerAdmin,
+  callerJwtClient,
+  serviceClient,
+} from '../_shared/opsAuth.ts'
 import { corsHeaders, fail, ok } from '../_shared/http.ts'
 
 function roundMoney(value: number): number {
@@ -20,45 +25,8 @@ function moneyLabel(value: number): string {
   return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(value)
 }
 
-/** Map reconciliation row confidence onto agency_commission_receipts.match_confidence CHECK. */
-function mapReceiptMatchConfidence(value: unknown): 'exact_invoice' | 'strong' | 'weak' | 'none' {
-  const raw = String(value ?? '').trim().toLowerCase()
-  if (raw === 'exact_invoice') return 'exact_invoice'
-  if (raw === 'high' || raw === 'strong') return 'strong'
-  if (raw === 'medium' || raw === 'low' || raw === 'weak') return 'weak'
-  return 'none'
-}
-
 function varianceRequiresReview(type: unknown): boolean {
   return type === 'underpaid' || type === 'overpaid' || type === 'zero_amount'
-}
-
-/**
- * Mirror src/lib/commission.ts receiptConfirmShouldResetReviewStatus.
- * Receipt confirm must not reset review_status when producer payment has
- * already progressed (ready/paid/batched/paid_date) or review is already
- * submitted/approved.
- */
-function receiptConfirmShouldResetReviewStatus(txn: {
-  producer_payment_status?: string | null
-  paid_date?: string | null
-  payment_batch_id?: string | null
-  review_status?: string | null
-}): boolean {
-  const payment = String(txn.producer_payment_status ?? '').toLowerCase()
-  if (payment === 'ready' || payment === 'paid') return false
-  if (txn.paid_date) return false
-  if (txn.payment_batch_id) return false
-  const review = String(txn.review_status ?? '').trim().toLowerCase()
-  if (review === 'matched' || review === 'approved') return false
-  return true
-}
-
-function isDuplicateReceiptError(error: { code?: string; message?: string } | null | undefined): boolean {
-  if (!error) return false
-  if (error.code === '23505') return true
-  const msg = String(error.message ?? '').toLowerCase()
-  return msg.includes('agency_commission_receipts_transaction_id') || msg.includes('duplicate key')
 }
 
 async function markRowAlreadyProcessed(
@@ -87,6 +55,8 @@ Deno.serve(async (req) => {
   const admin = serviceClient()
   const authz = await authorizeOwnerAdmin(admin, authHeader)
   if ('error' in authz && authz.error) return authz.error
+  const callerAgencyId = authz.agencyProfileId
+  const callerClient = callerJwtClient(authHeader)
 
   let body: { statementId?: string; rowIds?: string[] }
   try {
@@ -100,12 +70,17 @@ Deno.serve(async (req) => {
 
   const { data: statement, error: stmtError } = await admin
     .from('reconciliation_statements')
-    .select('id, status, statement_date, period_end, rounding_tolerance')
+    .select('id, agency_profile_id, status, statement_date, period_end, rounding_tolerance')
     .eq('id', statementId)
     .maybeSingle()
 
   if (stmtError) return fail('statement_load_failed', stmtError.message, 500)
   if (!statement) return fail('not_found', 'Statement not found.', 404)
+
+  const statementAgencyId = String(statement.agency_profile_id ?? '').trim()
+  const agencyMismatch = assertCallerAgencyMatches(callerAgencyId, statementAgencyId)
+  if (agencyMismatch) return fail('forbidden', agencyMismatch, 403)
+
   if (statement.status === 'cancelled') {
     return fail('invalid_state', 'Cannot confirm receipts on a cancelled statement.')
   }
@@ -156,22 +131,12 @@ Deno.serve(async (req) => {
       continue
     }
 
-    const { data: existingReceipt } = await admin
-      .from('agency_commission_receipts')
-      .select('id')
-      .eq('transaction_id', txnId)
-      .limit(1)
-      .maybeSingle()
-
     const { data: txn, error: txnError } = await admin
       .from('transactions')
       .select(
         `
-        id, transaction_number, client_id, policy_id, producer, expected_amount,
-        agency_commission_amount, amount_received, agency_commission_confirmed,
-        producer_payment_status, payment_batch_id, paid_date, review_status,
-        clients ( business_name ),
-        policies ( policy_number )
+        id, transaction_number, agency_profile_id,
+        agency_commission_amount, agency_commission_confirmed
       `,
       )
       .eq('id', txnId)
@@ -182,7 +147,19 @@ Deno.serve(async (req) => {
       continue
     }
 
-    if (txn.agency_commission_confirmed || existingReceipt) {
+    const txnAgencyMismatch = assertCallerAgencyMatches(statementAgencyId, txn.agency_profile_id)
+    if (txnAgencyMismatch) {
+      errors.push(`${row.id}: ${txnAgencyMismatch}`)
+      continue
+    }
+
+    if (txn.agency_commission_confirmed) {
+      const { data: existingReceipt } = await admin
+        .from('agency_commission_receipts')
+        .select('id')
+        .eq('transaction_id', txnId)
+        .eq('agency_profile_id', statementAgencyId)
+        .maybeSingle()
       await markRowAlreadyProcessed(admin, row.id, importedAt, existingReceipt?.id ?? null)
       skipped += 1
       continue
@@ -192,6 +169,7 @@ Deno.serve(async (req) => {
     const expected = toNum(row.expected_commission ?? txn.expected_amount ?? txn.agency_commission_amount)
     const variance = roundMoney(amountReceived - expected)
     const hasVariance = Math.abs(variance) > 0.009
+
     if (row.match_status !== 'manual_matched' && varianceRequiresReview(row.discrepancy_type)) {
       await admin
         .from('reconciliation_statement_rows')
@@ -205,8 +183,6 @@ Deno.serve(async (req) => {
       skipped += 1
       continue
     }
-    const recStatus = 'matched'
-    const confidence = mapReceiptMatchConfidence(row.match_confidence)
 
     const notes = [
       `Confirmed from reconciliation statement ${statementId}.`,
@@ -215,70 +191,40 @@ Deno.serve(async (req) => {
         : 'Amount matches expected within tolerance.',
     ].join(' ')
 
-    const policy = Array.isArray(txn.policies) ? txn.policies[0] : txn.policies
-    const client = Array.isArray(txn.clients) ? txn.clients[0] : txn.clients
+    const { data: rpcData, error: rpcError } = await callerClient.rpc(
+      'confirm_agency_commission_received',
+      {
+        p_transaction_id: txn.id,
+        p_amount_received: amountReceived,
+        p_received_date: settlementDate || new Date().toISOString().slice(0, 10),
+        p_deposit_reference: null,
+        p_external_invoice_id: row.external_reference || null,
+        p_notes: notes,
+        p_variance_acknowledged: hasVariance,
+      },
+    )
 
-    const { data: receipt, error: receiptError } = await admin
-      .from('agency_commission_receipts')
-      .insert({
-        client_id: txn.client_id || null,
-        policy_id: txn.policy_id || null,
-        transaction_id: txn.id,
-        matched_transaction_id: txn.id,
-        producer: txn.producer || null,
-        source: 'reconciliation',
-        external_invoice_id: row.external_reference || null,
-        deposit_reference: null,
-        notes,
-        policy_number: row.policy_number || policy?.policy_number || null,
-        client_name: row.client_name || client?.business_name || null,
-        settlement_date: settlementDate || null,
-        imported_at: importedAt,
-        reconciliation_status: recStatus,
-        match_confidence: confidence,
-      })
-      .select('id')
-      .single()
-
-    if (receiptError || !receipt) {
-      if (isDuplicateReceiptError(receiptError)) {
-        const { data: dupReceipt } = await admin
-          .from('agency_commission_receipts')
-          .select('id')
-          .eq('transaction_id', txnId)
-          .maybeSingle()
-        await markRowAlreadyProcessed(admin, row.id, importedAt, dupReceipt?.id ?? null)
+    if (rpcError) {
+      const msg = String(rpcError.message ?? 'receipt RPC failed')
+      if (/duplicate/i.test(msg) || /already confirmed/i.test(msg)) {
+        const receiptId = (rpcData as { receipt_id?: string } | null)?.receipt_id
+        await markRowAlreadyProcessed(admin, row.id, importedAt, receiptId ?? null)
         skipped += 1
         continue
       }
-      errors.push(`${row.id}: ${receiptError?.message || 'receipt insert failed'}`)
+      errors.push(`${row.id}: ${msg}`)
       continue
     }
 
-    const txnPatch: Record<string, unknown> = {
-      amount_received: amountReceived,
-      received_date: settlementDate || null,
-      agency_commission_confirmed: true,
-      agency_commission_receipt_id: receipt.id,
-    }
-    if (receiptConfirmShouldResetReviewStatus(txn)) {
-      txnPatch.review_status = 'expected'
-    }
-
-    const { data: updatedTxn, error: updateError } = await admin
-      .from('transactions')
-      .update(txnPatch)
-      .eq('id', txn.id)
-      .eq('agency_commission_confirmed', false)
-      .select('id')
-
-    if (updateError) {
-      errors.push(`${row.id}: ${updateError.message}`)
+    const payload = rpcData as { receipt_id?: string; duplicate?: boolean } | null
+    const receiptId = payload?.receipt_id
+    if (!receiptId) {
+      errors.push(`${row.id}: receipt RPC returned no receipt id`)
       continue
     }
 
-    if (!updatedTxn?.length) {
-      await markRowAlreadyProcessed(admin, row.id, importedAt, receipt.id)
+    if (payload?.duplicate) {
+      await markRowAlreadyProcessed(admin, row.id, importedAt, receiptId)
       skipped += 1
       continue
     }
@@ -287,7 +233,7 @@ Deno.serve(async (req) => {
       .from('reconciliation_statement_rows')
       .update({
         match_status: 'confirmed',
-        receipt_id: receipt.id,
+        receipt_id: receiptId,
         resolution_status: 'resolved',
         resolved_at: importedAt,
         resolved_by: actor?.id ?? null,
@@ -306,18 +252,13 @@ Deno.serve(async (req) => {
       entity_type: 'transaction',
       entity_id: txn.id,
       record_reference: txn.transaction_number || String(txn.id),
-      client_id: txn.client_id,
-      policy_id: txn.policy_id,
       transaction_id: txn.id,
-      old_value: {
-        agencyCommissionConfirmed: false,
-        amountReceived: txn.amount_received,
-      },
+      old_value: { agencyCommissionConfirmed: false },
       new_value: {
         agencyCommissionConfirmed: true,
         amountReceived,
         receivedDate: settlementDate,
-        receiptId: receipt.id,
+        receiptId,
         variance,
         hasVariance,
         source: 'reconciliation',
@@ -346,6 +287,7 @@ Deno.serve(async (req) => {
     .from('reconciliation_statements')
     .update({ ...counts, updated_at: importedAt })
     .eq('id', statementId)
+    .eq('agency_profile_id', statementAgencyId)
 
   if (confirmed > 0) {
     await admin.from('activity_history').insert({

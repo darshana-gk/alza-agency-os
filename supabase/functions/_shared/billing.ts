@@ -98,30 +98,15 @@ export async function requireOwnerOrAdmin(
 }
 
 /**
- * @deprecated Prefer getCallerAgency — singleton lookup is unsafe for multi-agency identity.
- * Kept only for non-billing legacy fallbacks; do not use for Razorpay create/cancel.
+ * @deprecated Unsafe singleton lookup — hard-fails in Phase 4C+.
+ * Use getCallerAgency(callerAgencyProfileId) for all billing/workspace paths.
  */
-export async function getSingletonAgency(admin: SupabaseClient) {
-  const { data, error } = await admin
-    .from('agency_profile')
-    .select('id, agency_name, email, lifecycle')
-    .eq('lifecycle', 'active')
-    .order('created_at', { ascending: true })
-    .limit(1)
-    .maybeSingle()
-  if (error) return { data: null, error: error.message }
-  if (!data) {
-    const fallback = await admin
-      .from('agency_profile')
-      .select('id, agency_name, email, lifecycle')
-      .order('created_at', { ascending: true })
-      .limit(1)
-      .maybeSingle()
-    if (fallback.error) return { data: null, error: fallback.error.message }
-    if (!fallback.data) return { data: null, error: 'agency_profile is missing.' }
-    return { data: fallback.data, error: null }
+export async function getSingletonAgency(_admin: SupabaseClient) {
+  return {
+    data: null,
+    error:
+      'Singleton agency lookup is disabled. Resolve agency from the authenticated caller membership.',
   }
-  return { data, error: null }
 }
 
 /** Resolve the caller's membership agency (required for prospect + multi-agency billing). */

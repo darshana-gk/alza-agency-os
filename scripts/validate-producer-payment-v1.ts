@@ -852,13 +852,12 @@ assert(
   'M: CSR/Producer payment permissions unchanged',
 )
 assert(
-  RECONCILE_FN.includes('function receiptConfirmShouldResetReviewStatus') &&
-    RECONCILE_FN.includes('receiptConfirmShouldResetReviewStatus(txn)') &&
-    RECONCILE_FN.includes(".eq('agency_commission_confirmed', false)") &&
-    RECONCILE_FN.includes("txnPatch.review_status = 'expected'") &&
-    !RECONCILE_FN.includes('producer_payment_status:') &&
-    RECONCILE_FN.includes('source: \'reconciliation\''),
-  'N: reconciliation receipt flow still confirms receipts; review reset is guarded the same way',
+  RECONCILE_FN.includes('assertCallerAgencyMatches') &&
+    RECONCILE_FN.includes('confirm_agency_commission_received') &&
+    RECONCILE_FN.includes('callerJwtClient') &&
+    !RECONCILE_FN.includes('txnPatch.review_status') &&
+    !RECONCILE_FN.includes('producer_payment_status:'),
+  'N: reconciliation receipt flow uses tenant-scoped Phase 3C receipt RPC',
 )
 
 console.log(`Producer Payment V1 validation: ${passed} passed, ${failed} failed`)

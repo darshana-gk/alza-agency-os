@@ -2,7 +2,7 @@
 // Deterministic transaction-level matching. Does not write receipts or change
 // producer splits, broker fees, recoveries, payouts, or approval status.
 
-import { authorizeOpsStaff, serviceClient } from '../_shared/opsAuth.ts'
+import { assertCallerAgencyMatches, authorizeOpsStaff, serviceClient } from '../_shared/opsAuth.ts'
 import { corsHeaders, fail, ok } from '../_shared/http.ts'
 
 type DiscrepancyType =
@@ -45,8 +45,8 @@ interface CandidateTxn {
   client_id: string | null
   policy_id: string | null
   producer: string | null
-  policies: { policy_number?: string | null } | { policy_number?: string | null }[] | null
-  clients: { business_name?: string | null } | { business_name?: string | null }[] | null
+  policy_number?: string | null
+  client_name?: string | null
 }
 
 const TYPE_ALIASES: Record<string, string> = {
@@ -149,15 +149,53 @@ function firstEmbed<T>(value: T | T[] | null | undefined): T | null {
 }
 
 function policyOf(txn: CandidateTxn): string {
-  return String(firstEmbed(txn.policies)?.policy_number ?? '')
+  return String(txn.policy_number ?? '')
+}
+
+function clientNameOf(txn: CandidateTxn): string | null {
+  return nonemptyParty(txn.client_name)
+}
+
+async function hydrateCandidateParties(
+  admin: ReturnType<typeof serviceClient>,
+  txns: CandidateTxn[],
+): Promise<CandidateTxn[]> {
+  const policyIds = [...new Set(txns.map((t) => String(t.policy_id ?? '')).filter(Boolean))]
+  const clientIds = [...new Set(txns.map((t) => String(t.client_id ?? '')).filter(Boolean))]
+  const policyNumberById = new Map<string, string>()
+  const carrierByPolicyId = new Map<string, string>()
+  const mgaByPolicyId = new Map<string, string>()
+  const clientNameById = new Map<string, string>()
+
+  if (policyIds.length > 0) {
+    const { data: policies } = await admin
+      .from('policies')
+      .select('id, policy_number, carrier, mga')
+      .in('id', policyIds)
+    for (const row of policies ?? []) {
+      policyNumberById.set(String(row.id), String(row.policy_number ?? ''))
+      carrierByPolicyId.set(String(row.id), String(row.carrier ?? ''))
+      mgaByPolicyId.set(String(row.id), String(row.mga ?? ''))
+    }
+  }
+  if (clientIds.length > 0) {
+    const { data: clients } = await admin.from('clients').select('id, business_name').in('id', clientIds)
+    for (const row of clients ?? []) {
+      clientNameById.set(String(row.id), String(row.business_name ?? ''))
+    }
+  }
+
+  return txns.map((txn) => ({
+    ...txn,
+    policy_number: txn.policy_id ? policyNumberById.get(String(txn.policy_id)) ?? null : null,
+    client_name: txn.client_id ? clientNameById.get(String(txn.client_id)) ?? null : null,
+    carrier: nonemptyParty(txn.carrier) ?? (txn.policy_id ? nonemptyParty(carrierByPolicyId.get(String(txn.policy_id))) : null),
+    mga: nonemptyParty(txn.mga) ?? (txn.policy_id ? nonemptyParty(mgaByPolicyId.get(String(txn.policy_id))) : null),
+  }))
 }
 
 function expectedOf(txn: CandidateTxn): number {
   return toNum(txn.expected_amount) ?? toNum(txn.agency_commission_amount) ?? 0
-}
-
-function clientNameOf(txn: CandidateTxn): string | null {
-  return nonemptyParty(firstEmbed(txn.clients)?.business_name)
 }
 
 function normalizeRef(value: string | null | undefined): string {
@@ -340,6 +378,7 @@ Deno.serve(async (req) => {
   const admin = serviceClient()
   const authz = await authorizeOpsStaff(admin, authHeader)
   if ('error' in authz && authz.error) return authz.error
+  const callerAgencyId = authz.agencyProfileId
 
   let body: { statementId?: string; rerun?: boolean; detectMissing?: boolean }
   try {
@@ -350,24 +389,30 @@ Deno.serve(async (req) => {
   const statementId = String(body.statementId ?? '').trim()
   if (!statementId) return fail('invalid_input', 'statementId is required.')
 
-  if (typeof body.detectMissing === 'boolean') {
-    const { error: flagError } = await admin
-      .from('reconciliation_statements')
-      .update({ detect_missing: body.detectMissing, updated_at: new Date().toISOString() })
-      .eq('id', statementId)
-    if (flagError) return fail('statement_update_failed', flagError.message, 500)
-  }
-
   const { data: statement, error: stmtError } = await admin
     .from('reconciliation_statements')
     .select(
-      'id, carrier, mga, carrier_id, mga_id, period_start, period_end, rounding_tolerance, row_count, status, detect_missing',
+      'id, agency_profile_id, carrier, mga, carrier_id, mga_id, period_start, period_end, rounding_tolerance, row_count, status, detect_missing',
     )
     .eq('id', statementId)
     .maybeSingle()
 
   if (stmtError) return fail('statement_load_failed', stmtError.message, 500)
   if (!statement) return fail('not_found', 'Statement not found.', 404)
+
+  const statementAgencyId = String(statement.agency_profile_id ?? '').trim()
+  const agencyMismatch = assertCallerAgencyMatches(callerAgencyId, statementAgencyId)
+  if (agencyMismatch) return fail('forbidden', agencyMismatch, 403)
+
+  if (typeof body.detectMissing === 'boolean') {
+    const { error: flagError } = await admin
+      .from('reconciliation_statements')
+      .update({ detect_missing: body.detectMissing, updated_at: new Date().toISOString() })
+      .eq('id', statementId)
+      .eq('agency_profile_id', statementAgencyId)
+    if (flagError) return fail('statement_update_failed', flagError.message, 500)
+  }
+
   if (statement.status === 'cancelled') return fail('invalid_state', 'Cancelled statements cannot be matched.')
   if (statement.status === 'completed' && !body.rerun) {
     return fail('invalid_state', 'Completed statements cannot be rematched.')
@@ -377,6 +422,7 @@ Deno.serve(async (req) => {
     .from('reconciliation_statements')
     .update({ status: 'matching', updated_at: new Date().toISOString() })
     .eq('id', statementId)
+    .eq('agency_profile_id', statementAgencyId)
 
   if (body.rerun) {
     await admin
@@ -421,14 +467,13 @@ Deno.serve(async (req) => {
     .from('transactions')
     .select(
       `
-      id, transaction_number, transaction_type, transaction_date, expected_amount,
-      agency_commission_amount, premium_amount, carrier, mga, agency_commission_confirmed,
+      id, transaction_number, transaction_type, transaction_date,
+      agency_commission_amount, premium_amount, agency_commission_confirmed,
       amount_received,
-      client_id, policy_id, producer,
-      policies ( policy_number ),
-      clients ( business_name )
+      client_id, policy_id, producer
     `,
     )
+    .eq('agency_profile_id', statementAgencyId)
     .is('voided_at', null)
     .is('archived_at', null)
     .gte('transaction_date', windowStart)
@@ -436,16 +481,18 @@ Deno.serve(async (req) => {
 
   if (txnError) return fail('transactions_load_failed', txnError.message, 500)
 
+  const candidates = await hydrateCandidateParties(admin, (txns ?? []) as CandidateTxn[])
+
   const { data: existingReceipts } = await admin
     .from('agency_commission_receipts')
     .select('transaction_id')
+    .eq('agency_profile_id', statementAgencyId)
     .not('transaction_id', 'is', null)
 
   const receiptTxnIds = new Set(
     (existingReceipts ?? []).map((r) => String(r.transaction_id)).filter(Boolean),
   )
 
-  const candidates = (txns ?? []) as CandidateTxn[]
   const usedTxnIds = new Set<string>()
   const { data: alreadyMatched } = await admin
     .from('reconciliation_statement_rows')
@@ -460,22 +507,33 @@ Deno.serve(async (req) => {
 
   const globalOccupiedTxnIds = new Set<string>()
   const globalOccupiedStmtLabel = new Map<string, string>()
-  const { data: globalOccupiedRows } = await admin
-    .from('reconciliation_statement_rows')
-    .select('matched_transaction_id, reconciliation_statements ( file_name )')
-    .neq('statement_id', statementId)
-    .eq('row_source', 'import')
-    .not('matched_transaction_id', 'is', null)
-    .is('receipt_id', null)
-    .in('match_status', ['auto_matched', 'manual_matched'])
-  for (const occ of globalOccupiedRows ?? []) {
-    const txnId = String(occ.matched_transaction_id ?? '')
-    if (!txnId) continue
-    globalOccupiedTxnIds.add(txnId)
-    const stmt = firstEmbed(
-      occ.reconciliation_statements as { file_name?: string | null } | { file_name?: string | null }[] | null,
-    )
-    if (stmt?.file_name) globalOccupiedStmtLabel.set(txnId, String(stmt.file_name))
+  const { data: agencyStatements } = await admin
+    .from('reconciliation_statements')
+    .select('id, file_name')
+    .eq('agency_profile_id', statementAgencyId)
+  const stmtFileNameById = new Map(
+    (agencyStatements ?? []).map((s) => [String(s.id), String(s.file_name ?? '')]),
+  )
+  const otherStatementIds = (agencyStatements ?? [])
+    .map((s) => String(s.id))
+    .filter((id) => id && id !== statementId)
+  if (otherStatementIds.length > 0) {
+    const { data: globalOccupiedRows, error: occupiedError } = await admin
+      .from('reconciliation_statement_rows')
+      .select('matched_transaction_id, statement_id')
+      .in('statement_id', otherStatementIds)
+      .eq('row_source', 'import')
+      .not('matched_transaction_id', 'is', null)
+      .is('receipt_id', null)
+      .in('match_status', ['auto_matched', 'manual_matched'])
+    if (occupiedError) throw new Error(occupiedError.message)
+    for (const occ of globalOccupiedRows ?? []) {
+      const txnId = String(occ.matched_transaction_id ?? '')
+      if (!txnId) continue
+      globalOccupiedTxnIds.add(txnId)
+      const fileName = stmtFileNameById.get(String(occ.statement_id ?? ''))
+      if (fileName) globalOccupiedStmtLabel.set(txnId, fileName)
+    }
   }
 
   const tolerance = Number(statement.rounding_tolerance ?? 0.01) || 0.01
@@ -706,7 +764,7 @@ Deno.serve(async (req) => {
         row_index: importCount + 1 + i,
         raw_data: null,
         policy_number: policyOf(t) || null,
-        client_name: firstEmbed(t.clients)?.business_name ?? null,
+        client_name: t.client_name ?? null,
         commission_amount: null,
         transaction_date: t.transaction_date,
         transaction_type: t.transaction_type,
@@ -750,6 +808,7 @@ Deno.serve(async (req) => {
         updated_at: new Date().toISOString(),
       })
       .eq('id', statementId)
+      .eq('agency_profile_id', statementAgencyId)
 
     const actor = authz.callerProfile
     await admin.from('activity_history').insert({
@@ -769,6 +828,7 @@ Deno.serve(async (req) => {
       .from('reconciliation_statements')
       .update({ status: 'staged', updated_at: new Date().toISOString() })
       .eq('id', statementId)
+      .eq('agency_profile_id', statementAgencyId)
     return fail('matching_failed', err instanceof Error ? err.message : 'Matching failed.', 500)
   }
 })

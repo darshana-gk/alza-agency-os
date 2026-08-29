@@ -15,7 +15,7 @@
 //
 // Response always includes emailed + email_code + email_message (never fakes success).
 
-import { createClient, type SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2.49.1'
+import { authorizeOpsStaff, serviceClient } from '../_shared/opsAuth.ts'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -97,51 +97,16 @@ function normalizeName(value: unknown): string {
     .replace(/\s+/g, ' ')
 }
 
-async function authorizeCaller(adminClient: SupabaseClient, authHeader: string) {
-  const supabaseUrl = Deno.env.get('SUPABASE_URL') ?? ''
-  const anonKey = Deno.env.get('SUPABASE_ANON_KEY') ?? ''
-  const callerClient = createClient(supabaseUrl, anonKey, {
-    global: { headers: { Authorization: authHeader } },
-  })
-
-  const {
-    data: { user: callerAuth },
-    error: callerAuthError,
-  } = await callerClient.auth.getUser()
-
-  if (callerAuthError || !callerAuth) {
-    return { error: fail('unauthorized', 'Unauthorized.', 401) }
+async function authorizeCaller(authHeader: string) {
+  const adminClient = serviceClient()
+  const authz = await authorizeOpsStaff(adminClient, authHeader)
+  if ('error' in authz && authz.error) return { error: authz.error }
+  return {
+    callerRole: String(authz.callerProfile.role ?? '').toLowerCase(),
+    callerAuth: authz.callerAuth,
+    callerProfile: authz.callerProfile,
+    agencyProfileId: authz.agencyProfileId,
   }
-
-  const { data: callerProfile, error: callerProfileError } = await adminClient
-    .from('users')
-    .select('id, full_name, email, role, status, archived_at')
-    .eq('auth_user_id', callerAuth.id)
-    .maybeSingle()
-
-  if (callerProfileError) {
-    return {
-      error: fail(
-        'caller_profile_load_failed',
-        `Unable to load caller profile: ${callerProfileError.message}`,
-        500,
-      ),
-    }
-  }
-
-  const callerRole = String(callerProfile?.role ?? '').toLowerCase()
-  const callerActive =
-    callerProfile &&
-    !callerProfile.archived_at &&
-    String(callerProfile.status ?? '').toLowerCase() === 'active'
-
-  if (!callerActive || !['owner', 'admin', 'csr'].includes(callerRole)) {
-    return {
-      error: fail('forbidden', 'Only Owner, Admin, or CSR may send review notifications.', 403),
-    }
-  }
-
-  return { callerRole, callerAuth, callerProfile }
 }
 
 async function sendResendEmail(opts: {
@@ -200,15 +165,10 @@ Deno.serve(async (req) => {
     return fail('unauthorized', 'Missing Authorization bearer token.', 401)
   }
 
-  const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
-  const supabaseUrl = Deno.env.get('SUPABASE_URL') ?? ''
-  if (!serviceKey || !supabaseUrl) {
-    return fail('server_misconfigured', 'Supabase service credentials are missing.', 500)
-  }
-
-  const adminClient = createClient(supabaseUrl, serviceKey)
-  const authz = await authorizeCaller(adminClient, authHeader)
+  const adminClient = serviceClient()
+  const authz = await authorizeCaller(authHeader)
   if ('error' in authz && authz.error) return authz.error
+  const callerAgencyId = authz.agencyProfileId
 
   let body: { transactionId?: string; action?: string }
   try {
@@ -252,10 +212,11 @@ Deno.serve(async (req) => {
       review_returned_at,
       clients ( business_name ),
       policies ( policy_number ),
-      reviewer:users!reviewer_user_id ( id, email, full_name, role, status, archived_at )
+      reviewer:users!reviewer_user_id ( id, email, full_name, role, status, archived_at, agency_profile_id )
     `,
     )
     .eq('id', transactionId)
+    .eq('agency_profile_id', callerAgencyId)
     .maybeSingle()
 
   if (txError) {
@@ -305,6 +266,7 @@ Deno.serve(async (req) => {
     const reviewerActive =
       !reviewerEmbed.archived_at &&
       String(reviewerEmbed.status ?? '').toLowerCase() === 'active' &&
+      String(reviewerEmbed.agency_profile_id ?? '') === callerAgencyId &&
       ['owner', 'admin'].includes(String(reviewerEmbed.role ?? '').toLowerCase())
     const email = String(reviewerEmbed.email ?? '').trim().toLowerCase()
     if (!reviewerActive || !email.includes('@')) {
@@ -365,8 +327,9 @@ Deno.serve(async (req) => {
     if (csrUserId) {
       const { data: byId, error: byIdError } = await adminClient
         .from('users')
-        .select('id, email, full_name, status, archived_at')
+        .select('id, email, full_name, status, archived_at, agency_profile_id')
         .eq('id', csrUserId)
+        .eq('agency_profile_id', callerAgencyId)
         .maybeSingle()
       if (byIdError) return fail('csr_lookup_failed', byIdError.message, 500)
       if (
@@ -401,6 +364,7 @@ Deno.serve(async (req) => {
       const { data: csrUsers, error: csrError } = await adminClient
         .from('users')
         .select('id, email, full_name, role, status, archived_at')
+        .eq('agency_profile_id', callerAgencyId)
         .eq('status', 'active')
         .is('archived_at', null)
 
@@ -412,6 +376,10 @@ Deno.serve(async (req) => {
         .from('user_roles')
         .select('user_id')
         .eq('role', 'csr')
+        .in(
+          'user_id',
+          (csrUsers ?? []).map((u) => String(u.id)),
+        )
       const csrRoleIds = new Set((roleRows ?? []).map((r) => String(r.user_id)))
 
       const matches = (csrUsers ?? []).filter((u) => {
