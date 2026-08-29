@@ -228,8 +228,6 @@ export async function syncProducerDirectoryForUser(input: {
     producerId = await findExistingProducer()
   }
 
-  const splitPayload = {}
-
   if (producerId) {
     const { error: updErr } = await supabase
       .from('producers')
