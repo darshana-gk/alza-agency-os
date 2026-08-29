@@ -74,12 +74,17 @@ WHERE p.client_id = c.id
   AND c.agency_profile_id IS NOT NULL;
 
 UPDATE public.transactions t
-SET agency_profile_id = COALESCE(c.agency_profile_id, p.agency_profile_id)
-FROM public.clients c
-LEFT JOIN public.policies p ON p.id = t.policy_id
-WHERE t.client_id = c.id
-  AND t.agency_profile_id IS NULL
-  AND COALESCE(c.agency_profile_id, p.agency_profile_id) IS NOT NULL;
+SET agency_profile_id = sub.new_agency
+FROM (
+  SELECT t2.id,
+         COALESCE(c.agency_profile_id, p.agency_profile_id) AS new_agency
+  FROM public.transactions t2
+  JOIN public.clients c ON c.id = t2.client_id
+  LEFT JOIN public.policies p ON p.id = t2.policy_id
+  WHERE t2.agency_profile_id IS NULL
+    AND COALESCE(c.agency_profile_id, p.agency_profile_id) IS NOT NULL
+) sub
+WHERE t.id = sub.id;
 
 UPDATE public.agency_commission_receipts r
 SET agency_profile_id = t.agency_profile_id
@@ -95,14 +100,6 @@ WHERE r.transaction_id = t.id
   AND r.agency_profile_id IS NULL
   AND t.agency_profile_id IS NOT NULL;
 
-UPDATE public.producer_payment_batch_items i
-SET agency_profile_id = COALESCE(b.agency_profile_id, t.agency_profile_id)
-FROM public.producer_payment_batches b
-JOIN public.transactions t ON t.id = i.transaction_id
-WHERE i.batch_id = b.id
-  AND i.agency_profile_id IS NULL
-  AND COALESCE(b.agency_profile_id, t.agency_profile_id) IS NOT NULL;
-
 UPDATE public.producer_payment_batches b
 SET agency_profile_id = t.agency_profile_id
 FROM public.producer_payment_batch_items i
@@ -111,13 +108,31 @@ WHERE i.batch_id = b.id
   AND b.agency_profile_id IS NULL
   AND t.agency_profile_id IS NOT NULL;
 
+UPDATE public.producer_payment_batch_items i
+SET agency_profile_id = sub.new_agency
+FROM (
+  SELECT i2.id,
+         COALESCE(b.agency_profile_id, t.agency_profile_id) AS new_agency
+  FROM public.producer_payment_batch_items i2
+  JOIN public.producer_payment_batches b ON b.id = i2.batch_id
+  JOIN public.transactions t ON t.id = i2.transaction_id
+  WHERE i2.agency_profile_id IS NULL
+    AND COALESCE(b.agency_profile_id, t.agency_profile_id) IS NOT NULL
+) sub
+WHERE i.id = sub.id;
+
 UPDATE public.producer_recovery_allocations a
-SET agency_profile_id = COALESCE(r.agency_profile_id, b.agency_profile_id)
-FROM public.producer_commission_recoveries r
-LEFT JOIN public.producer_payment_batches b ON b.id = a.payment_batch_id
-WHERE a.recovery_id = r.id
-  AND a.agency_profile_id IS NULL
-  AND COALESCE(r.agency_profile_id, b.agency_profile_id) IS NOT NULL;
+SET agency_profile_id = sub.new_agency
+FROM (
+  SELECT a2.id,
+         COALESCE(r.agency_profile_id, b.agency_profile_id) AS new_agency
+  FROM public.producer_recovery_allocations a2
+  JOIN public.producer_commission_recoveries r ON r.id = a2.recovery_id
+  LEFT JOIN public.producer_payment_batches b ON b.id = a2.payment_batch_id
+  WHERE a2.agency_profile_id IS NULL
+    AND COALESCE(r.agency_profile_id, b.agency_profile_id) IS NOT NULL
+) sub
+WHERE a.id = sub.id;
 
 UPDATE public.reconciliation_statement_rows r
 SET agency_profile_id = s.agency_profile_id
