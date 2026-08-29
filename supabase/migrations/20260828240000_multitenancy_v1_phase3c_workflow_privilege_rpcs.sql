@@ -4,7 +4,8 @@
 --
 -- AUTHORING ONLY. Do NOT apply to Production. Do NOT drop singleton.
 -- Crafted PostgREST UPDATEs of privileged columns are rejected (current_user authenticated).
--- RPCs run as postgres (SECURITY DEFINER) and therefore may change those columns.
+-- Trigger is SECURITY INVOKER so JWT direct UPDATE runs as authenticated and hits the guard.
+-- SECURITY DEFINER workflow RPCs run UPDATE as postgres and bypass the guard.
 
 DO $$
 BEGIN
@@ -19,7 +20,7 @@ END $$;
 CREATE OR REPLACE FUNCTION public.enforce_transaction_privilege()
 RETURNS trigger
 LANGUAGE plpgsql
-SECURITY DEFINER
+SECURITY INVOKER
 SET search_path TO 'public'
 AS $$
 BEGIN
@@ -66,7 +67,7 @@ CREATE TRIGGER aac_enforce_transaction_privilege
   EXECUTE FUNCTION public.enforce_transaction_privilege();
 
 COMMENT ON FUNCTION public.enforce_transaction_privilege() IS
-  'Phase 3C: authenticated/service_role cannot UPDATE workflow/payment/void/receipt columns. SECURITY DEFINER RPCs (owner postgres) may.';
+  'Phase 3C: SECURITY INVOKER trigger. authenticated/service_role direct UPDATE of workflow/payment/void/receipt columns is rejected. SECURITY DEFINER workflow RPCs (current_user postgres) may patch those columns.';
 
 -- ---------------------------------------------------------------------------
 -- 2) Shared actor + agency

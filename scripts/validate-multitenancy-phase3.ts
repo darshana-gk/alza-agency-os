@@ -125,6 +125,12 @@ console.log('C. RLS tenant predicates, anon denial, ALZA operational denial, ina
 console.log('D. CSR privilege + workflow RPCs')
 {
   assert(c.includes('enforce_transaction_privilege'), 'privilege trigger')
+  assert(c.includes('SECURITY INVOKER') && c.includes('enforce_transaction_privilege'), 'privilege trigger is SECURITY INVOKER')
+  assert(!/enforce_transaction_privilege[\s\S]{0,120}SECURITY DEFINER/.test(cBody), '3C source does not use SECURITY DEFINER on privilege trigger')
+  assert(existsSync(resolve(root, 'supabase/migrations', '20260828240100_multitenancy_v1_phase3c_privilege_invoker_correction.sql')), '3C privilege invoker correction file exists')
+  const cFix = readMig('20260828240100_multitenancy_v1_phase3c_privilege_invoker_correction.sql')
+  assert(cFix.includes('SECURITY INVOKER') && cFix.includes('enforce_transaction_privilege'), 'correction replaces privilege trigger as INVOKER')
+  assert(cFix.includes('SECURITY DEFINER') && cFix.includes('already applied 20260828240000'), 'correction documents staging defect')
   assert(c.includes('privileged transaction fields require workflow RPC'), 'raw update rejected')
   assert(c.includes("current_user NOT IN ('authenticated', 'anon', 'service_role')"), 'only definer RPCs may patch privileged cols')
   assert(c.includes('CREATE OR REPLACE FUNCTION public.submit_transaction_for_review'), 'submit RPC')
@@ -194,6 +200,18 @@ console.log('H. No Phase 4 / product leakage')
     return stamp > '20260828260000'
   })
   assert(extra.length === 0, `no migrations after 3E (${extra.join(', ') || 'none'})`)
+  const between = readdirSync(resolve(root, 'supabase/migrations')).filter((f) => {
+    if (!f.endsWith('.sql')) return false
+    const stamp = f.slice(0, 14)
+    return stamp > '20260828220000' && stamp < '20260828230000' && f.includes('phase3a')
+  })
+  assert(between.length === 1 && between[0].includes('jwt_caller_detection'), 'single 3A correction between 3A and 3B')
+  const cBetween = readdirSync(resolve(root, 'supabase/migrations')).filter((f) => {
+    if (!f.endsWith('.sql')) return false
+    const stamp = f.slice(0, 14)
+    return stamp > '20260828240000' && stamp < '20260828250000' && f.includes('phase3c')
+  })
+  assert(cBetween.length === 1 && cBetween[0].includes('privilege_invoker'), 'single 3C correction between 3C and 3D')
 }
 
 if (failed > 0) {
