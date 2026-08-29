@@ -1,6 +1,6 @@
 import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { AppLayout } from '@/components/layout/AppLayout'
-import { RequirePathAccess } from '@/components/auth/RequirePermission'
+import { RedirectHome, RequirePathAccess } from '@/components/auth/RequirePermission'
 import { Dashboard } from '@/pages/Dashboard'
 import { Clients } from '@/pages/Clients'
 import { ClientDetails } from '@/pages/ClientDetails'
@@ -256,7 +256,7 @@ function AuthenticatedApp() {
             </Guard>
           }
         />
-        <Route path="*" element={<Navigate to="/" replace />} />
+        <Route path="*" element={<RedirectHome />} />
       </Route>
     </Routes>
   )

@@ -1,6 +1,11 @@
 import { Navigate } from 'react-router-dom'
 import { useAuth } from '../../lib/auth'
-import { canAccessPath } from '../../lib/permissions'
+import {
+  canAccessPath,
+  homePathForRoles,
+  isPurePlatformSupport,
+  rolesOf,
+} from '../../lib/permissions'
 
 /**
  * In-layout access denied for unauthorized routes.
@@ -17,7 +22,7 @@ export function RouteAccessDenied({ message }: { message?: string }) {
   )
 }
 
-/** Protect a route subtree / page by path allow-list for the current role. */
+/** Protect a route subtree / page by path allow-list for the current role set. */
 export function RequirePathAccess({
   path,
   children,
@@ -26,7 +31,12 @@ export function RequirePathAccess({
   children: React.ReactNode
 }) {
   const { profile } = useAuth()
-  if (!canAccessPath(profile?.role, path)) {
+  const roles = rolesOf(profile)
+  if (!canAccessPath(roles, path)) {
+    // Pure platform support deep-linking to agency ops → Support Inbox (not a dead-end).
+    if (isPurePlatformSupport(roles)) {
+      return <Navigate to="/admin/support-inbox" replace />
+    }
     return <RouteAccessDenied />
   }
   return <>{children}</>
@@ -49,5 +59,6 @@ export function RequirePermission({
 }
 
 export function RedirectHome() {
-  return <Navigate to="/" replace />
+  const { profile } = useAuth()
+  return <Navigate to={homePathForRoles(rolesOf(profile))} replace />
 }

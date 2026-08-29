@@ -1,3 +1,4 @@
+import { resolveCurrentAgencyProfileId } from './agency'
 import { supabase } from './supabase'
 import {
   deriveCommission,
@@ -128,7 +129,7 @@ export async function syncProducerDirectoryForUser(input: {
 
   const { data: userRow, error: userErr } = await supabase
     .from('users')
-    .select('id, producer_id')
+    .select('id, producer_id, agency_profile_id')
     .eq('id', userId)
     .is('archived_at', null)
     .maybeSingle()
@@ -137,22 +138,41 @@ export async function syncProducerDirectoryForUser(input: {
     return { producerId: null, created: false, error: userErr.message }
   }
 
+  const userAgencyId = String(userRow?.agency_profile_id ?? '').trim()
+  if (!userAgencyId) {
+    return {
+      producerId: null,
+      created: false,
+      error: 'User must belong to an agency before linking a Producer directory identity.',
+    }
+  }
+
   let producerId = (userRow?.producer_id as string | null) ?? null
+
+  async function assertSameAgencyProducer(candidateId: string): Promise<string | null> {
+    const { data, error } = await supabase
+      .from('producers')
+      .select('id, agency_profile_id')
+      .eq('id', candidateId)
+      .is('archived_at', null)
+      .maybeSingle()
+    if (error) return null
+    if (!data?.id) return null
+    if (String(data.agency_profile_id ?? '') !== userAgencyId) return null
+    return String(data.id)
+  }
 
   async function findExistingProducer(): Promise<string | null> {
     if (producerId) {
-      const { data } = await supabase
-        .from('producers')
-        .select('id')
-        .eq('id', producerId)
-        .is('archived_at', null)
-        .maybeSingle()
-      if (data?.id) return String(data.id)
+      const ok = await assertSameAgencyProducer(producerId)
+      if (ok) return ok
+      producerId = null
     }
     if (email) {
       const { data } = await supabase
         .from('producers')
-        .select('id, email, producer_name')
+        .select('id, email, producer_name, agency_profile_id')
+        .eq('agency_profile_id', userAgencyId)
         .is('archived_at', null)
         .ilike('email', email)
         .limit(5)
@@ -163,7 +183,8 @@ export async function syncProducerDirectoryForUser(input: {
     }
     const { data: byName } = await supabase
       .from('producers')
-      .select('id, producer_name')
+      .select('id, producer_name, agency_profile_id')
+      .eq('agency_profile_id', userAgencyId)
       .is('archived_at', null)
       .ilike('producer_name', fullName)
       .limit(10)
@@ -175,16 +196,10 @@ export async function syncProducerDirectoryForUser(input: {
 
   if (!input.hasProducerRole) {
     const linkedId = producerId ?? (await findExistingProducer())
-    if (linkedId) {
-      await supabase
-        .from('producers')
-        .update({ status: 'inactive' })
-        .eq('id', linkedId)
-        .is('archived_at', null)
-      // Keep users.producer_id so historical linkage remains; inactive status drops from dropdowns.
-      if (!producerId) {
-        await supabase.from('users').update({ producer_id: linkedId }).eq('id', userId)
-      }
+    // Keep users.producer_id for historical linkage; do not mutate directory schema extras
+    // (staging producers table may lack status/notes columns).
+    if (linkedId && !producerId) {
+      await supabase.from('users').update({ producer_id: linkedId }).eq('id', userId)
     }
     return { producerId: linkedId, created: false, error: null }
   }
@@ -194,23 +209,16 @@ export async function syncProducerDirectoryForUser(input: {
   const preferred = (input.preferredProducerId ?? '').trim()
 
   if (preferred) {
-    const { data: preferredRow, error: preferredErr } = await supabase
-      .from('producers')
-      .select('id')
-      .eq('id', preferred)
-      .is('archived_at', null)
-      .maybeSingle()
-    if (preferredErr) {
-      return { producerId: null, created: false, error: preferredErr.message }
-    }
-    if (!preferredRow?.id) {
+    const preferredOk = await assertSameAgencyProducer(preferred)
+    if (!preferredOk) {
       return {
         producerId: null,
         created: false,
-        error: 'Selected Linked Producer was not found (or is archived).',
+        error:
+          'Selected Linked Producer was not found, is archived, or belongs to another agency.',
       }
     }
-    producerId = String(preferredRow.id)
+    producerId = preferredOk
   } else {
     producerId = await findExistingProducer()
   }
@@ -220,16 +228,7 @@ export async function syncProducerDirectoryForUser(input: {
     producerId = await findExistingProducer()
   }
 
-  const splitPayload =
-    input.defaultSplitPercentage === undefined
-      ? {}
-      : {
-          default_split_percentage:
-            input.defaultSplitPercentage === null ||
-            !Number.isFinite(input.defaultSplitPercentage)
-              ? null
-              : input.defaultSplitPercentage,
-        }
+  const splitPayload = {}
 
   if (producerId) {
     const { error: updErr } = await supabase
@@ -237,8 +236,6 @@ export async function syncProducerDirectoryForUser(input: {
       .update({
         // Keep existing producer_name to preserve historical TEXT matches when linking by email.
         email: email || null,
-        status: input.userStatus === 'active' ? 'active' : 'inactive',
-        ...splitPayload,
       })
       .eq('id', producerId)
       .is('archived_at', null)
@@ -251,9 +248,6 @@ export async function syncProducerDirectoryForUser(input: {
       .insert({
         producer_name: fullName,
         email: email || null,
-        status: input.userStatus === 'active' ? 'active' : 'inactive',
-        notes: 'Synced from users with Producer role for assignment dropdowns',
-        ...splitPayload,
       })
       .select('id')
       .single()
@@ -287,14 +281,21 @@ export type ProducerLinkOption = {
   defaultSplitPercentage: number | null
 }
 
-/** Non-archived producers for Users → Linked Producer selector. */
+/** Non-archived same-agency producers for Users → Linked Producer selector. */
 export async function fetchProducerLinkOptions(): Promise<{
   data: ProducerLinkOption[]
   error: string | null
 }> {
+  const { agencyProfileId, error: agencyError } = await resolveCurrentAgencyProfileId()
+  if (agencyError) return { data: [], error: agencyError }
+  if (!agencyProfileId) {
+    return { data: [], error: 'Agency membership is required to list Producer directory links.' }
+  }
+
   const { data, error } = await supabase
     .from('producers')
-    .select('id, producer_name, email, status, default_split_percentage')
+    .select('id, producer_name, email, agency_profile_id')
+    .eq('agency_profile_id', agencyProfileId)
     .is('archived_at', null)
     .order('producer_name', { ascending: true })
 
@@ -307,11 +308,8 @@ export async function fetchProducerLinkOptions(): Promise<{
       id: String(row.id),
       producerName: String(row.producer_name ?? '').trim() || '—',
       email: String(row.email ?? '').trim(),
-      status: String(row.status ?? '').trim().toLowerCase() || 'active',
-      defaultSplitPercentage:
-        row.default_split_percentage === null || row.default_split_percentage === undefined
-          ? null
-          : Number(row.default_split_percentage),
+      status: 'active',
+      defaultSplitPercentage: null,
     })),
     error: null,
   }

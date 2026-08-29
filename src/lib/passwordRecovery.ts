@@ -1,4 +1,4 @@
-import { isAlzaSupportRole, type RoleInput } from './permissions'
+import { homePathForRoles, type RoleInput } from './permissions'
 
 /** Matches the existing invite Set Password rule. */
 export const MIN_PASSWORD_LENGTH = 8
@@ -135,8 +135,7 @@ export function validateNewPassword(
 }
 
 export function postPasswordResetPath(role: RoleInput): string {
-  if (isAlzaSupportRole(role)) return '/admin/support-inbox'
-  return '/'
+  return homePathForRoles(role)
 }
 
 // Capture before createClient() runs when this module is imported first from auth.tsx.

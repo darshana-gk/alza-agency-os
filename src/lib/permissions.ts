@@ -60,6 +60,20 @@ export function canAccessAlzaSupportInbox(role: RoleInput): boolean {
   return isAlzaSupportRole(role)
 }
 
+/**
+ * Pure platform ALZA Support — has alza_support and no agency operational role.
+ * Distinguished from multi-role agency users who also carry alza_support (should not happen).
+ */
+export function isPurePlatformSupport(role: RoleInput): boolean {
+  return isAlzaSupportRole(role) && !canAccessSupportCenter(role)
+}
+
+/** Post-login / catch-all home path. Pure platform support lands in Support Inbox. */
+export function homePathForRoles(role: RoleInput): string {
+  if (isPurePlatformSupport(role)) return '/admin/support-inbox'
+  return '/'
+}
+
 /** Match producers.producer_name ↔ clients/policies/transactions.producer TEXT. */
 export function normalizeProducerKey(name: string | null | undefined): string {
   return (name ?? '').trim().toLowerCase().replace(/\s+/g, ' ')
@@ -187,6 +201,9 @@ export function resolveProducerBookName(
   if (linked) {
     // Prefer exact TEXT spelling from the loaded dataset when present.
     lockedName = knownProducerNames.find((p) => producerKeysMatch(p, linked)) ?? linked
+  } else if (bookScoped) {
+    // Phase 4D: producer-only without a valid directory link → fail closed (no display-name book).
+    lockedName = null
   } else if (displayName) {
     lockedName = knownProducerNames.find((p) => producerKeysMatch(p, displayName)) ?? null
   }
@@ -406,11 +423,17 @@ export function canAccessPath(role: RoleInput, pathname: string): boolean {
 
   const path = pathname.split('?')[0] || '/'
 
+  // Pure platform support: Support Inbox only (auth/password routes are outside this gate).
+  // Nav hiding alone is insufficient — deep-links to agency ops must be denied.
+  if (isPurePlatformSupport(roles)) {
+    return path.startsWith('/admin/support-inbox') || path.startsWith('/support-inbox')
+  }
+
   if (path.startsWith('/admin/support-inbox') || path.startsWith('/support-inbox')) {
     return canAccessAlzaSupportInbox(roles)
   }
   if (path.startsWith('/support') || path.startsWith('/help')) {
-    return canAccessSupportCenter(roles) || canAccessAlzaSupportInbox(roles)
+    return canAccessSupportCenter(roles)
   }
   if (path.startsWith('/admin/')) {
     return canAccessAdminSection(roles)
@@ -434,7 +457,7 @@ export function canAccessPath(role: RoleInput, pathname: string): boolean {
     return roles.includes('owner') || roles.includes('admin')
   }
 
-  // Core operational screens — all authenticated app roles (with data scoping for producer)
+  // Core operational screens — agency authenticated roles (producer book scoped by RLS/UI)
   if (
     path === '/' ||
     path.startsWith('/clients') ||
@@ -444,7 +467,7 @@ export function canAccessPath(role: RoleInput, pathname: string): boolean {
     path.startsWith('/reports') ||
     path.startsWith('/notifications')
   ) {
-    return true
+    return canAccessSupportCenter(roles)
   }
 
   return false
@@ -477,7 +500,7 @@ export function getNavVisibility(role: RoleInput): NavVisibility {
   const roles = toAppRoles(role)
   const admin = isAdminDirectoryRole(roles)
   const ops = isOpsMutatorRole(roles) || roles.includes('viewer') || roles.includes('producer')
-  const alzaOnly = isAlzaSupportRole(roles) && !canAccessSupportCenter(roles)
+  const alzaOnly = isPurePlatformSupport(roles)
   return {
     dashboard: roles.length > 0 && !alzaOnly,
     clients: ops && !alzaOnly,

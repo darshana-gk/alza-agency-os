@@ -119,12 +119,8 @@ function firstEmbed<T>(value: T | T[] | null | undefined): T | null {
 }
 
 function mapConversation(row: Record<string, unknown>): SupportConversation {
-  const agency = firstEmbed(
-    row.agency_profile as
-      | { agency_name?: string; email?: string; phone?: string; website?: string }
-      | { agency_name?: string; email?: string; phone?: string; website?: string }[]
-      | null,
-  )
+  // Agency name is hydrated via support_agency_brief() — never rely on agency_profile embeds
+  // (Phase 3B RLS blocks ALZA Support from selecting operational agency_profile rows).
   const creator = firstEmbed(
     row.creator as { full_name?: string; email?: string } | { full_name?: string; email?: string }[] | null,
   )
@@ -132,10 +128,10 @@ function mapConversation(row: Record<string, unknown>): SupportConversation {
   return {
     id: String(row.id),
     agencyProfileId: String(row.agency_profile_id ?? ''),
-    agencyName: agency?.agency_name?.trim() || null,
-    agencyEmail: agency?.email?.trim() || null,
-    agencyPhone: agency?.phone?.trim() || null,
-    agencyWebsite: agency?.website?.trim() || null,
+    agencyName: null,
+    agencyEmail: null,
+    agencyPhone: null,
+    agencyWebsite: null,
     createdByUserId: String(row.created_by_user_id ?? ''),
     createdByName: creator?.full_name?.trim() || null,
     createdByEmail: creator?.email?.trim() || null,
@@ -169,10 +165,32 @@ function mapMessage(row: Record<string, unknown>): SupportMessage {
 const CONVERSATION_SELECT = `
   id, agency_profile_id, created_by_user_id, category, subject, status, priority,
   assigned_to_user_id, last_message_preview, last_message_at, resolved_at, created_at, updated_at,
-  agency_profile:agency_profile_id ( agency_name, email, phone, website ),
   creator:created_by_user_id ( full_name, email ),
   assignee:assigned_to_user_id ( full_name )
 `
+
+/**
+ * Hydrate limited agency id/name via support_agency_brief() — does not reopen agency_profile RLS.
+ * Returns conversations unchanged when the RPC is unavailable or returns nothing.
+ */
+async function hydrateConversationAgencyNames(
+  conversations: SupportConversation[],
+): Promise<SupportConversation[]> {
+  if (conversations.length === 0) return conversations
+  const { data, error } = await supabase.rpc('support_agency_brief')
+  if (error || !data) return conversations
+  const nameById = new Map<string, string>()
+  for (const row of data as Array<{ id?: string; agency_name?: string | null }>) {
+    const id = String(row.id ?? '').trim()
+    const name = String(row.agency_name ?? '').trim()
+    if (id && name) nameById.set(id, name)
+  }
+  if (nameById.size === 0) return conversations
+  return conversations.map((c) => ({
+    ...c,
+    agencyName: nameById.get(c.agencyProfileId) ?? c.agencyName,
+  }))
+}
 
 const MESSAGE_SELECT = `
   id, conversation_id, sender_user_id, sender_type, body, created_at,
@@ -215,6 +233,7 @@ export async function fetchSupportConversations(params?: {
   if (error) return { data: [], error: error.message }
 
   let rows = (data ?? []).map((r) => mapConversation(r as Record<string, unknown>))
+  rows = await hydrateConversationAgencyNames(rows)
   const q = (params?.search ?? '').trim().toLowerCase()
   if (q) {
     rows = rows.filter(
@@ -239,7 +258,10 @@ export async function fetchSupportConversation(
     .maybeSingle()
   if (error) return { data: null, error: error.message }
   if (!data) return { data: null, error: null }
-  return { data: mapConversation(data as Record<string, unknown>), error: null }
+  const [hydrated] = await hydrateConversationAgencyNames([
+    mapConversation(data as Record<string, unknown>),
+  ])
+  return { data: hydrated ?? null, error: null }
 }
 
 export async function fetchSupportMessages(
@@ -643,7 +665,9 @@ export async function fetchSupportNotificationSeeds(params: {
     .limit(100)
 
   if (error) return { ...empty, error: error.message }
-  const rows = (data ?? []).map((r) => mapConversation(r as Record<string, unknown>))
+  const rows = await hydrateConversationAgencyNames(
+    (data ?? []).map((r) => mapConversation(r as Record<string, unknown>)),
+  )
 
   if (isAlza) {
     return {
