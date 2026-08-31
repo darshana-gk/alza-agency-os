@@ -43,6 +43,9 @@ const CREATE_SQL = readRepo(
 const CONFIRM_SQL = readRepo(
   'supabase/migrations/20260823140000_producer_payment_confirm_outside_alza_flow.sql',
 )
+const CONFIRM_REF_SQL = readRepo(
+  'supabase/migrations/20260831200000_confirm_paid_require_payment_reference.sql',
+)
 const METHODS_SQL = readRepo('supabase/migrations/20260817223000_expand_producer_payment_methods.sql')
 const COMMISSION_TS = readRepo('src/lib/commission.ts')
 const PERMISSIONS_TS = readRepo('src/lib/permissions.ts')
@@ -116,6 +119,8 @@ function isValidProducerPaymentConfirmMethod(value: string | null | undefined): 
   return CONFIRM_METHODS.some((m) => m.value === (value ?? '').trim())
 }
 
+const PAYMENT_REFERENCE_REQUIRED_MESSAGE = 'Payment reference / confirmation number is required.'
+
 function validateConfirmPaidOutsideAlzaFlowInput(input: {
   paymentDate?: string | null
   paymentMethod?: string | null
@@ -124,6 +129,7 @@ function validateConfirmPaidOutsideAlzaFlowInput(input: {
 }): string | null {
   if (!(input.paymentDate ?? '').trim()) return 'Payment date is required.'
   if (!isValidProducerPaymentConfirmMethod(input.paymentMethod)) return 'Payment method is required.'
+  if (!(input.paymentReference ?? '').trim()) return PAYMENT_REFERENCE_REQUIRED_MESSAGE
   return null
 }
 
@@ -328,8 +334,26 @@ assertEq(
     paymentDate: '2026-08-23',
     paymentMethod: 'check',
   }),
+  PAYMENT_REFERENCE_REQUIRED_MESSAGE,
+  'M: payment reference is required',
+)
+assertEq(
+  validateConfirmPaidOutsideAlzaFlowInput({
+    paymentDate: '2026-08-23',
+    paymentMethod: 'check',
+    paymentReference: '   ',
+  }),
+  PAYMENT_REFERENCE_REQUIRED_MESSAGE,
+  'M: whitespace-only payment reference is rejected',
+)
+assertEq(
+  validateConfirmPaidOutsideAlzaFlowInput({
+    paymentDate: '2026-08-23',
+    paymentMethod: 'check',
+    paymentReference: '  CHK-1  ',
+  }),
   null,
-  'M/N: reference and notes are optional',
+  'M: trimmed payment reference is accepted',
 )
 assertEq(
   validateConfirmPaidOutsideAlzaFlowInput({
@@ -339,17 +363,32 @@ assertEq(
     notes: 'Paid Friday',
   }),
   null,
-  'M/N: optional reference and notes are accepted when supplied',
+  'N: notes remain optional when reference is supplied',
 )
-assert(
-  FINANCIALS.includes('placeholder="Optional"') &&
-    FINANCIALS.includes('Payment Reference') &&
-    FINANCIALS.includes('Notes'),
-  'M/N: modal shows optional reference and notes',
-)
+{
+  const refLabelIdx = FINANCIALS.indexOf('Payment Reference / Confirmation # *')
+  const nextLabelIdx = FINANCIALS.indexOf('<label', refLabelIdx + 1)
+  const refBlock =
+    refLabelIdx >= 0
+      ? FINANCIALS.slice(refLabelIdx, nextLabelIdx > refLabelIdx ? nextLabelIdx : refLabelIdx + 500)
+      : ''
+  assert(refLabelIdx >= 0, 'M: modal label is Payment Reference / Confirmation # *')
+  assert(!refBlock.includes('placeholder'), 'M: payment reference has no Optional placeholder')
+  assert(FINANCIALS.includes('placeholder="Optional"') && FINANCIALS.includes('Notes'), 'N: notes remain optional')
+  assert(
+    FINANCIALS.includes('Payment Date *') && FINANCIALS.includes('Payment Method *'),
+    'K/L: payment date and method remain required',
+  )
+  assert(
+    FINANCIALS.includes('Boolean(paymentReference.trim())'),
+    'M: Confirm Payment is disabled when reference is blank',
+  )
+}
 assert(
   COMMISSION_TS.includes("return 'Payment date is required.'") &&
     COMMISSION_TS.includes("return 'Payment method is required.'") &&
+    COMMISSION_TS.includes("return PAYMENT_REFERENCE_REQUIRED_MESSAGE") &&
+    COMMISSION_TS.includes("'Payment reference / confirmation number is required.'") &&
     COMMISSION_TS.includes("'Ready to Pay'") &&
     COMMISSION_TS.includes("'Paid (Historical)'") &&
     COMMISSION_TS.includes("'Paid Outside ALZA Flow'") &&
@@ -413,6 +452,17 @@ assert(
   !CONFIRM_CLIENT.includes(".from('producer_payment_batches')") &&
     !CONFIRM_CLIENT.includes(".from('transactions')"),
   'Client confirmProducerPaid does not independently update batch or transactions',
+)
+assert(
+  CONFIRM_REF_SQL.includes("RAISE EXCEPTION 'Payment reference / confirmation number is required.'") &&
+    CONFIRM_REF_SQL.includes("v_ref := NULLIF(btrim(COALESCE(p_payment_reference, '')), '')") &&
+    CONFIRM_REF_SQL.includes('IF v_ref IS NULL THEN') &&
+    CONFIRM_REF_SQL.includes('payment_reference = v_ref') &&
+    CONFIRM_REF_SQL.includes("payment_channel = 'outside_alza_flow'") &&
+    !/UPDATE\s+public\.producer_commission_recoveries/i.test(CONFIRM_REF_SQL) &&
+    !CONFIRM_REF_SQL.includes('SET NOT NULL') &&
+    !/ALTER TABLE[\s\S]{0,120}payment_reference/i.test(CONFIRM_REF_SQL),
+  'Server-side new confirms require trimmed payment reference; legacy columns stay nullable; recoveries untouched',
 )
 
 // ---------------------------------------------------------------------------

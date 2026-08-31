@@ -437,6 +437,9 @@ export function isValidProducerPaymentConfirmMethod(value: string | null | undef
   return PRODUCER_PAYMENT_CONFIRM_METHODS.some((m) => m.value === v)
 }
 
+export const PAYMENT_REFERENCE_REQUIRED_MESSAGE =
+  'Payment reference / confirmation number is required.'
+
 export function validateConfirmPaidOutsideAlzaFlowInput(input: {
   paymentDate?: string | null
   paymentMethod?: string | null
@@ -445,6 +448,7 @@ export function validateConfirmPaidOutsideAlzaFlowInput(input: {
 }): string | null {
   if (!(input.paymentDate ?? '').trim()) return 'Payment date is required.'
   if (!isValidProducerPaymentConfirmMethod(input.paymentMethod)) return 'Payment method is required.'
+  if (!(input.paymentReference ?? '').trim()) return PAYMENT_REFERENCE_REQUIRED_MESSAGE
   return null
 }
 
@@ -4055,7 +4059,7 @@ export async function confirmProducerPaid(input: ConfirmProducerPaidInput) {
   }
 
   const paymentMethod = input.paymentMethod.trim()
-  const paymentReference = (input.paymentReference ?? '').trim() || null
+  const paymentReference = (input.paymentReference ?? '').trim()
   const paymentNotes = input.notes?.trim() || null
 
   const { data, error } = await supabase.rpc(CONFIRM_PRODUCER_PAID_RPC, {

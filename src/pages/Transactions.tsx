@@ -2167,6 +2167,7 @@ export function Transactions() {
                             'Paid amount',
                             selected.paidAmount === null ? '—' : formatCurrency(selected.paidAmount),
                           ],
+                          ['Payment reference', selected.paymentReference || '—'],
                         ]}
                       />
 

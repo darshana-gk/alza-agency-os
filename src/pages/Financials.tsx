@@ -34,6 +34,7 @@ import {
   netAfterRecoveries,
   normalizeBatchStatus,
   normalizeRecoveryStatus,
+  PAYMENT_REFERENCE_REQUIRED_MESSAGE,
   PRODUCER_PAYMENT_CONFIRM_METHODS,
   todayIsoDate,
   toNumber,
@@ -469,6 +470,7 @@ export function Financials() {
   const [paymentMethod, setPaymentMethod] = useState('')
   const [paymentReference, setPaymentReference] = useState('')
   const [paymentNotes, setPaymentNotes] = useState('')
+  const [confirmRefTouched, setConfirmRefTouched] = useState(false)
   const [paymentSort, setPaymentSort] = useState<ProducerPaymentSort>(DEFAULT_PRODUCER_PAYMENT_SORT)
   const [receiptSort, setReceiptSort] = useState<
     TableSortState<'settlement' | 'client' | 'policy' | 'transaction' | 'status'>
@@ -1090,6 +1092,7 @@ export function Financials() {
       notes: paymentNotes,
     })
     if (confirmValidation) {
+      if (confirmValidation === PAYMENT_REFERENCE_REQUIRED_MESSAGE) setConfirmRefTouched(true)
       setActionError(confirmValidation)
       return
     }
@@ -1106,8 +1109,14 @@ export function Financials() {
     setSaving(false)
 
     if (result.error) {
+      const serverMessage = result.error.message ?? ''
+      if (serverMessage.includes(PAYMENT_REFERENCE_REQUIRED_MESSAGE)) {
+        setConfirmRefTouched(true)
+        setActionError(PAYMENT_REFERENCE_REQUIRED_MESSAGE)
+        return
+      }
       setActionError(
-        `RLS/query error on ${result.error.table} (${result.error.operation}): ${result.error.message}`,
+        `RLS/query error on ${result.error.table} (${result.error.operation}): ${serverMessage}`,
       )
       return
     }
@@ -1119,7 +1128,11 @@ export function Financials() {
   }
 
   const confirmPaidReady =
-    Boolean(paymentDate.trim()) && isValidProducerPaymentConfirmMethod(paymentMethod)
+    Boolean(paymentDate.trim()) &&
+    isValidProducerPaymentConfirmMethod(paymentMethod) &&
+    Boolean(paymentReference.trim())
+  const showConfirmRefError =
+    confirmRefTouched && !paymentReference.trim()
 
   async function handleCreateRecovery(e: FormEvent) {
     e.preventDefault()
@@ -1983,6 +1996,7 @@ export function Financials() {
                               setPaymentDate(todayIsoDate())
                               setPaymentMethod('')
                               setPaymentReference('')
+                              setConfirmRefTouched(false)
                               setPaymentNotes(row.notes !== '—' ? row.notes : '')
                               setPayBatch(row)
                             }}
@@ -2346,6 +2360,11 @@ export function Financials() {
                 </p>
               )}
             </div>
+            {actionError && actionError !== PAYMENT_REFERENCE_REQUIRED_MESSAGE && (
+              <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                {actionError}
+              </div>
+            )}
             <div className="grid gap-3 sm:grid-cols-2">
               <label className="block">
                 <span className="mb-1.5 block text-xs font-medium text-slate-500">Payment Date *</span>
@@ -2375,14 +2394,28 @@ export function Financials() {
               </label>
               <label className="block sm:col-span-2">
                 <span className="mb-1.5 block text-xs font-medium text-slate-500">
-                  Payment Reference / Confirmation #
+                  Payment Reference / Confirmation # *
                 </span>
                 <input
+                  required
+                  aria-required="true"
                   value={paymentReference}
-                  onChange={(e) => setPaymentReference(e.target.value)}
+                  onChange={(e) => {
+                    setPaymentReference(e.target.value)
+                    e.currentTarget.setCustomValidity('')
+                    if (actionError === PAYMENT_REFERENCE_REQUIRED_MESSAGE) setActionError(null)
+                  }}
+                  onBlur={() => setConfirmRefTouched(true)}
+                  onInvalid={(e) => {
+                    e.currentTarget.setCustomValidity(PAYMENT_REFERENCE_REQUIRED_MESSAGE)
+                  }}
                   className={inputClassName}
-                  placeholder="Optional"
                 />
+                {showConfirmRefError && (
+                  <p className="mt-1 text-sm text-red-700" role="alert">
+                    {PAYMENT_REFERENCE_REQUIRED_MESSAGE}
+                  </p>
+                )}
               </label>
               <label className="block sm:col-span-2">
                 <span className="mb-1.5 block text-xs font-medium text-slate-500">Notes</span>
