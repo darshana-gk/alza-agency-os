@@ -143,7 +143,11 @@ console.log('I. Phase 4C edge tenant isolation')
   const matching = readSrc('supabase/functions/run-reconciliation-matching/index.ts')
   assert(matching.includes("eq('agency_profile_id', statementAgencyId)"), 'matching scoped by agency (4C)')
   const documents = readSrc('src/lib/documents.ts')
-  assert(documents.includes('`${input.entityType}/${input.entityId}/'), 'storage legacy path deferred to 4E')
+  assert(documents.includes('supportingDocumentObjectPath'), 'Phase 4E writes agency-prefixed supporting-document paths')
+  assert(
+    !documents.includes('`${input.entityType}/${input.entityId}/'),
+    'documents.ts no longer writes unprefixed transaction|recovery paths',
+  )
 }
 
 console.log('')

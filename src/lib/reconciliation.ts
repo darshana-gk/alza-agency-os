@@ -10,6 +10,7 @@ import {
 } from './permissions'
 import { parseStatementFile } from './reconciliationIntake'
 import { supabase } from './supabase'
+import { RECONCILIATION_STATEMENTS_BUCKET, reconciliationStatementObjectPath } from './storagePaths'
 import {
   classifySignedVariance,
   mapStatementTransactionType,
@@ -1289,9 +1290,9 @@ export async function importReconciliationStatement(input: {
 
   if (!statementId) return { data: null, error: 'Unable to create statement.' }
 
-  const storagePath = `${agencyProfileId}/${statementId}/${input.file.name}`
+  const storagePath = reconciliationStatementObjectPath(agencyProfileId, statementId, input.file.name)
   const { error: uploadError } = await supabase.storage
-    .from('reconciliation-statements')
+    .from(RECONCILIATION_STATEMENTS_BUCKET)
     .upload(storagePath, input.file, { upsert: true })
   if (uploadError) {
     // Keep the statement row; matching can still proceed without the audit file.

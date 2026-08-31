@@ -1,6 +1,12 @@
 import { supabase } from './supabase'
+import { resolveCurrentAgencyProfileId } from './agency'
 import { recordActivity } from './activity'
 import { canManageRecoveries, canManageTransactions, rejectUnlessRole } from './permissions'
+import {
+  SUPPORTING_DOCUMENTS_BUCKET,
+  supportingDocumentObjectPath,
+  type SupportingDocEntityType,
+} from './storagePaths'
 
 export const DOCUMENT_TYPES = [
   'invoice',
@@ -86,6 +92,35 @@ const DOC_SELECT_BASIC = `
   original_filename, storage_path, content_type, byte_size, notes,
   uploaded_by, uploaded_at, deleted_at
 `
+
+async function resolveEntityAgencyId(
+  entityType: SupportingDocEntityType,
+  entityId: string,
+): Promise<{ agencyProfileId: string | null; error: string | null }> {
+  const membership = await resolveCurrentAgencyProfileId()
+  if (membership.error) return { agencyProfileId: null, error: membership.error }
+  if (!membership.agencyProfileId) {
+    return { agencyProfileId: null, error: 'Agency membership is required to store supporting documents.' }
+  }
+
+  const table = entityType === 'recovery' ? 'producer_commission_recoveries' : 'transactions'
+  const { data, error } = await supabase
+    .from(table)
+    .select('id, agency_profile_id')
+    .eq('id', entityId)
+    .maybeSingle()
+
+  if (error) return { agencyProfileId: null, error: error.message }
+  if (!data) return { agencyProfileId: null, error: `${entityType} was not found.` }
+  const parentAgency = data.agency_profile_id ? String(data.agency_profile_id) : null
+  if (!parentAgency) {
+    return { agencyProfileId: null, error: `${entityType} is missing agency membership.` }
+  }
+  if (parentAgency !== membership.agencyProfileId) {
+    return { agencyProfileId: null, error: 'Cannot attach documents to a record outside your agency.' }
+  }
+  return { agencyProfileId: membership.agencyProfileId, error: null }
+}
 
 async function currentUserId(): Promise<string | null> {
   const { data: authData } = await supabase.auth.getUser()
@@ -190,12 +225,22 @@ export async function uploadSupportingDocument(input: {
   if (!authz.ok) return { data: null, error: authz.message }
 
   const uploaderId = await currentUserId()
+  const tenant = await resolveEntityAgencyId(input.entityType, input.entityId)
+  if (tenant.error || !tenant.agencyProfileId) {
+    return { data: null, error: tenant.error ?? 'Agency membership is required to store supporting documents.' }
+  }
+
   const safeName = input.file.name.replace(/[^\w.\-()+ ]+/g, '_')
-  const path = `${input.entityType}/${input.entityId}/${crypto.randomUUID()}_${safeName}`
+  const path = supportingDocumentObjectPath(
+    tenant.agencyProfileId,
+    input.entityType,
+    input.entityId,
+    `${crypto.randomUUID()}_${safeName}`,
+  )
   const contentType = input.file.type?.trim() || 'application/octet-stream'
 
   const { error: uploadError } = await supabase.storage
-    .from('supporting-documents')
+    .from(SUPPORTING_DOCUMENTS_BUCKET)
     .upload(path, input.file, {
       contentType,
       upsert: false,
@@ -232,7 +277,7 @@ export async function uploadSupportingDocument(input: {
     .single()
 
   if (error) {
-    await supabase.storage.from('supporting-documents').remove([path])
+    await supabase.storage.from(SUPPORTING_DOCUMENTS_BUCKET).remove([path])
     return { data: null, error: `Document record failed: ${error.message}` }
   }
 
@@ -268,7 +313,7 @@ export async function createSignedDocumentUrl(
   expiresIn = 120,
 ): Promise<{ url: string | null; error: string | null }> {
   const { data, error } = await supabase.storage
-    .from('supporting-documents')
+    .from(SUPPORTING_DOCUMENTS_BUCKET)
     .createSignedUrl(storagePath, expiresIn)
   if (error) return { url: null, error: error.message }
   return { url: data.signedUrl, error: null }

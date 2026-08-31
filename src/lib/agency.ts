@@ -4,6 +4,13 @@ import {
   isProducerPayoutSchedule,
   type ProducerPayoutSchedule,
 } from './producerPayoutSchedule'
+import {
+  AGENCY_BRANDING_BUCKET,
+  LOGO_EXTS,
+  agencyBrandingLogoPath,
+  logoExtFromMime,
+  type LogoExt,
+} from './storagePaths'
 
 export interface AgencyProfile {
   id: string
@@ -245,12 +252,14 @@ export async function uploadAgencyLogo(file: File): Promise<{
     }
   }
 
-  const ext =
-    file.type === 'image/png' ? 'png' : file.type === 'image/webp' ? 'webp' : 'jpg'
-  const path = `logo/${agencyProfileId}.${ext}`
+  const ext = logoExtFromMime(file.type)
+  if (!ext) {
+    return { logoUrl: null, error: 'Logo must be PNG, JPG, or WebP.' }
+  }
+  const path = agencyBrandingLogoPath(agencyProfileId, ext)
 
   const { error: uploadError } = await supabase.storage
-    .from('agency-branding')
+    .from(AGENCY_BRANDING_BUCKET)
     .upload(path, file, { upsert: true, contentType: file.type })
 
   if (uploadError) {
@@ -264,7 +273,14 @@ export async function uploadAgencyLogo(file: File): Promise<{
     }
   }
 
-  const { data: publicData } = supabase.storage.from('agency-branding').getPublicUrl(path)
+  const stale = LOGO_EXTS.filter((other: LogoExt) => other !== ext).map((other) =>
+    agencyBrandingLogoPath(agencyProfileId, other),
+  )
+  if (stale.length) {
+    await supabase.storage.from(AGENCY_BRANDING_BUCKET).remove(stale)
+  }
+
+  const { data: publicData } = supabase.storage.from(AGENCY_BRANDING_BUCKET).getPublicUrl(path)
   const logoUrl = `${publicData.publicUrl}?v=${Date.now()}`
 
   const { error: updateError } = await supabase
