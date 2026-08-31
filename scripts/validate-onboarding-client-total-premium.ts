@@ -1,6 +1,6 @@
 /**
  * Client Total Premium SoT — same resolveCurrentPolicyPremium used by Policy Files /
- * Policy Details / Client Details / Clients browse.
+ * Policy Details / Client Details / Clients browse / Dashboard.
  *
  * Run: npx tsx scripts/validate-onboarding-client-total-premium.ts
  */
@@ -31,7 +31,7 @@ function assertEq(actual: unknown, expected: unknown, message: string) {
   )
 }
 
-console.log('A. QA master clients — opening premium + zero transactions')
+console.log('A. Stored opening with zero live transactions is $0')
 {
   const totals = buildClientTotalPremiumByClientId({
     policies: [
@@ -41,45 +41,45 @@ console.log('A. QA master clients — opening premium + zero transactions')
     ],
     transactionPremiumSumByPolicyId: new Map(),
   })
-  assertEq(totals.get('c1'), 30000, 'ALZA MASTER CLIENT ONE = 12k + 18k = 30k')
-  assertEq(totals.get('c2'), 22000, 'ALZA MASTER CLIENT TWO = 22k')
+  assertEq(totals.get('c1'), 0, 'no live txns → client total 0')
+  assertEq(totals.get('c2'), 0, 'no live txns → client total 0')
 }
 
-console.log('B. Multiple policies under one client')
+console.log('B. Multiple policies under one client — live ledger')
 {
   assertEq(
     sumClientCurrentPremium([
-      { policyPremium: 12000, transactionPremiumSum: 0 },
-      { policyPremium: 18000, transactionPremiumSum: 0 },
+      { policyPremium: 12000, transactionPremiumSum: 12000 },
+      { policyPremium: 18000, transactionPremiumSum: 18000 },
     ]),
     30000,
-    'two policies sum',
+    'two policies sum live txns',
   )
 }
 
-console.log('C. Opening + positive endorsement')
+console.log('C. Stored opening is not added onto live endorsement')
 {
   assertEq(
     resolveCurrentPolicyPremium({ policyPremium: 12000, transactionPremiumSum: 500 }),
-    12500,
-    'single policy opening + endorsement',
+    500,
+    'single policy live endorsement only',
   )
   assertEq(
     sumClientCurrentPremium([
       { policyPremium: 12000, transactionPremiumSum: 500 },
       { policyPremium: 18000, transactionPremiumSum: 0 },
     ]),
-    30500,
-    'client total with endorsement on one policy',
+    500,
+    'client total ignores stored opening',
   )
 }
 
-console.log('D. Opening + negative cancellation')
+console.log('D. Signed cancellation is the live total')
 {
   assertEq(
     resolveCurrentPolicyPremium({ policyPremium: 22000, transactionPremiumSum: -2000 }),
-    20000,
-    'opening + cancellation',
+    -2000,
+    'live cancellation',
   )
 }
 
@@ -97,27 +97,34 @@ console.log('E. Manual policy premium 0 remains transaction-driven')
   )
 }
 
-console.log('F. Archived transactions excluded by caller (not in txn map)')
+console.log('F. Archived/voided transactions excluded by caller (not in txn map)')
 {
-  // Archived row must not be passed into transactionPremiumSumByPolicyId.
   const totals = buildClientTotalPremiumByClientId({
     policies: [{ id: 'p1', clientId: 'c1', premium: 10000 }],
-    transactionPremiumSumByPolicyId: { p1: 250 }, // only live txns
+    transactionPremiumSumByPolicyId: { p1: 250 },
   })
-  assertEq(totals.get('c1'), 10250, 'archived amounts never included')
+  assertEq(totals.get('c1'), 250, 'only live txn sum')
 }
 
-console.log('G. No double counting — opening once + txn deltas')
+console.log('G. Agency B UAT — stored $300 must not inflate live $914')
 {
   assertEq(
-    resolveCurrentPolicyPremium({ policyPremium: 10000, transactionPremiumSum: 0 }),
-    10000,
-    'zero txns = policies.premium once',
+    resolveCurrentPolicyPremium({ policyPremium: 100, transactionPremiumSum: 100 }),
+    100,
+    'POL-STAGING-0001',
   )
   assertEq(
-    resolveCurrentPolicyPremium({ policyPremium: 10000, transactionPremiumSum: 1000 }),
-    11000,
-    'not max() or premium-or-txn',
+    resolveCurrentPolicyPremium({ policyPremium: 200, transactionPremiumSum: 814 }),
+    814,
+    '2AG-B-POL-0001',
+  )
+  assertEq(
+    sumClientCurrentPremium([
+      { policyPremium: 100, transactionPremiumSum: 100 },
+      { policyPremium: 200, transactionPremiumSum: 814 },
+    ]),
+    914,
+    'client total matches Dashboard',
   )
 }
 

@@ -1,14 +1,11 @@
 /**
  * Current Policy Premium display / SoT helper.
  *
- * Formula:
- *   current = policies.premium + SUM(non-archived, non-voided transactions.amount)
+ * Formula (same as Dashboard / Phase 4F):
+ *   current = SUM(non-archived, non-voided transactions.amount)
  *
- * Why:
- * - Add Policy writes policies.premium = 0, so current equals the live transaction ledger.
- * - Onboarding stores opening/current premium on policies.premium with zero transactions;
- *   later endorsements/audits/cancellations adjust via signed transaction amounts.
- * - Do not invent synthetic opening transactions (avoids double-count if both existed).
+ * policies.premium is a stored reference (Add Policy writes 0; onboarding may persist an
+ * imported value) and is not added into live/current totals.
  */
 
 function toFiniteMoney(value: unknown): number {
@@ -26,16 +23,14 @@ export function roundPolicyPremiumMoney(n: number): number {
 
 /**
  * Resolve on-screen Current Policy Premium for one policy.
- * @param policyPremium policies.premium (opening / stored reference; Add Policy = 0)
+ * @param policyPremium unused stored reference; kept so callers do not need a signature change
  * @param transactionPremiumSum SUM(transactions.amount) for non-archived, non-voided rows (signed)
  */
 export function resolveCurrentPolicyPremium(input: {
-  policyPremium: number | null | undefined
+  policyPremium?: number | null | undefined
   transactionPremiumSum: number | null | undefined
 }): number {
-  const stored = toFiniteMoney(input.policyPremium)
-  const txnSum = toFiniteMoney(input.transactionPremiumSum)
-  return roundPolicyPremiumMoney(stored + txnSum)
+  return roundPolicyPremiumMoney(toFiniteMoney(input.transactionPremiumSum))
 }
 
 export function sumTransactionPremiumAmounts(

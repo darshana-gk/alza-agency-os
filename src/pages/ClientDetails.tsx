@@ -25,6 +25,7 @@ import {
   fetchPolicyTransactionSummaries,
   formatCurrency as formatMoney,
   formatTypeLabel,
+  isActiveFinancialTransaction,
 } from '../lib/commission'
 import { updateClient } from '../lib/directory'
 import { resolveCurrentPolicyPremium, sumClientCurrentPremium } from '../lib/policyPremium'
@@ -52,7 +53,7 @@ interface ClientPolicy {
   writtenPremium: number
   status: PolicyStatus
   transactionCount: number
-  /** Current Policy Premium = policies.premium + SUM(txn amounts). */
+  /** Current Policy Premium = SUM(non-archived, non-voided txn amounts). */
   totalPremium: number
   latestTransactionDate: string | null
 }
@@ -376,16 +377,17 @@ export function ClientDetails() {
     })
 
     const clientTxns = txRes.data.filter((tx) => tx.clientId === id && !tx.archived)
-    // Same SoT as Clients browse: SUM(resolveCurrentPolicyPremium) across policies.
+    const liveClientTxns = clientTxns.filter(isActiveFinancialTransaction)
+    // Same SoT as Dashboard / Clients browse: SUM of live transaction premiums.
     const totalPremium = sumClientCurrentPremium(
       policies.map((p) => ({
         policyPremium: p.writtenPremium,
         transactionPremiumSum: summaryRes.data[p.id]?.totalPremium ?? 0,
       })),
     )
-    const agencyCommission = clientTxns.reduce((sum, tx) => sum + tx.agencyCommissionAmount, 0)
-    const producerCommission = clientTxns.reduce((sum, tx) => sum + tx.producerCommissionAmount, 0)
-    const outstandingAgencyCommission = clientTxns
+    const agencyCommission = liveClientTxns.reduce((sum, tx) => sum + tx.agencyCommissionAmount, 0)
+    const producerCommission = liveClientTxns.reduce((sum, tx) => sum + tx.producerCommissionAmount, 0)
+    const outstandingAgencyCommission = liveClientTxns
       .filter((tx) => !tx.agencyCommissionConfirmed)
       .reduce((sum, tx) => sum + tx.agencyCommissionAmount, 0)
 

@@ -10,6 +10,7 @@ import {
   isReadyForPayout,
   type CommissionTransaction,
 } from '../src/lib/commission.ts'
+import { resolveCurrentPolicyPremium } from '../src/lib/policyPremium.ts'
 import {
   canAccessPath,
   homePathForRoles,
@@ -100,6 +101,16 @@ console.log('B. Voided transactions excluded from active totals')
   assert(reports.includes('isActiveFinancialTransaction'), 'Reports KPIs use active-total helper')
   assert(financials.includes('isActiveFinancialTransaction'), 'Financials KPIs use active-total helper')
   assert(notifications.includes('isActiveFinancialTransaction'), 'notifications skip voided transactions')
+  assert(
+    resolveCurrentPolicyPremium({ policyPremium: 300, transactionPremiumSum: 914 }) === 914,
+    'current premium ignores stored policies.premium',
+  )
+  const policyPremium = read('src/lib/policyPremium.ts')
+  assert(
+    !policyPremium.includes('stored + txnSum') &&
+      policyPremium.includes('SUM(non-archived, non-voided transactions.amount)'),
+    'policy premium helper documents live-ledger formula',
+  )
 }
 
 console.log('C. Storage writes remain Phase 4E prefixed')

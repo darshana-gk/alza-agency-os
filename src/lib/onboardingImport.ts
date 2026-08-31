@@ -543,7 +543,7 @@ const FIELD_ALIASES_FULL: Record<OnboardingEntity, Record<string, string[]>> = {
 }
 
 const REFERENCE_PREMIUM_PERSIST_NOTE =
-  'Current Policy Premium is saved on policies.premium. UI Current Policy Premium = policies.premium + SUM(related transaction amounts); no synthetic opening transaction is created.'
+  'Current Policy Premium is saved on policies.premium as a reference. Live Current Policy Premium is SUM of non-archived, non-voided transaction amounts; no synthetic opening transaction is created.'
 
 export type OnboardingMapping = Record<string, string | undefined>
 

@@ -1,8 +1,8 @@
 /**
  * Clients browse-page premium aggregation (query-row → displayed Total Premium).
  *
- * Same SoT as Policy Files / Policy Details / Client Details:
- *   per policy: policies.premium + SUM(non-archived, non-voided txn amounts)
+ * Same SoT as Dashboard / Policy Files / Policy Details / Client Details:
+ *   per policy: SUM(non-archived, non-voided txn amounts)
  *   per client: SUM(per-policy current premium)
  */
 

@@ -575,9 +575,8 @@ export function PolicyDetails() {
       <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
         <h2 className="mb-1 text-lg font-semibold text-slate-900">Financial Totals</h2>
         <p className="mb-5 text-xs text-slate-500">
-          Current Policy Premium = opening/stored policy premium (policies.premium) + related signed
-          transaction amounts. Broker fees and commission totals remain SUM of related non-archived,
-          non-voided transactions.
+          Current Policy Premium and commission totals are SUM of related non-archived, non-voided
+          transactions (same live definition as Dashboard).
         </p>
         <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
           <InfoField
