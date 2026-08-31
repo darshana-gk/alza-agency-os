@@ -2,7 +2,7 @@
  * Current Policy Premium display / SoT helper.
  *
  * Formula:
- *   current = policies.premium + SUM(non-archived transactions.amount)
+ *   current = policies.premium + SUM(non-archived, non-voided transactions.amount)
  *
  * Why:
  * - Add Policy writes policies.premium = 0, so current equals the live transaction ledger.
@@ -27,7 +27,7 @@ export function roundPolicyPremiumMoney(n: number): number {
 /**
  * Resolve on-screen Current Policy Premium for one policy.
  * @param policyPremium policies.premium (opening / stored reference; Add Policy = 0)
- * @param transactionPremiumSum SUM(transactions.amount) for non-archived rows (signed)
+ * @param transactionPremiumSum SUM(transactions.amount) for non-archived, non-voided rows (signed)
  */
 export function resolveCurrentPolicyPremium(input: {
   policyPremium: number | null | undefined
@@ -77,7 +77,7 @@ export function buildClientTotalPremiumByClientId(input: {
     clientId: string
     premium: number | null | undefined
   }>
-  /** SUM(amount) by policy_id for non-archived transactions only. */
+  /** SUM(amount) by policy_id for non-archived, non-voided transactions only. */
   transactionPremiumSumByPolicyId: Map<string, number> | Record<string, number>
 }): Map<string, number> {
   const txnMap =

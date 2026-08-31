@@ -35,6 +35,7 @@ import {
 import {
   fetchCommissionTransactions,
   formatCurrency,
+  isActiveFinancialTransaction,
   type CommissionTransaction,
 } from '../../lib/commission'
 import { producerExportColumns } from '../../lib/exportDefinitions'
@@ -189,6 +190,7 @@ function buildListRevenueMap(transactions: CommissionTransaction[]): Map<string,
   }
 
   for (const tx of transactions) {
+    if (!isActiveFinancialTransaction(tx)) continue
     if (!tx.producer || tx.producer === '—') continue
     const key = normalizeProducerKey(tx.producer)
     const row = ensure(key)
@@ -211,7 +213,11 @@ function buildProducerDetail(
 ): ProducerDetailRevenue {
   const key = normalizeProducerKey(producerName)
   const matched = transactions.filter(
-    (tx) => tx.producer && tx.producer !== '—' && normalizeProducerKey(tx.producer) === key,
+    (tx) =>
+      isActiveFinancialTransaction(tx) &&
+      tx.producer &&
+      tx.producer !== '—' &&
+      normalizeProducerKey(tx.producer) === key,
   )
 
   const nowY = currentYear()
@@ -841,7 +847,7 @@ export function Producers() {
                   </div>
 
                   <div className="mt-3 grid gap-2 sm:grid-cols-3">
-                    <MiniStat label="Earned" value={formatCurrency(selectedRevenue.totalEarned)} hint="All non-archived" />
+                    <MiniStat label="Earned" value={formatCurrency(selectedRevenue.totalEarned)} hint="Non-archived, non-voided" />
                     <MiniStat label="Ready" value={formatCurrency(selectedRevenue.ready)} hint="payment_status = ready" />
                     <MiniStat label="Paid" value={formatCurrency(selectedRevenue.paid)} hint="payment_status = paid" />
                   </div>

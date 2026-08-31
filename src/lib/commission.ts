@@ -1161,6 +1161,7 @@ export async function fetchPolicyTransactionSummaries(policyIds: string[]) {
     .select('id, policy_id, amount, transaction_date')
     .in('policy_id', ids)
     .is('archived_at', null)
+    .is('voided_at', null)
 
   if (error) return { data: {} as Record<string, PolicyTransactionSummary>, error }
 
@@ -1695,15 +1696,23 @@ export function markReadyBlockedReason(tx: CommissionTransaction): string | null
   return null
 }
 
+/** Live financial/commission totals: archived rows are already excluded at fetch; voided rows are not. */
+export function isActiveFinancialTransaction(tx: {
+  voidedAt?: string | null
+  archived?: boolean
+}): boolean {
+  return !tx.archived && !tx.voidedAt
+}
+
 export function isReadyForPayout(tx: CommissionTransaction): boolean {
   return (
+    isActiveFinancialTransaction(tx) &&
     tx.agencyCommissionConfirmed &&
     tx.reviewStatus === 'approved' &&
     isAssignableProducer(tx.producer) &&
     tx.producerCommissionAmount > 0 &&
     tx.producerPaymentStatus === 'ready' &&
     !tx.paymentBatchId &&
-    !tx.archived &&
     !tx.paidDate
   )
 }

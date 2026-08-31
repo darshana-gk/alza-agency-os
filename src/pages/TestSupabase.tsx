@@ -8,7 +8,7 @@ export function TestSupabase() {
 
   useEffect(() => {
     async function testConnection() {
-      const { data, error } = await supabase.from('clients').select('*')
+      const { data, error } = await supabase.auth.getSession()
 
       if (error) {
         setStatus('error')
@@ -17,7 +17,10 @@ export function TestSupabase() {
       }
 
       setStatus('success')
-      setData(data)
+      setData({
+        connected: true,
+        hasSession: Boolean(data.session),
+      })
     }
 
     testConnection()

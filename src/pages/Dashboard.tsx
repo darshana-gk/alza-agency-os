@@ -25,6 +25,7 @@ import {
   formatCurrency,
   formatDate,
   formatTypeLabel,
+  isActiveFinancialTransaction,
   isCorrectionRequired,
   isPayoutAppliedSettlement,
   isReadyForPayout,
@@ -237,17 +238,18 @@ export function Dashboard() {
   }, [transactions, isOwnerOrAdmin, isCsrViewer, profile?.id, profile?.fullName, profile?.email])
 
   const kpis = useMemo(() => {
-    const totalPremium = sumField(transactions, (tx) => tx.amount)
-    const agencyCommission = sumField(transactions, (tx) => tx.agencyCommissionAmount)
-    const producerCommission = sumField(transactions, (tx) => tx.producerCommissionAmount)
-    const agencyNet = sumField(transactions, (tx) => tx.agencyNetCommission)
-    const agencyReceived = transactions
+    const live = transactions.filter(isActiveFinancialTransaction)
+    const totalPremium = sumField(live, (tx) => tx.amount)
+    const agencyCommission = sumField(live, (tx) => tx.agencyCommissionAmount)
+    const producerCommission = sumField(live, (tx) => tx.producerCommissionAmount)
+    const agencyNet = sumField(live, (tx) => tx.agencyNetCommission)
+    const agencyReceived = live
       .filter((tx) => tx.agencyCommissionConfirmed)
       .reduce((sum, tx) => sum + (tx.amountReceived ?? 0), 0)
-    const producerReady = transactions
+    const producerReady = live
       .filter((tx) => isReadyForPayout(tx))
       .reduce((sum, tx) => sum + tx.producerCommissionAmount, 0)
-    const producerPaid = transactions
+    const producerPaid = live
       .filter((tx) => tx.producerPaymentStatus === 'paid')
       .reduce((sum, tx) => sum + (tx.paidAmount ?? tx.producerCommissionAmount), 0)
 
@@ -263,18 +265,26 @@ export function Dashboard() {
   }, [transactions])
 
   const monthRows = useMemo(
-    () => transactions.filter((tx) => tx.transactionDate.slice(0, 7) === nowMonth),
+    () =>
+      transactions.filter(
+        (tx) => isActiveFinancialTransaction(tx) && tx.transactionDate.slice(0, 7) === nowMonth,
+      ),
     [transactions, nowMonth],
   )
   const yearRows = useMemo(
-    () => transactions.filter((tx) => tx.transactionDate.slice(0, 4) === nowYear),
+    () =>
+      transactions.filter(
+        (tx) => isActiveFinancialTransaction(tx) && tx.transactionDate.slice(0, 4) === nowYear,
+      ),
     [transactions, nowYear],
   )
   const monthMetrics = useMemo(() => periodMetrics(monthRows), [monthRows])
   const yearMetrics = useMemo(() => periodMetrics(yearRows), [yearRows])
 
   const monthlyChart = useMemo(() => {
-    const yearTx = transactions.filter((tx) => tx.transactionDate.slice(0, 4) === nowYear)
+    const yearTx = transactions.filter(
+      (tx) => isActiveFinancialTransaction(tx) && tx.transactionDate.slice(0, 4) === nowYear,
+    )
     return MONTH_LABELS.map((label, index) => {
       const monthNum = String(index + 1).padStart(2, '0')
       const rows = yearTx.filter((tx) => tx.transactionDate.slice(5, 7) === monthNum)
@@ -289,6 +299,7 @@ export function Dashboard() {
 
   const recentTransactions = useMemo(() => {
     return [...transactions]
+      .filter(isActiveFinancialTransaction)
       .sort((a, b) => {
         const byDate = b.transactionDate.localeCompare(a.transactionDate)
         if (byDate !== 0) return byDate
@@ -306,8 +317,8 @@ export function Dashboard() {
           <h2 className="text-2xl font-bold">Welcome to ALZA Flow</h2>
           <p className="mt-2 max-w-2xl text-sm text-blue-100">
             {producerLocked
-              ? 'Your producer book — live premium and commission from matched non-archived transactions.'
-              : 'Live premium, commission, and operational metrics from non-archived transactions.'}
+              ? 'Your producer book — live premium and commission from non-archived, non-voided transactions.'
+              : 'Live premium, commission, and operational metrics from non-archived, non-voided transactions.'}
           </p>
           {agency?.agencyName ? (
             <p className="mt-3 text-sm font-medium text-white/90">

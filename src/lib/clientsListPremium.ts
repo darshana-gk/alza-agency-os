@@ -2,7 +2,7 @@
  * Clients browse-page premium aggregation (query-row → displayed Total Premium).
  *
  * Same SoT as Policy Files / Policy Details / Client Details:
- *   per policy: policies.premium + SUM(non-archived txn amounts)
+ *   per policy: policies.premium + SUM(non-archived, non-voided txn amounts)
  *   per client: SUM(per-policy current premium)
  */
 
@@ -40,6 +40,7 @@ export type ClientsListTransactionRow = {
   policy_id?: unknown
   amount?: unknown
   archived_at?: unknown
+  voided_at?: unknown
 }
 
 /**
@@ -93,6 +94,7 @@ export function aggregateClientsListPremiumFromRows(input: {
   } else {
     transactionPremiumSumByPolicyId = new Map()
     for (const row of input.transactions ?? []) {
+      if (row.archived_at || row.voided_at) continue
       const policyId = asId(row.policy_id)
       if (!policyId) continue
       const amount = coercePolicyPremiumValue(row.amount)

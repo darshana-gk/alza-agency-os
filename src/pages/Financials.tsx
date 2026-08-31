@@ -28,6 +28,7 @@ import {
   formatRecoveryStatusLabel,
   isDirectPaymentSettlement,
   isPayoutAppliedSettlement,
+  isActiveFinancialTransaction,
   isReadyForPayout,
   isValidProducerPaymentConfirmMethod,
   netAfterRecoveries,
@@ -656,13 +657,14 @@ export function Financials() {
   )
 
   const kpis = useMemo(() => {
-    const expectedAgency = transactions.reduce((sum, tx) => sum + tx.expectedAmount, 0)
-    const receivedAgency = transactions
+    const live = transactions.filter(isActiveFinancialTransaction)
+    const expectedAgency = live.reduce((sum, tx) => sum + tx.expectedAmount, 0)
+    const receivedAgency = live
       .filter((tx) => tx.agencyCommissionConfirmed)
       .reduce((sum, tx) => sum + (tx.amountReceived ?? 0), 0)
 
     const readyByProducerGross = new Map<string, number>()
-    for (const tx of transactions.filter(isReadyForPayout)) {
+    for (const tx of live.filter(isReadyForPayout)) {
       const key = tx.producer.trim()
       if (!key || key === '—') continue
       readyByProducerGross.set(key, (readyByProducerGross.get(key) ?? 0) + tx.producerCommissionAmount)
@@ -678,10 +680,10 @@ export function Financials() {
       producerPayable += netAfterRecoveries(gross, openRec)
     }
 
-    const producerPaid = transactions
+    const producerPaid = live
       .filter((tx) => tx.producerPaymentStatus === 'paid')
       .reduce((sum, tx) => sum + (tx.paidAmount ?? tx.producerCommissionAmount), 0)
-    const agencyNet = transactions.reduce((sum, tx) => sum + tx.agencyNetCommission, 0)
+    const agencyNet = live.reduce((sum, tx) => sum + tx.agencyNetCommission, 0)
     const recoveriesOpen = recoveries
       .filter((row) => row.status === 'open' && isPayoutAppliedSettlement(row.settlementMethod))
       .reduce((sum, row) => sum + row.remainingAmount, 0)
@@ -708,7 +710,7 @@ export function Financials() {
 
   const pendingReceiptConfirmations = useMemo(() => {
     return transactions
-      .filter((tx) => !tx.agencyCommissionConfirmed && !tx.archived)
+      .filter((tx) => isActiveFinancialTransaction(tx) && !tx.agencyCommissionConfirmed)
       .sort((a, b) => String(b.transactionDate).localeCompare(String(a.transactionDate)))
       .slice(0, 25)
   }, [transactions])

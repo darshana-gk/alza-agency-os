@@ -35,6 +35,7 @@ import {
   paymentStatusStyles,
   reviewStatusStyles,
   typeStyles,
+  isActiveFinancialTransaction,
   type CommissionTransaction,
   type CommissionType,
 } from '../lib/commission'
@@ -317,6 +318,7 @@ export function PolicyDetails() {
     let totalProducerCommission = 0
     let totalAgencyNet = 0
     for (const tx of transactions) {
+      if (!isActiveFinancialTransaction(tx)) continue
       transactionPremiumSum += tx.amount
       totalBrokerFees += tx.brokerFee
       totalAgencyCommission += tx.agencyCommissionAmount
@@ -574,8 +576,8 @@ export function PolicyDetails() {
         <h2 className="mb-1 text-lg font-semibold text-slate-900">Financial Totals</h2>
         <p className="mb-5 text-xs text-slate-500">
           Current Policy Premium = opening/stored policy premium (policies.premium) + related signed
-          transaction amounts. Broker fees and commission totals remain SUM of related non-archived
-          transactions.
+          transaction amounts. Broker fees and commission totals remain SUM of related non-archived,
+          non-voided transactions.
         </p>
         <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
           <InfoField

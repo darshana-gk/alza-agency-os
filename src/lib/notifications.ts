@@ -1,6 +1,7 @@
 import {
   fetchCommissionTransactions,
   formatCurrency,
+  isActiveFinancialTransaction,
   isCorrectionRequired,
   isReadyForPayout,
   type CommissionTransaction,
@@ -352,6 +353,7 @@ export async function fetchOperationalNotifications(params: {
   const items: OperationalNotification[] = []
 
   for (const tx of transactions) {
+    if (!isActiveFinancialTransaction(tx)) continue
     if (!tx.agencyCommissionConfirmed && roleAllowsKind(roleInput, 'awaiting_receipt')) {
       items.push(
         withReadState(

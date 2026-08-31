@@ -25,6 +25,7 @@ import {
   formatDate,
   formatLabel,
   formatTypeLabel,
+  isActiveFinancialTransaction,
   paymentStatusStyles,
   PRODUCER_PAYMENT_STATUSES,
   TRANSACTION_TYPES,
@@ -216,6 +217,7 @@ export function Reports() {
       return [] as CommissionTransaction[]
     }
     return transactions.filter((tx) => {
+      if (!isActiveFinancialTransaction(tx)) return false
       if (yearFilter !== ALL && yearFromDate(tx.transactionDate) !== yearFilter) return false
       if (monthFilter !== ALL) {
         const idx = monthIndex(tx.transactionDate)
@@ -278,6 +280,7 @@ export function Reports() {
   const monthlySeries = useMemo(() => {
     // Use unfiltered-by-year rows for prior-year comparison while respecting other filters.
     const base = transactions.filter((tx) => {
+      if (!isActiveFinancialTransaction(tx)) return false
       if (producerLocked && producerScope.limitation) return false
       if (effectiveProducerFilter !== ALL && tx.producer !== effectiveProducerFilter) return false
       if (clientFilter !== ALL && tx.clientId !== clientFilter) return false
@@ -541,8 +544,8 @@ export function Reports() {
       <div>
         <h2 className="text-lg font-semibold text-slate-900">Producer Revenue</h2>
         <p className="mt-1 text-sm text-slate-500">
-          Stored <span className="font-medium">producer_commission_amount</span> from non-archived
-          transactions (Gross Producer Commission). Recoveries are payment adjustments shown
+          Stored <span className="font-medium">producer_commission_amount</span> from non-archived,
+          non-voided transactions (Gross Producer Commission). Recoveries are payment adjustments shown
           separately on Financials — they do not rewrite earned commission. Broker fee is not added
           again — it is already inside the producer share snapshot.
         </p>
@@ -686,7 +689,7 @@ export function Reports() {
       </div>
 
       <div className="grid gap-2 sm:grid-cols-3">
-        <StatusCard label="Producer Commission Earned" value={formatCurrency(kpis.earned)} hint="All filtered non-archived transactions" />
+        <StatusCard label="Producer Commission Earned" value={formatCurrency(kpis.earned)} hint="All filtered non-archived, non-voided transactions" />
         <StatusCard label="Producer Commission Ready" value={formatCurrency(kpis.ready)} hint="producer_payment_status = ready" />
         <StatusCard label="Producer Commission Paid" value={formatCurrency(kpis.paid)} hint="producer_payment_status = paid" />
       </div>
