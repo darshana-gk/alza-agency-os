@@ -171,7 +171,7 @@ export function PolicyFiles() {
         agency_commission_percentage,
         status,
         created_at,
-        clients ( business_name )
+        clients!policies_client_id_fkey ( business_name )
       `,
       )
       .is('archived_at', null)

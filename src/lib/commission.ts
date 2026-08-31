@@ -814,11 +814,11 @@ export const TRANSACTION_COMMISSION_SELECT = `
   csr_user_id,
   archived_at,
   created_at,
-  clients (
+  clients!transactions_client_id_fkey (
     business_name,
     client_number
   ),
-  policies (
+  policies!transactions_policy_id_fkey (
     policy_number,
     policy_type,
     effective_date,
@@ -843,6 +843,96 @@ export const TRANSACTION_COMMISSION_SELECT = `
     role
   )
 `
+
+/** Staging transactions omit several Production columns. Used only after a missing-column error. */
+export const TRANSACTION_COMMISSION_SELECT_COMPAT = `
+  id,
+  transaction_number,
+  transaction_type,
+  transaction_date,
+  client_id,
+  policy_id,
+  producer,
+  premium_amount,
+  agency_commission_amount,
+  amount_received,
+  received_date,
+  agency_commission_confirmed,
+  agency_commission_receipt_id,
+  producer_commission_amount,
+  producer_payment_status,
+  payment_batch_id,
+  paid_amount,
+  paid_date,
+  payment_method,
+  payment_reference,
+  review_status,
+  reviewer_user_id,
+  review_return_reason,
+  review_returned_at,
+  review_returned_by,
+  reviewed_by,
+  reviewed_date,
+  original_transaction_id,
+  voided_at,
+  voided_by,
+  void_reason,
+  producer_split_source,
+  csr_user_id,
+  archived_at,
+  created_at,
+  clients!transactions_client_id_fkey (
+    business_name,
+    client_number
+  ),
+  policies!transactions_policy_id_fkey (
+    policy_number,
+    policy_type,
+    effective_date,
+    expiration_date
+  ),
+  producer_payment_batches (
+    id,
+    batch_number,
+    status,
+    payment_channel
+  ),
+  reviewer:users!reviewer_user_id (
+    id,
+    full_name,
+    email,
+    role
+  ),
+  returned_by_user:users!review_returned_by (
+    id,
+    full_name,
+    email,
+    role
+  )
+`
+
+function isMissingColumnError(error: { message?: string; code?: string } | null): boolean {
+  if (!error) return false
+  const msg = error.message ?? ''
+  const code = error.code ?? ''
+  return code === '42703' || code === 'PGRST204' || /column .+ does not exist/i.test(msg)
+}
+
+async function fetchMappedCommission(
+  run: (select: string) => PromiseLike<{
+    data: unknown
+    error: { message: string; code?: string } | null
+  }>,
+) {
+  const full = await run(TRANSACTION_COMMISSION_SELECT)
+  const chosen =
+    full.error && isMissingColumnError(full.error)
+      ? await run(TRANSACTION_COMMISSION_SELECT_COMPAT)
+      : full
+  if (chosen.error) return { data: [] as CommissionTransaction[], error: chosen.error }
+  const rows = (chosen.data ?? []) as unknown as TransactionCommissionRow[]
+  return { data: rows.map(mapCommissionTransaction), error: null }
+}
 
 export interface TransactionCommissionRow {
   id: string
@@ -1044,7 +1134,7 @@ export function mapCommissionTransaction(row: TransactionCommissionRow): Commiss
     csrUserId: row.csr_user_id?.trim() || null,
     carrier: row.carrier?.trim() || '—',
     mga: row.mga?.trim() || '—',
-    amount: toNumber(row.amount),
+    amount: toNumber(row.amount ?? row.premium_amount),
     premiumAmount: toNumber(row.premium_amount ?? row.amount),
     carrierCommissionPercentage:
       row.carrier_commission_percentage === null || row.carrier_commission_percentage === undefined
@@ -1109,32 +1199,28 @@ export function mapCommissionTransaction(row: TransactionCommissionRow): Commiss
 }
 
 export async function fetchCommissionTransactions() {
-  const { data, error } = await supabase
-    .from('transactions')
-    .select(TRANSACTION_COMMISSION_SELECT)
-    .is('archived_at', null)
-    .order('transaction_date', { ascending: false })
-    .order('created_at', { ascending: false })
-
-  if (error) return { data: [] as CommissionTransaction[], error }
-  const rows = (data ?? []) as unknown as TransactionCommissionRow[]
-  return { data: rows.map(mapCommissionTransaction), error: null }
+  return fetchMappedCommission((select) =>
+    supabase
+      .from('transactions')
+      .select(select)
+      .is('archived_at', null)
+      .order('transaction_date', { ascending: false })
+      .order('created_at', { ascending: false }),
+  )
 }
 
 /** Live related transactions for one policy (UUID join on transactions.policy_id). */
 export async function fetchCommissionTransactionsByPolicy(policyId: string) {
   if (!policyId) return { data: [] as CommissionTransaction[], error: null }
-  const { data, error } = await supabase
-    .from('transactions')
-    .select(TRANSACTION_COMMISSION_SELECT)
-    .eq('policy_id', policyId)
-    .is('archived_at', null)
-    .order('transaction_date', { ascending: false })
-    .order('created_at', { ascending: false })
-
-  if (error) return { data: [] as CommissionTransaction[], error }
-  const rows = (data ?? []) as unknown as TransactionCommissionRow[]
-  return { data: rows.map(mapCommissionTransaction), error: null }
+  return fetchMappedCommission((select) =>
+    supabase
+      .from('transactions')
+      .select(select)
+      .eq('policy_id', policyId)
+      .is('archived_at', null)
+      .order('transaction_date', { ascending: false })
+      .order('created_at', { ascending: false }),
+  )
 }
 
 export interface PolicyTransactionSummary {
@@ -1156,14 +1242,24 @@ export async function fetchPolicyTransactionSummaries(policyIds: string[]) {
   }
   if (ids.length === 0) return empty
 
-  const { data, error } = await supabase
+  const full = await supabase
     .from('transactions')
     .select('id, policy_id, amount, transaction_date')
     .in('policy_id', ids)
     .is('archived_at', null)
     .is('voided_at', null)
 
-  if (error) return { data: {} as Record<string, PolicyTransactionSummary>, error }
+  const result =
+    full.error && isMissingColumnError(full.error)
+      ? await supabase
+          .from('transactions')
+          .select('id, policy_id, premium_amount, transaction_date')
+          .in('policy_id', ids)
+          .is('archived_at', null)
+          .is('voided_at', null)
+      : full
+
+  if (result.error) return { data: {} as Record<string, PolicyTransactionSummary>, error: result.error }
 
   const summaries: Record<string, PolicyTransactionSummary> = {}
   for (const id of ids) {
@@ -1176,12 +1272,15 @@ export async function fetchPolicyTransactionSummaries(policyIds: string[]) {
     }
   }
 
-  for (const row of data ?? []) {
+  for (const row of result.data ?? []) {
     const policyId = String(row.policy_id ?? '')
     if (!policyId || !summaries[policyId]) continue
     const summary = summaries[policyId]
     summary.transactionCount += 1
-    const amount = toNumber(row.amount as number | string | null)
+    const amount = toNumber(
+      ((row as { amount?: number | string | null; premium_amount?: number | string | null }).amount ??
+        (row as { premium_amount?: number | string | null }).premium_amount) as number | string | null,
+    )
     summary.totalPremium += amount
     summary.totalVolume += amount
     const date = String(row.transaction_date ?? '').trim()

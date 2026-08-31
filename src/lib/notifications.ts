@@ -301,7 +301,7 @@ export async function fetchOperationalNotifications(params: {
       .select(
         `
         id, policy_number, expiration_date, producer, status, client_id,
-        clients ( business_name )
+        clients!policies_client_id_fkey ( business_name )
       `,
       )
       .is('archived_at', null)

@@ -261,9 +261,9 @@ const textareaClassName =
   'w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-alza-blue-500 focus:outline-none focus:ring-2 focus:ring-alza-blue-500/20'
 
 const BATCH_ITEMS_EMBED = `
-            producer_payment_batch_items (
+            producer_payment_batch_items!producer_payment_batch_items_batch_id_fkey (
               id, batch_id, transaction_id, net_amount,
-              transactions ( transaction_number )
+              transactions!producer_payment_batch_items_transaction_id_fkey ( transaction_number )
             )
 `
 
@@ -511,7 +511,7 @@ export function Financials() {
     setRecoveriesError(null)
     setTransactionsError(null)
 
-    const [receiptsResult, batchesFirst, recoveriesResult, txResult, recoveryAmtResult] =
+    const [receiptsResult, batchesFirst, recoveriesFirst, txResult, recoveryAmtResult] =
       await Promise.all([
         supabase
           .from('agency_commission_receipts')
@@ -520,7 +520,7 @@ export function Financials() {
             id, created_at, notes, client_id, policy_id, transaction_id, producer, source,
             external_invoice_id, policy_number, client_name, deposit_reference, imported_at,
             reconciliation_status, settlement_date,
-            clients ( business_name ),
+            clients!agency_commission_receipts_client_id_fkey ( business_name ),
             transactions!agency_commission_receipts_transaction_id_fkey ( transaction_number )
           `,
           )
@@ -537,7 +537,7 @@ export function Financials() {
             `
             id, created_at, notes, status, amount, applied_amount, remaining_amount,
             recovery_number, transaction_id, producer, receipt_id, settlement_method,
-            transactions ( transaction_number, client_id, policy_id ),
+            transactions!producer_commission_recoveries_transaction_id_fkey ( transaction_number, client_id, policy_id ),
             agency_commission_receipts ( id, client_id, policy_id, client_name, policy_number )
           `,
           )
@@ -555,6 +555,25 @@ export function Financials() {
         .select(BATCH_SELECT_LEGACY)
         .order('created_at', { ascending: false })
         .order('batch_number', { ascending: false })
+    }
+
+    let recoveriesResult: { data: unknown; error: { message: string } | null } = recoveriesFirst
+    if (
+      recoveriesResult.error &&
+      /could not find a relationship between .* and 'agency_commission_receipts'/i.test(
+        recoveriesResult.error.message,
+      )
+    ) {
+      recoveriesResult = await supabase
+        .from('producer_commission_recoveries')
+        .select(
+          `
+            id, created_at, notes, status, amount, applied_amount, remaining_amount,
+            recovery_number, transaction_id, producer, receipt_id, settlement_method,
+            transactions!producer_commission_recoveries_transaction_id_fkey ( transaction_number, client_id, policy_id )
+          `,
+        )
+        .order('created_at', { ascending: false })
     }
 
     if (receiptsResult.error) {

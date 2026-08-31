@@ -168,7 +168,7 @@ const ROW_SELECT = `
   match_confidence, matched_transaction_id, expected_commission, variance,
   discrepancy_type, resolution_status, resolution_notes, resolved_by, resolved_at,
   receipt_id, created_at, updated_at,
-  transactions ( transaction_number )
+  transactions!reconciliation_statement_rows_matched_transaction_id_fkey ( transaction_number )
 `
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -176,6 +176,27 @@ function asRecord(value: unknown): Record<string, unknown> {
     ? (value as Record<string, unknown>)
     : {}
 }
+
+function isMissingColumnError(error: { message?: string; code?: string } | null): boolean {
+  if (!error) return false
+  const msg = error.message ?? ''
+  const code = error.code ?? ''
+  return code === '42703' || code === 'PGRST204' || /column .+ does not exist/i.test(msg)
+}
+
+const TXN_SEARCH_SELECT = `
+      id, transaction_number, transaction_type, transaction_date, expected_amount,
+      agency_commission_amount, carrier, mga, agency_commission_confirmed,
+      clients!transactions_client_id_fkey ( business_name ),
+      policies!transactions_policy_id_fkey ( policy_number )
+    `
+
+const TXN_SEARCH_SELECT_COMPAT = `
+      id, transaction_number, transaction_type, transaction_date,
+      agency_commission_amount, agency_commission_confirmed,
+      clients!transactions_client_id_fkey ( business_name ),
+      policies!transactions_policy_id_fkey ( policy_number )
+    `
 
 function firstEmbed<T>(value: T | T[] | null | undefined): T | null {
   if (!value) return null
@@ -958,7 +979,7 @@ export async function fetchExceptionRows(): Promise<{
   const { data, error } = await supabase
     .from('reconciliation_statement_rows')
     .select(
-      `${ROW_SELECT}, reconciliation_statements ( ${STATEMENT_SELECT} )`,
+      `${ROW_SELECT}, reconciliation_statements!reconciliation_statement_rows_statement_id_fkey ( ${STATEMENT_SELECT} )`,
     )
     .in('match_status', ['exception', 'unmatched', 'auto_matched', 'manual_matched'])
     .eq('resolution_status', 'open')
@@ -1443,7 +1464,7 @@ export async function manualMatchRow(params: {
     .select(
       `
       id, statement_id,
-      reconciliation_statements ( id, agency_profile_id, file_name )
+      reconciliation_statements!reconciliation_statement_rows_statement_id_fkey ( id, agency_profile_id, file_name )
     `,
     )
     .eq('id', params.rowId)
@@ -1512,7 +1533,7 @@ export async function manualMatchRow(params: {
     .select(
       `
       id, statement_id, match_status, row_source, receipt_id,
-      reconciliation_statements ( id, file_name )
+      reconciliation_statements!reconciliation_statement_rows_statement_id_fkey ( id, file_name )
     `,
     )
     .eq('matched_transaction_id', params.transactionId)
@@ -1690,30 +1711,30 @@ export async function searchMatchTransactions(query: string): Promise<{
   error: string | null
 }> {
   const q = query.trim()
-  let txnQuery = supabase
-    .from('transactions')
-    .select(
-      `
-      id, transaction_number, transaction_type, transaction_date, expected_amount,
-      agency_commission_amount, carrier, mga, agency_commission_confirmed,
-      clients ( business_name ),
-      policies ( policy_number )
-    `,
-    )
-    .is('voided_at', null)
-    .is('archived_at', null)
-    .limit(40)
+  const fullOr = q
+    ? `transaction_number.ilike.%${q}%,carrier.ilike.%${q}%,mga.ilike.%${q}%`
+    : null
+  const compatOr = q ? `transaction_number.ilike.%${q}%` : null
 
-  if (q) {
-    txnQuery = txnQuery.or(
-      `transaction_number.ilike.%${q}%,carrier.ilike.%${q}%,mga.ilike.%${q}%`,
-    )
+  const runSearch = async (select: string, orFilter: string | null) => {
+    let txnQuery = supabase
+      .from('transactions')
+      .select(select)
+      .is('voided_at', null)
+      .is('archived_at', null)
+      .limit(40)
+    if (orFilter) txnQuery = txnQuery.or(orFilter)
+    return txnQuery
   }
 
-  const { data, error } = await txnQuery
-  if (error) return { data: [], error: error.message }
+  let result: { data: unknown; error: { message?: string; code?: string } | null } =
+    await runSearch(TXN_SEARCH_SELECT, fullOr)
+  if (result.error && isMissingColumnError(result.error)) {
+    result = await runSearch(TXN_SEARCH_SELECT_COMPAT, compatOr)
+  }
+  if (result.error) return { data: [], error: result.error.message ?? 'Search failed' }
 
-  let extra: typeof data = []
+  const rowsOut: Record<string, unknown>[] = (result.data ?? []) as Record<string, unknown>[]
   if (q) {
     const { data: policies } = await supabase
       .from('policies')
@@ -1722,36 +1743,42 @@ export async function searchMatchTransactions(query: string): Promise<{
       .limit(20)
     const ids = (policies ?? []).map((p) => p.id as string)
     if (ids.length) {
-      const { data: byPolicy } = await supabase
-        .from('transactions')
-        .select(
-          `
-          id, transaction_number, transaction_type, transaction_date, expected_amount,
-          agency_commission_amount, carrier, mga, agency_commission_confirmed,
-          clients ( business_name ),
-          policies ( policy_number )
-        `,
-        )
-        .in('policy_id', ids)
-        .is('voided_at', null)
-        .is('archived_at', null)
-        .limit(40)
-      extra = byPolicy ?? []
+      let byPolicy: { data: unknown; error: { message?: string; code?: string } | null } =
+        await supabase
+          .from('transactions')
+          .select(TXN_SEARCH_SELECT)
+          .in('policy_id', ids)
+          .is('voided_at', null)
+          .is('archived_at', null)
+          .limit(40)
+      if (byPolicy.error && isMissingColumnError(byPolicy.error)) {
+        byPolicy = await supabase
+          .from('transactions')
+          .select(TXN_SEARCH_SELECT_COMPAT)
+          .in('policy_id', ids)
+          .is('voided_at', null)
+          .is('archived_at', null)
+          .limit(40)
+      }
+      rowsOut.push(...(((byPolicy.data ?? []) as Record<string, unknown>[])))
     }
   }
 
-  const merged = [...(data ?? []), ...extra]
   const seen = new Set<string>()
-  const rows = merged
+  const rows = rowsOut
     .filter((row) => {
-      const id = String(row.id)
-      if (seen.has(id)) return false
+      const id = String(row.id ?? '')
+      if (!id || seen.has(id)) return false
       seen.add(id)
       return true
     })
     .map((row) => {
-      const policy = firstEmbed(row.policies as { policy_number?: string } | { policy_number?: string }[] | null)
-      const client = firstEmbed(row.clients as { business_name?: string } | { business_name?: string }[] | null)
+      const policy = firstEmbed(
+        row.policies as { policy_number?: string } | { policy_number?: string }[] | null,
+      )
+      const client = firstEmbed(
+        row.clients as { business_name?: string } | { business_name?: string }[] | null,
+      )
       return {
         id: String(row.id),
         transactionNumber: String(row.transaction_number ?? ''),

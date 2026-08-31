@@ -216,7 +216,7 @@ export function PolicyDetails() {
         producer_commission_amount,
         agency_net_commission,
         override_split,
-        clients ( business_name, client_number )
+        clients!policies_client_id_fkey ( business_name, client_number )
       `,
       )
       .eq('id', id)
