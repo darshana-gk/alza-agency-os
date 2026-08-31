@@ -16,8 +16,18 @@ import {
 } from '../src/lib/transactionsTable.ts'
 import {
   buildTransactionsPageKpis,
+  deriveCommission,
   isOperationallyPendingTransaction,
+  missingColumnNameFromError,
 } from '../src/lib/commission.ts'
+import {
+  isPolicyTermUpdatingType,
+  resolvePersistedTransactionDates,
+  transactionDateSemantics,
+  validateTransactionDateInputs,
+} from '../src/lib/transactionDateSemantics.ts'
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 
 let passed = 0
 let failed = 0
@@ -266,6 +276,100 @@ console.log('Transactions page KPIs exclude voided from amount totals, keep hist
     }),
     '2AG-B-TRX-VOIDED would not be pending even with not_ready status',
   )
+}
+
+console.log('Transaction-type date matrix')
+{
+  const nb = transactionDateSemantics('new_policy_premium')
+  const renewal = transactionDateSemantics('renewal_premium')
+  const endo = transactionDateSemantics('endorsement_premium')
+  const audit = transactionDateSemantics('audit_premium')
+  const cancel = transactionDateSemantics('cancellation_premium')
+  const legacy = transactionDateSemantics('return_premium')
+  assert(nb.policyTerm === 'editable_required' && nb.updatesPolicyTerm, 'NB policy term editable and persisted')
+  assert(nb.snapshotTxnDatesFromPolicyTerm && !nb.showTxnEffective, 'NB does not require a second date pair')
+  assert(renewal.policyEffectiveLabel === 'New Policy Effective Date', 'Renewal labels the new term')
+  assert(renewal.updatesPolicyTerm && renewal.snapshotTxnDatesFromPolicyTerm, 'Renewal updates policy term')
+  assert(endo.policyTerm === 'read_only' && !endo.updatesPolicyTerm, 'Endorsement does not change policy term')
+  assert(endo.showTxnEffective && endo.txnEffectiveRequired, 'Endorsement requires transaction effective date')
+  assert(audit.policyTerm === 'read_only' && !audit.updatesPolicyTerm, 'Audit does not change policy term')
+  assert(audit.showTxnEffective && audit.showTxnExpiration && !audit.txnEffectiveRequired, 'Audit dates optional')
+  assert(cancel.policyTerm === 'read_only' && !cancel.updatesPolicyTerm, 'Cancellation does not overwrite policy term')
+  assert(cancel.txnEffectiveLabel === 'Cancellation Effective Date', 'Cancellation captures txn-level effective date')
+  assert(legacy.policyTerm === 'read_only' && !legacy.updatesPolicyTerm, 'Legacy return premium does not change term')
+  assert(isPolicyTermUpdatingType('new_policy_premium') && isPolicyTermUpdatingType('renewal_premium'), 'term-updating types')
+  assert(!isPolicyTermUpdatingType('endorsement_premium') && !isPolicyTermUpdatingType('cancellation_premium'), 'non-term types')
+  assert(
+    validateTransactionDateInputs({
+      type: 'new_policy_premium',
+      policyEffectiveDate: '',
+      policyExpirationDate: '2027-08-31',
+      transactionEffectiveDate: '',
+      transactionExpirationDate: '',
+    })?.includes('required'),
+    'NB requires policy effective date',
+  )
+  assert(
+    validateTransactionDateInputs({
+      type: 'new_policy_premium',
+      policyEffectiveDate: '2026-08-31',
+      policyExpirationDate: '2027-08-31',
+      transactionEffectiveDate: '',
+      transactionExpirationDate: '',
+    }) === null,
+    'NB valid term',
+  )
+  const snap = resolvePersistedTransactionDates({
+    type: 'new_policy_premium',
+    policyEffectiveDate: '2026-08-31',
+    policyExpirationDate: '2027-08-31',
+    transactionEffectiveDate: '1999-01-01',
+    transactionExpirationDate: '1999-12-31',
+  })
+  assert(snap.transactionEffectiveDate === '2026-08-31', 'NB snapshots policy effective, not a second entry')
+  assert(snap.transactionExpirationDate === '2027-08-31', 'NB snapshots policy expiration')
+}
+
+console.log('UAT BUG 005 commission math')
+{
+  const derived = deriveCommission({
+    commissionType: 'percentage',
+    baseAmount: 1000,
+    agencyCommissionPercentage: 10,
+    agencyCommissionAmount: null,
+    brokerFee: 100,
+    producerSplitPercentage: 50,
+  })
+  assert(derived.agencyCommissionAmount === 100, '10% of $1000 = $100')
+  assert(derived.brokerFee === 100, 'broker fee $100')
+  assert(derived.commissionPool === 200, 'pool $200')
+  assert(derived.producerCommissionAmount === 100, '50% of pool = $100')
+  assert(derived.agencyNetCommission === 100, 'agency net $100')
+}
+
+console.log('Insert schema-cache error parser + createTransaction compat')
+{
+  assert(
+    missingColumnNameFromError({
+      code: 'PGRST204',
+      message: "Could not find the 'agency_commission_percentage' column of 'transactions' in the schema cache",
+    }) === 'agency_commission_percentage',
+    'parses PostgREST schema-cache missing column',
+  )
+  assert(
+    missingColumnNameFromError({
+      code: '42703',
+      message: 'column transactions.description does not exist',
+    }) === 'description',
+    'parses table-qualified missing column',
+  )
+  const commissionSrc = readFileSync(resolve('src/lib/commission.ts'), 'utf8')
+  assert(commissionSrc.includes('insertTransactionCompat'), 'create path retries missing insert columns')
+  assert(commissionSrc.includes('isPolicyTermUpdatingType'), 'create path updates policy term only for NB/Renewal')
+  assert(commissionSrc.includes("update({ archived_at:"), 'failed policy-term update archives the new transaction')
+  const modalSrc = readFileSync(resolve('src/components/transactions/AddTransactionModal.tsx'), 'utf8')
+  assert(modalSrc.includes('transactionDateSemantics'), 'Add Transaction uses the date matrix')
+  assert(modalSrc.includes('policyEffectiveDate'), 'Add Transaction can edit policy term for NB/Renewal')
 }
 
 console.log('')

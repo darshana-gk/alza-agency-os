@@ -25,6 +25,10 @@ import {
 import { parseProducerSplitPercentage } from '../../lib/producerSplitValidation'
 import { fetchActiveReviewers, type ReviewerOption } from '../../lib/reviewers'
 import { supabase } from '../../lib/supabase'
+import {
+  transactionDateSemantics,
+  validateTransactionDateInputs,
+} from '../../lib/transactionDateSemantics'
 
 const inputClassName =
   'h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-900 placeholder:text-slate-400 focus:border-alza-blue-500 focus:outline-none focus:ring-2 focus:ring-alza-blue-500/20'
@@ -68,7 +72,7 @@ interface PolicyOption {
 }
 
 function defaultsTransactionDatesFromPolicy(type: string): boolean {
-  return type === 'new_policy_premium' || type === 'renewal_premium'
+  return transactionDateSemantics(type).snapshotTxnDatesFromPolicyTerm
 }
 
 function isAbsoluteNegativeEntryType(type: string): boolean {
@@ -99,6 +103,8 @@ export function AddTransactionModal({
     transactionDate: todayIsoDate(),
     transactionEffectiveDate: '',
     transactionExpirationDate: '',
+    policyEffectiveDate: '',
+    policyExpirationDate: '',
     transactionType: 'new_policy_premium' as TransactionType,
     description: '',
     notes: '',
@@ -128,6 +134,8 @@ export function AddTransactionModal({
       transactionDate: todayIsoDate(),
       transactionEffectiveDate: '',
       transactionExpirationDate: '',
+      policyEffectiveDate: '',
+      policyExpirationDate: '',
       transactionType: 'new_policy_premium',
       description: '',
       notes: '',
@@ -233,6 +241,8 @@ export function AddTransactionModal({
             csr: selected.csr,
             carrier: selected.carrier,
             mga: selected.mga,
+            policyEffectiveDate: selected.effectiveDate || '',
+            policyExpirationDate: selected.expirationDate || '',
             transactionEffectiveDate: usePolicyTerm ? selected.effectiveDate || '' : '',
             transactionExpirationDate: usePolicyTerm ? selected.expirationDate || '' : '',
             premiumAmount: '',
@@ -275,6 +285,11 @@ export function AddTransactionModal({
   const selectedPolicy = useMemo(
     () => policies.find((p) => p.id === form.policyId) ?? null,
     [policies, form.policyId],
+  )
+
+  const dateSemantics = useMemo(
+    () => transactionDateSemantics(form.transactionType),
+    [form.transactionType],
   )
 
   const amountEntered = form.premiumAmount.trim() !== ''
@@ -369,6 +384,8 @@ export function AddTransactionModal({
         csr: policy.csr,
         carrier: policy.carrier,
         mga: policy.mga,
+        policyEffectiveDate: policy.effectiveDate || '',
+        policyExpirationDate: policy.expirationDate || '',
         transactionEffectiveDate: usePolicyTerm
           ? policy.effectiveDate || ''
           : prev.transactionEffectiveDate,
@@ -415,6 +432,17 @@ export function AddTransactionModal({
       setError(splitParsed.error)
       return
     }
+    const dateError = validateTransactionDateInputs({
+      type: form.transactionType,
+      policyEffectiveDate: form.policyEffectiveDate,
+      policyExpirationDate: form.policyExpirationDate,
+      transactionEffectiveDate: form.transactionEffectiveDate,
+      transactionExpirationDate: form.transactionExpirationDate,
+    })
+    if (dateError) {
+      setError(dateError)
+      return
+    }
     const commissionType = normalizeCommissionType(form.commissionType)
     setSaving(true)
     setError(null)
@@ -424,6 +452,8 @@ export function AddTransactionModal({
       transactionDate: form.transactionDate,
       transactionEffectiveDate: form.transactionEffectiveDate || null,
       transactionExpirationDate: form.transactionExpirationDate || null,
+      policyEffectiveDate: form.policyEffectiveDate || null,
+      policyExpirationDate: form.policyExpirationDate || null,
       transactionType: form.transactionType,
       description: form.description,
       notes: form.notes,
@@ -512,12 +542,21 @@ export function AddTransactionModal({
                       nextPremium = String(Math.abs(premium))
                     }
                     const policy = policies.find((p) => p.id === prev.policyId)
+                    const nextSemantics = transactionDateSemantics(nextType)
                     let nextEffective = prev.transactionEffectiveDate
                     let nextExpiration = prev.transactionExpirationDate
-                    // NB/Renewal may adopt policy term as transaction-date defaults.
-                    if (defaultsTransactionDatesFromPolicy(nextType) && policy) {
-                      nextEffective = policy.effectiveDate || prev.transactionEffectiveDate
-                      nextExpiration = policy.expirationDate || prev.transactionExpirationDate
+                    let nextPolicyEffective = prev.policyEffectiveDate
+                    let nextPolicyExpiration = prev.policyExpirationDate
+                    if (nextSemantics.snapshotTxnDatesFromPolicyTerm && policy) {
+                      nextPolicyEffective = prev.policyEffectiveDate || policy.effectiveDate || ''
+                      nextPolicyExpiration = prev.policyExpirationDate || policy.expirationDate || ''
+                      nextEffective = ''
+                      nextExpiration = ''
+                    } else if (!nextSemantics.showTxnEffective) {
+                      nextEffective = ''
+                    }
+                    if (!nextSemantics.showTxnExpiration) {
+                      nextExpiration = ''
                     }
                     return {
                       ...prev,
@@ -525,6 +564,8 @@ export function AddTransactionModal({
                       premiumAmount: nextPremium,
                       transactionEffectiveDate: nextEffective,
                       transactionExpirationDate: nextExpiration,
+                      policyEffectiveDate: nextPolicyEffective,
+                      policyExpirationDate: nextPolicyExpiration,
                     }
                   })
                 }}
@@ -570,6 +611,8 @@ export function AddTransactionModal({
                       mga: '',
                       transactionEffectiveDate: '',
                       transactionExpirationDate: '',
+                      policyEffectiveDate: '',
+                      policyExpirationDate: '',
                       premiumAmount: '',
                       commissionType: 'percentage',
                       agencyCommissionPercentage: '',
@@ -612,57 +655,89 @@ export function AddTransactionModal({
             </label>
             <label className="block">
               <span className="mb-1.5 block text-xs font-medium text-slate-500">
-                Policy Effective Date
-                <span className="ml-1 font-normal text-slate-400">(read-only)</span>
+                {dateSemantics.policyEffectiveLabel}
+                {dateSemantics.policyTerm === 'read_only' && (
+                  <span className="ml-1 font-normal text-slate-400">(read-only)</span>
+                )}
               </span>
               <input
-                disabled
+                required={dateSemantics.policyTerm === 'editable_required'}
+                disabled={dateSemantics.policyTerm === 'read_only'}
                 type="date"
-                value={selectedPolicy?.effectiveDate || ''}
-                className={`${inputClassName} bg-slate-50`}
-              />
-            </label>
-            <label className="block">
-              <span className="mb-1.5 block text-xs font-medium text-slate-500">
-                Policy Expiration Date
-                <span className="ml-1 font-normal text-slate-400">(read-only)</span>
-              </span>
-              <input
-                disabled
-                type="date"
-                value={selectedPolicy?.expirationDate || ''}
-                className={`${inputClassName} bg-slate-50`}
-              />
-            </label>
-            <label className="block">
-              <span className="mb-1.5 block text-xs font-medium text-slate-500">
-                Transaction Effective Date
-              </span>
-              <input
-                type="date"
-                value={form.transactionEffectiveDate}
-                onChange={(e) =>
-                  setForm((p) => ({ ...p, transactionEffectiveDate: e.target.value }))
+                value={
+                  dateSemantics.policyTerm === 'editable_required'
+                    ? form.policyEffectiveDate
+                    : selectedPolicy?.effectiveDate || ''
                 }
-                className={inputClassName}
+                onChange={(e) =>
+                  setForm((p) => ({ ...p, policyEffectiveDate: e.target.value }))
+                }
+                className={
+                  dateSemantics.policyTerm === 'read_only'
+                    ? `${inputClassName} bg-slate-50`
+                    : inputClassName
+                }
               />
-              <span className="mt-1 block text-xs text-slate-500">
-                Transaction-level snapshot — does not change the policy term.
-              </span>
             </label>
             <label className="block">
               <span className="mb-1.5 block text-xs font-medium text-slate-500">
-                Transaction Expiration Date
+                {dateSemantics.policyExpirationLabel}
+                {dateSemantics.policyTerm === 'read_only' && (
+                  <span className="ml-1 font-normal text-slate-400">(read-only)</span>
+                )}
               </span>
               <input
+                required={dateSemantics.policyTerm === 'editable_required'}
+                disabled={dateSemantics.policyTerm === 'read_only'}
                 type="date"
-                value={form.transactionExpirationDate}
-                onChange={(e) =>
-                  setForm((p) => ({ ...p, transactionExpirationDate: e.target.value }))
+                value={
+                  dateSemantics.policyTerm === 'editable_required'
+                    ? form.policyExpirationDate
+                    : selectedPolicy?.expirationDate || ''
                 }
-                className={inputClassName}
+                onChange={(e) =>
+                  setForm((p) => ({ ...p, policyExpirationDate: e.target.value }))
+                }
+                className={
+                  dateSemantics.policyTerm === 'read_only'
+                    ? `${inputClassName} bg-slate-50`
+                    : inputClassName
+                }
               />
             </label>
+            {dateSemantics.showTxnEffective && (
+              <label className="block">
+                <span className="mb-1.5 block text-xs font-medium text-slate-500">
+                  {dateSemantics.txnEffectiveLabel}
+                </span>
+                <input
+                  required={dateSemantics.txnEffectiveRequired}
+                  type="date"
+                  value={form.transactionEffectiveDate}
+                  onChange={(e) =>
+                    setForm((p) => ({ ...p, transactionEffectiveDate: e.target.value }))
+                  }
+                  className={inputClassName}
+                />
+              </label>
+            )}
+            {dateSemantics.showTxnExpiration && (
+              <label className="block">
+                <span className="mb-1.5 block text-xs font-medium text-slate-500">
+                  {dateSemantics.txnExpirationLabel}
+                </span>
+                <input
+                  required={dateSemantics.txnExpirationRequired}
+                  type="date"
+                  value={form.transactionExpirationDate}
+                  onChange={(e) =>
+                    setForm((p) => ({ ...p, transactionExpirationDate: e.target.value }))
+                  }
+                  className={inputClassName}
+                />
+              </label>
+            )}
+            <p className="sm:col-span-2 text-xs text-slate-500">{dateSemantics.notes}</p>
           </div>
 
           <label className="block">

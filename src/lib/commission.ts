@@ -18,6 +18,11 @@ import {
 } from './permissions'
 import { validateProducerSplitPercentage } from './producerSplitValidation'
 import { mapCreatedAtValue } from './createdFirstSort'
+import {
+  isPolicyTermUpdatingType,
+  resolvePersistedTransactionDates,
+  validateTransactionDateInputs,
+} from './transactionDateSemantics'
 
 export { isOpsMutatorRole } from './permissions'
 
@@ -917,6 +922,47 @@ function isMissingColumnError(error: { message?: string; code?: string } | null)
   return code === '42703' || code === 'PGRST204' || /column .+ does not exist/i.test(msg)
 }
 
+/** PostgREST/Postgres missing-column name, or null if the error is not a missing column. */
+export function missingColumnNameFromError(error: { message?: string; code?: string } | null): string | null {
+  if (!error || !isMissingColumnError(error)) return null
+  const msg = error.message ?? ''
+  const schemaCache = msg.match(/Could not find the '([^']+)' column/i)
+  if (schemaCache?.[1]) return schemaCache[1]
+  const quoted = msg.match(/column (?:[\w.]+\.)?"([^"]+)" does not exist/i)
+  if (quoted?.[1]) return quoted[1].split('.').pop() ?? quoted[1]
+  const relation = msg.match(/column "([^"]+)" of relation/i)
+  if (relation?.[1]) return relation[1].split('.').pop() ?? relation[1]
+  const bare = msg.match(/column ([\w.]+) does not exist/i)
+  if (bare?.[1]) return bare[1].split('.').pop() ?? bare[1]
+  return null
+}
+
+const TRANSACTION_INSERT_REQUIRED_COLUMNS = ['client_id', 'policy_id', 'transaction_type', 'transaction_date'] as const
+
+async function insertTransactionCompat(payload: Record<string, unknown>) {
+  const next: Record<string, unknown> = { ...payload }
+  for (let attempt = 0; attempt < 40; attempt += 1) {
+    const { data, error } = await supabase
+      .from('transactions')
+      .insert(next)
+      .select('id, transaction_number')
+      .single()
+    if (!error) return { data, error: null as { message: string; code?: string } | null }
+    const column = missingColumnNameFromError(error)
+    if (!column || !(column in next)) {
+      return { data: null, error }
+    }
+    if ((TRANSACTION_INSERT_REQUIRED_COLUMNS as readonly string[]).includes(column)) {
+      return { data: null, error }
+    }
+    delete next[column]
+  }
+  return {
+    data: null,
+    error: { message: 'Transaction insert exceeded missing-column retries.' },
+  }
+}
+
 async function fetchMappedCommission(
   run: (select: string) => PromiseLike<{
     data: unknown
@@ -1411,6 +1457,9 @@ export interface CreateTransactionInput {
   /** Transaction-level date snapshot (defaults from policy when omitted). */
   transactionEffectiveDate?: string | null
   transactionExpirationDate?: string | null
+  /** Policy term for New Business / Renewal (also snapshotted onto the transaction when those columns exist). */
+  policyEffectiveDate?: string | null
+  policyExpirationDate?: string | null
 }
 
 /**
@@ -1541,6 +1590,27 @@ export async function createTransaction(input: CreateTransactionInput) {
     }
   }
 
+  const dateError = validateTransactionDateInputs({
+    type: input.transactionType,
+    policyEffectiveDate: input.policyEffectiveDate ?? '',
+    policyExpirationDate: input.policyExpirationDate ?? '',
+    transactionEffectiveDate: input.transactionEffectiveDate ?? '',
+    transactionExpirationDate: input.transactionExpirationDate ?? '',
+  })
+  if (dateError) {
+    return {
+      error: { message: dateError, table: 'transactions', operation: 'validate' },
+    }
+  }
+
+  const persistedDates = resolvePersistedTransactionDates({
+    type: input.transactionType,
+    policyEffectiveDate: input.policyEffectiveDate ?? '',
+    policyExpirationDate: input.policyExpirationDate ?? '',
+    transactionEffectiveDate: input.transactionEffectiveDate ?? '',
+    transactionExpirationDate: input.transactionExpirationDate ?? '',
+  })
+
   const derived = deriveCommission({
     commissionType,
     baseAmount: premiumAmount,
@@ -1553,7 +1623,7 @@ export async function createTransaction(input: CreateTransactionInput) {
   const csrName = input.csr.trim()
   const csrUserId = csrName ? await resolveCsrUserIdByName(csrName) : null
 
-  const payload = {
+  const payload: Record<string, unknown> = {
     client_id: input.clientId.trim(),
     policy_id: input.policyId.trim(),
     transaction_date: input.transactionDate.trim(),
@@ -1596,27 +1666,74 @@ export async function createTransaction(input: CreateTransactionInput) {
     review_returned_by: null,
     original_transaction_id: input.originalTransactionId?.trim() || null,
     producer_split_source: input.producerSplitSource ?? null,
-    transaction_effective_date: input.transactionEffectiveDate?.trim() || null,
-    transaction_expiration_date: input.transactionExpirationDate?.trim() || null,
+    transaction_effective_date: persistedDates.transactionEffectiveDate,
+    transaction_expiration_date: persistedDates.transactionExpirationDate,
     voided_at: null,
     voided_by: null,
     void_reason: null,
   }
 
-  const { data, error } = await supabase
-    .from('transactions')
-    .insert(payload)
-    .select('id, transaction_number')
-    .single()
+  const { data, error } = await insertTransactionCompat(payload)
 
-  if (error) {
+  if (error || !data) {
     return {
       error: {
-        message: error.message,
+        message: error?.message ?? 'Transaction insert returned no row.',
         table: 'transactions',
         operation: 'insert',
         details: error,
       },
+    }
+  }
+
+  if (isPolicyTermUpdatingType(input.transactionType)) {
+    const policyId = input.policyId.trim()
+    const clientId = input.clientId.trim()
+    const nextEffective = persistedDates.transactionEffectiveDate
+    const nextExpiration = persistedDates.transactionExpirationDate
+    const { data: policyRow, error: policyFetchError } = await supabase
+      .from('policies')
+      .select('id, client_id, effective_date, expiration_date')
+      .eq('id', policyId)
+      .is('archived_at', null)
+      .maybeSingle()
+    const policyOk =
+      !policyFetchError &&
+      policyRow &&
+      String(policyRow.id) === policyId &&
+      String(policyRow.client_id ?? '') === clientId
+    if (!policyOk) {
+      await supabase.from('transactions').update({ archived_at: new Date().toISOString() }).eq('id', data.id)
+      return {
+        error: {
+          message:
+            policyFetchError?.message ??
+            'Policy term could not be updated because the policy was not found for this client.',
+          table: 'policies',
+          operation: 'policy_term_lookup',
+          details: policyFetchError,
+        },
+      }
+    }
+    const { error: policyUpdateError } = await supabase
+      .from('policies')
+      .update({
+        effective_date: nextEffective,
+        expiration_date: nextExpiration,
+      })
+      .eq('id', policyId)
+      .eq('client_id', clientId)
+      .is('archived_at', null)
+    if (policyUpdateError) {
+      await supabase.from('transactions').update({ archived_at: new Date().toISOString() }).eq('id', data.id)
+      return {
+        error: {
+          message: `Transaction was not kept because the policy term could not be saved: ${policyUpdateError.message}`,
+          table: 'policies',
+          operation: 'policy_term_update',
+          details: policyUpdateError,
+        },
+      }
     }
   }
 
@@ -1635,6 +1752,8 @@ export async function createTransaction(input: CreateTransactionInput) {
       producerSplitPercentage: derived.producerSplitPercentage,
       producerSplitSource: input.producerSplitSource ?? null,
       originalTransactionId: payload.original_transaction_id,
+      policyEffectiveDate: persistedDates.transactionEffectiveDate,
+      policyExpirationDate: persistedDates.transactionExpirationDate,
     },
   })
 
