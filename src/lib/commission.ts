@@ -1405,14 +1405,15 @@ export interface DerivedCommission {
 }
 
 /**
- * Locked product math:
- * percentage → agency = base × % / 100
+ * Locked product math (percent values are 0–100, not 0–1 fractions):
+ * percentage → agency = base × agency% / 100
  * flat → agency = entered flat amount
- * pool = agency + broker_fee
+ * pool = agency + broker_fee   (broker fee is shared with the producer)
  * producer = pool × split% / 100
  * agency_net = pool − producer
  *
  * Broker fee is explicit (may be 0 / + / −). Never auto-reversed for return_premium.
+ * Do not substitute policy/producer defaults at display time — persist these snapshots.
  */
 export function deriveCommission(input: DeriveCommissionInput): DerivedCommission {
   const commissionType = normalizeCommissionType(input.commissionType)

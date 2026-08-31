@@ -556,7 +556,9 @@ export function PolicyDetails() {
         <p className="mb-5 text-xs text-slate-500">
           Current Policy Premium is the current term: latest New Business or Renewal plus signed
           endorsements, audits, and cancellations in that term. Prior terms and voided or archived
-          transactions are excluded. Commission totals use the same current-term set.
+          transactions are excluded. Commission totals use the same current-term set and the
+          persisted snapshots: producer commission = (agency commission + broker fee) × split % at
+          save.
         </p>
         <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
           <InfoField
@@ -640,7 +642,7 @@ export function PolicyDetails() {
           <table className="min-w-full">
             <thead>
               <tr className="border-b border-slate-200 bg-slate-50/80">
-                {['Transaction #', 'Date', 'Type', 'Amount', 'Agency Commission', 'Producer Commission', 'Review Status', 'Producer Payment Status'].map((col) => (
+                {['Transaction #', 'Date', 'Type', 'Amount', 'Agency Commission', 'Producer Split %', 'Producer Commission', 'Review Status', 'Producer Payment Status'].map((col) => (
                   <th key={col} className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">
                     {col}
                   </th>
@@ -650,7 +652,7 @@ export function PolicyDetails() {
             <tbody className="divide-y divide-slate-100">
               {transactions.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="px-4 py-10 text-center text-sm text-slate-500">
+                    <td colSpan={9} className="px-4 py-10 text-center text-sm text-slate-500">
                     No transactions recorded for this policy.
                   </td>
                 </tr>
@@ -679,6 +681,7 @@ export function PolicyDetails() {
                       {formatCurrency(tx.amount)}
                     </td>
                     <td className="whitespace-nowrap px-4 py-4 text-sm tabular-nums text-slate-700">{formatCurrency(tx.agencyCommissionAmount)}</td>
+                    <td className="whitespace-nowrap px-4 py-4 text-sm tabular-nums text-slate-700">{formatPercent(tx.producerSplitPercentage)}</td>
                     <td className="whitespace-nowrap px-4 py-4 text-sm tabular-nums text-slate-700">{formatCurrency(tx.producerCommissionAmount)}</td>
                     <td className="whitespace-nowrap px-4 py-4">
                       <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ring-inset ${reviewStatusStyles[tx.reviewStatus] ?? 'bg-slate-100 text-slate-700 ring-slate-500/20'}`}>

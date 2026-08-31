@@ -18,8 +18,18 @@ export async function fetchProducerDefaultSplit(
     .order('status', { ascending: true })
     .limit(5)
 
+  const statusMissing =
+    Boolean(withStatus.error) &&
+    /column .+status/i.test(withStatus.error?.message ?? '')
+  const splitMissing =
+    Boolean(withStatus.error) &&
+    /default_split_percentage/i.test(withStatus.error?.message ?? '')
+
+  // Staging producers may omit default_split_percentage — do not invent 0% or 100%.
+  if (splitMissing) return { split: null, error: null }
+
   const queried =
-    withStatus.error && isMissingDirectoryColumnError(withStatus.error)
+    withStatus.error && statusMissing
       ? await supabase
           .from('producers')
           .select('default_split_percentage, archived_at')
@@ -29,7 +39,12 @@ export async function fetchProducerDefaultSplit(
       : withStatus
 
   if (queried.error) {
-    if (isMissingDirectoryColumnError(queried.error)) return { split: null, error: null }
+    if (
+      isMissingDirectoryColumnError(queried.error) ||
+      /default_split_percentage/i.test(queried.error.message ?? '')
+    ) {
+      return { split: null, error: null }
+    }
     return { split: null, error: queried.error.message }
   }
 
@@ -43,6 +58,28 @@ export async function fetchProducerDefaultSplit(
     return { split: null, error: null }
   }
   return { split: Number(row.default_split_percentage), error: null }
+}
+
+/**
+ * Split % to prefill on Add Transaction.
+ * A stored policy split (including override) wins over producer default.
+ * Producer default is used only when the policy split is 0 / unset.
+ * Split is a 0–100 percent, not a 0–1 fraction.
+ */
+export function splitPercentForNewTransaction(params: {
+  policySplit: number
+  policyOverride: boolean
+  producerDefault: number | null
+}): number {
+  const policySplit = Number(params.policySplit)
+  const policyHasSplit = Number.isFinite(policySplit) && policySplit > 0
+  if (params.policyOverride || policyHasSplit) {
+    return Number.isFinite(policySplit) ? policySplit : 0
+  }
+  if (params.producerDefault !== null && Number.isFinite(params.producerDefault)) {
+    return params.producerDefault
+  }
+  return Number.isFinite(policySplit) ? policySplit : 0
 }
 
 export function resolveTransactionSplitSource(params: {

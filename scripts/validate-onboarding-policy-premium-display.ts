@@ -261,6 +261,19 @@ console.log('I. Broker-fee sharing snapshot math (form / persist identity)')
   assertEq(derived.producerCommissionAmount, 100, '50% of $200 pool = $100 producer')
   assertEq(derived.agencyNetCommission, 100, 'agency net = pool − producer')
 
+  const zeroBroker = deriveCommission({
+    commissionType: 'percentage',
+    baseAmount: 1000,
+    agencyCommissionPercentage: 10,
+    agencyCommissionAmount: null,
+    brokerFee: 0,
+    producerSplitPercentage: 50,
+  })
+  assertEq(zeroBroker.commissionPool, 100, 'BUG008 pool with $0 broker = $100')
+  assertEq(zeroBroker.producerCommissionAmount, 50, 'BUG008 50% of $100 pool = $50')
+  assertEq(zeroBroker.agencyNetCommission, 50, 'BUG008 agency net $50')
+  assertEq(derived.agencyNetCommission, 100, 'agency net = pool − producer')
+
   const persisted = policyTermFinancialTotals([
     txn({
       id: 'snap',

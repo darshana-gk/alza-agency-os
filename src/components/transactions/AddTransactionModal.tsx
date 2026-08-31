@@ -21,6 +21,7 @@ import {
 import {
   fetchProducerDefaultSplit,
   resolveTransactionSplitSource,
+  splitPercentForNewTransaction,
 } from '../../lib/producerSplit'
 import { parseProducerSplitPercentage } from '../../lib/producerSplitValidation'
 import { fetchActiveReviewers, type ReviewerOption } from '../../lib/reviewers'
@@ -229,34 +230,12 @@ export function AddTransactionModal({
       const defaultReviewerId =
         reviewerRes.data.length === 1 ? reviewerRes.data[0].id : ''
       if (selected) {
-        // Never auto-fill Transaction Amount from policy.premium — user must enter it.
-        // NB/Renewal may default transaction dates from policy term; other types stay blank.
-        setForm((prev) => {
-          const usePolicyTerm = defaultsTransactionDatesFromPolicy(prev.transactionType)
-          return {
-            ...prev,
-            clientId: lockedClientId || selected.clientId,
-            policyId: lockedPolicyId || selected.id,
-            producer: selected.producer,
-            csr: selected.csr,
-            carrier: selected.carrier,
-            mga: selected.mga,
-            policyEffectiveDate: selected.effectiveDate || '',
-            policyExpirationDate: selected.expirationDate || '',
-            transactionEffectiveDate: usePolicyTerm ? selected.effectiveDate || '' : '',
-            transactionExpirationDate: usePolicyTerm ? selected.expirationDate || '' : '',
-            premiumAmount: '',
-            commissionType: selected.commissionType,
-            agencyCommissionPercentage:
-              selected.agencyCommissionPercentage === null
-                ? ''
-                : String(selected.agencyCommissionPercentage),
-            agencyCommissionAmount: String(selected.agencyCommissionAmount),
-            brokerFee: String(selected.brokerFee),
-            producerSplitPercentage: String(selected.producerSplitPercentage || 0),
-            reviewerUserId: defaultReviewerId,
-          }
-        })
+        // Same split/broker defaults as choosing the policy from the dropdown.
+        await applyPolicyDefaults(selected)
+        if (cancelled) return
+        if (defaultReviewerId) {
+          setForm((prev) => ({ ...prev, reviewerUserId: defaultReviewerId }))
+        }
       } else if (defaultReviewerId) {
         setForm((prev) => ({ ...prev, reviewerUserId: defaultReviewerId }))
       }
@@ -360,9 +339,7 @@ export function AddTransactionModal({
     form.producerSplitPercentage,
   ])
 
-  async function applyPolicyDefaults(policyId: string) {
-    const policy = policies.find((p) => p.id === policyId)
-    if (!policy) return
+  async function applyPolicyDefaults(policy: PolicyOption) {
     const producerDefault = policy.producer
       ? await fetchProducerDefaultSplit(policy.producer)
       : { split: null, error: null }
@@ -370,15 +347,16 @@ export function AddTransactionModal({
       producerDefault.split !== null && Number.isFinite(producerDefault.split)
         ? producerDefault.split
         : null
-    const splitToUse =
-      policy.overrideSplit || policy.producerSplitPercentage > 0
-        ? policy.producerSplitPercentage
-        : defaultSplit ?? policy.producerSplitPercentage
+    const splitToUse = splitPercentForNewTransaction({
+      policySplit: policy.producerSplitPercentage,
+      policyOverride: policy.overrideSplit,
+      producerDefault: defaultSplit,
+    })
     setForm((prev) => {
       const usePolicyTerm = defaultsTransactionDatesFromPolicy(prev.transactionType)
       return {
         ...prev,
-        policyId,
+        policyId: policy.id,
         clientId: lockedClientId || policy.clientId,
         producer: policy.producer,
         csr: policy.csr,
@@ -400,7 +378,7 @@ export function AddTransactionModal({
             : String(policy.agencyCommissionPercentage),
         agencyCommissionAmount: String(policy.agencyCommissionAmount),
         brokerFee: String(policy.brokerFee),
-        producerSplitPercentage: String(splitToUse || 0),
+        producerSplitPercentage: String(splitToUse),
         producerDefaultSplit: defaultSplit,
         splitTouched: false,
       }
@@ -641,7 +619,10 @@ export function AddTransactionModal({
                   required
                   value={form.policyId}
                   disabled={!form.clientId}
-                  onChange={(e) => applyPolicyDefaults(e.target.value)}
+                  onChange={(e) => {
+                    const policy = clientPolicies.find((p) => p.id === e.target.value)
+                    if (policy) void applyPolicyDefaults(policy)
+                  }}
                   className={selectClassName}
                 >
                   <option value="">Select policy…</option>
@@ -996,8 +977,12 @@ export function AddTransactionModal({
               </p>
             </div>
             <p className="mt-2 text-xs text-slate-500">
-              Derived amounts are read-only. expected_amount is set to agency commission amount.
-              Broker fee is snapshotted on the transaction (not re-read from policy later).
+              Producer commission = (agency commission + broker fee) × producer split %. Broker fee
+              is shared with the producer. Amounts are snapshotted on save and are not re-read from
+              the policy later.
+              {derived
+                ? ` (${formatCurrency(derived.agencyCommissionAmount)} + ${formatCurrency(derived.brokerFee)}) × ${formatPercent(derived.producerSplitPercentage)} = ${formatCurrency(derived.producerCommissionAmount)}.`
+                : ''}
             </p>
           </div>
 

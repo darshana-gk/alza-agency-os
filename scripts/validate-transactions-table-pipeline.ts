@@ -20,6 +20,7 @@ import {
   isOperationallyPendingTransaction,
   missingColumnNameFromError,
 } from '../src/lib/commission.ts'
+import { splitPercentForNewTransaction } from '../src/lib/producerSplit.ts'
 import {
   isPolicyTermUpdatingType,
   resolvePersistedTransactionDates,
@@ -363,7 +364,7 @@ console.log('Transaction-type date matrix')
   assert(endoSnap.transactionExpirationDate === '2027-08-31', 'Endorsement persists txn expiration, not policy term')
 }
 
-console.log('UAT BUG 005 commission math')
+console.log('UAT BUG 005 commission math — broker fee is shared in the pool')
 {
   const derived = deriveCommission({
     commissionType: 'percentage',
@@ -376,8 +377,74 @@ console.log('UAT BUG 005 commission math')
   assert(derived.agencyCommissionAmount === 100, '10% of $1000 = $100')
   assert(derived.brokerFee === 100, 'broker fee $100')
   assert(derived.commissionPool === 200, 'pool $200')
-  assert(derived.producerCommissionAmount === 100, '50% of pool = $100')
+  assert(derived.producerCommissionAmount === 100, '50% of $200 pool = $100 producer')
   assert(derived.agencyNetCommission === 100, 'agency net $100')
+}
+
+console.log('UAT BUG 008 commission math — $0 broker, 50% split')
+{
+  const pct = deriveCommission({
+    commissionType: 'percentage',
+    baseAmount: 1000,
+    agencyCommissionPercentage: 10,
+    agencyCommissionAmount: null,
+    brokerFee: 0,
+    producerSplitPercentage: 50,
+  })
+  assert(pct.agencyCommissionAmount === 100, 'BUG008 10% of $1000 = $100 agency')
+  assert(pct.brokerFee === 0, 'BUG008 broker $0')
+  assert(pct.commissionPool === 100, 'BUG008 pool $100')
+  assert(pct.producerCommissionAmount === 50, 'BUG008 50% of $100 pool = $50 producer')
+  assert(pct.agencyNetCommission === 50, 'BUG008 net $50')
+
+  const flat = deriveCommission({
+    commissionType: 'flat',
+    baseAmount: 1000,
+    agencyCommissionPercentage: null,
+    agencyCommissionAmount: 100,
+    brokerFee: 0,
+    producerSplitPercentage: 50,
+  })
+  assert(flat.agencyCommissionAmount === 100, 'BUG008 flat agency $100')
+  assert(flat.commissionPool === 100, 'BUG008 flat pool $100')
+  assert(flat.producerCommissionAmount === 50, 'BUG008 flat 50% of pool = $50')
+  assert(flat.agencyNetCommission === 50, 'BUG008 flat net $50')
+
+  const fullSplit = deriveCommission({
+    commissionType: 'percentage',
+    baseAmount: 1000,
+    agencyCommissionPercentage: 10,
+    agencyCommissionAmount: null,
+    brokerFee: 0,
+    producerSplitPercentage: 100,
+  })
+  assert(fullSplit.producerCommissionAmount === 100, '100% split of $100 pool = $100 producer')
+  assert(fullSplit.agencyNetCommission === 0, '100% split → $0 agency net')
+
+  assert(
+    splitPercentForNewTransaction({
+      policySplit: 50,
+      policyOverride: false,
+      producerDefault: 100,
+    }) === 50,
+    'policy stored 50% wins over producer default 100%',
+  )
+  assert(
+    splitPercentForNewTransaction({
+      policySplit: 0,
+      policyOverride: false,
+      producerDefault: 50,
+    }) === 50,
+    'producer default used when policy split is 0',
+  )
+  assert(
+    splitPercentForNewTransaction({
+      policySplit: 0,
+      policyOverride: false,
+      producerDefault: null,
+    }) === 0,
+    'missing producer default column does not invent 100%',
+  )
 }
 
 console.log('Insert schema-cache error parser + createTransaction compat')
@@ -406,6 +473,11 @@ console.log('Insert schema-cache error parser + createTransaction compat')
   assert(modalSrc.includes('transactionDateSemantics'), 'Add Transaction uses the date matrix')
   assert(modalSrc.includes('dateSemantics.showTxnExpiration'), 'Add Transaction renders expiration from the date matrix')
   assert(modalSrc.includes('policyEffectiveDate'), 'Add Transaction can edit policy term for NB/Renewal')
+  assert(commissionSrc.includes('producer_commission_amount: derived.producerCommissionAmount'), 'create persists derived producer commission')
+  assert(commissionSrc.includes('agency_net_commission: derived.agencyNetCommission'), 'create persists derived agency net')
+  assert(commissionSrc.includes('broker_fee: derived.brokerFee'), 'create persists derived broker fee')
+  assert(modalSrc.includes('splitPercentForNewTransaction'), 'Add Transaction prefills split from policy vs producer default helper')
+  assert(modalSrc.includes('agency commission + broker fee'), 'Add Transaction preview states pool × split formula')
 }
 
 console.log('')
