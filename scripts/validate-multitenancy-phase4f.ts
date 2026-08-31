@@ -6,7 +6,9 @@
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import {
+  buildTransactionsPageKpis,
   isActiveFinancialTransaction,
+  isOperationallyPendingTransaction,
   isReadyForPayout,
   type CommissionTransaction,
 } from '../src/lib/commission.ts'
@@ -59,6 +61,7 @@ const commission = read('src/lib/commission.ts')
 const dashboard = read('src/pages/Dashboard.tsx')
 const reports = read('src/pages/Reports.tsx')
 const financials = read('src/pages/Financials.tsx')
+const transactionsPage = read('src/pages/Transactions.tsx')
 const testSupabase = read('src/pages/TestSupabase.tsx')
 const notifications = read('src/lib/notifications.ts')
 
@@ -101,6 +104,46 @@ console.log('B. Voided transactions excluded from active totals')
   assert(reports.includes('isActiveFinancialTransaction'), 'Reports KPIs use active-total helper')
   assert(financials.includes('isActiveFinancialTransaction'), 'Financials KPIs use active-total helper')
   assert(notifications.includes('isActiveFinancialTransaction'), 'notifications skip voided transactions')
+  assert(transactionsPage.includes('buildTransactionsPageKpis'), 'Transactions KPIs use shared live helper')
+  assert(
+    !isOperationallyPendingTransaction({
+      archived: false,
+      voidedAt: '2026-08-31T05:16:04.230482+00',
+      producerPaymentStatus: 'not_ready',
+      paidDate: null,
+    }),
+    'voided Agency B row is not pending',
+  )
+  const agencyBPage = buildTransactionsPageKpis([
+    {
+      amount: 100,
+      type: 'new_policy_premium',
+      archived: false,
+      voidedAt: null,
+      producerPaymentStatus: 'not_ready',
+      paidDate: null,
+    },
+    {
+      amount: 814,
+      type: 'new_policy_premium',
+      archived: false,
+      voidedAt: null,
+      producerPaymentStatus: 'ready',
+      paidDate: null,
+    },
+    {
+      amount: 99999,
+      type: 'new_policy_premium',
+      archived: false,
+      voidedAt: '2026-08-31T05:16:04.230482+00',
+      producerPaymentStatus: 'not_ready',
+      paidDate: null,
+    },
+  ])
+  assert(agencyBPage.total === 3, 'history count still includes voided')
+  assert(agencyBPage.netVolume === 914, 'Net Premium Volume excludes voided $99,999')
+  assert(agencyBPage.returnPremiumTotal === 0, 'Return Premiums ignore voided new-business row')
+  assert(agencyBPage.pendingCount === 2, 'Pending count excludes voided')
   assert(
     resolveCurrentPolicyPremium({ policyPremium: 300, transactionPremiumSum: 914 }) === 914,
     'current premium ignores stored policies.premium',

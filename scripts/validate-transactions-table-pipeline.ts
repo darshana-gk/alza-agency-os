@@ -14,6 +14,10 @@ import {
   transactionTableAccessors,
   type TransactionTableRow,
 } from '../src/lib/transactionsTable.ts'
+import {
+  buildTransactionsPageKpis,
+  isOperationallyPendingTransaction,
+} from '../src/lib/commission.ts'
 
 let passed = 0
 let failed = 0
@@ -211,6 +215,56 @@ console.log('Postgres-style created_at still sorts by actual timestamp')
   assert(
     page.sorted[0]?.transactionNumber === 'TXN-SPACE-NOON',
     'space-separated noon timestamptz ranks after ISO midnight the same day (Date.parse, not localeCompare)',
+  )
+}
+
+console.log('Transactions page KPIs exclude voided from amount totals, keep history count')
+{
+  const kpis = buildTransactionsPageKpis([
+    {
+      amount: 100,
+      type: 'new_policy_premium',
+      archived: false,
+      voidedAt: null,
+      producerPaymentStatus: 'not_ready',
+      paidDate: null,
+    },
+    {
+      amount: 814,
+      type: 'new_policy_premium',
+      archived: false,
+      voidedAt: null,
+      producerPaymentStatus: 'ready',
+      paidDate: null,
+    },
+    {
+      amount: 99999,
+      type: 'new_policy_premium',
+      archived: false,
+      voidedAt: '2026-08-31T05:16:04.230482+00',
+      producerPaymentStatus: 'not_ready',
+      paidDate: null,
+    },
+    {
+      amount: -200,
+      type: 'cancellation_premium',
+      archived: false,
+      voidedAt: '2026-08-31T00:00:00.000Z',
+      producerPaymentStatus: 'not_ready',
+      paidDate: null,
+    },
+  ])
+  assert(kpis.total === 4, 'Total Transactions counts visible history including voided')
+  assert(kpis.netVolume === 914, 'Net Premium Volume is live $914 not $100,713')
+  assert(kpis.returnPremiumTotal === 0, 'voided cancellation is not a live Return Premium')
+  assert(kpis.pendingCount === 2, 'Pending is 2 live unpaid, not 4')
+  assert(
+    !isOperationallyPendingTransaction({
+      archived: false,
+      voidedAt: '2026-08-31T05:16:04.230482+00',
+      producerPaymentStatus: 'not_ready',
+    }),
+    '2AG-B-TRX-VOIDED would not be pending even with not_ready status',
   )
 }
 

@@ -50,8 +50,8 @@ import {
   getTransactionWorkflowStatus,
   getTransactionWorkflowTimeline,
   isCorrectionRequired,
-  isOperationallyPendingTransaction,
   isReadyForPayout,
+  buildTransactionsPageKpis,
   canMarkProducerCommissionReady,
   markReadyBlockedReason,
   markProducerCommissionReady,
@@ -654,21 +654,10 @@ export function Transactions() {
     profile?.email,
   ])
 
-  const kpis = useMemo(() => {
-    const netVolume = filteredTransactions.reduce((sum, tx) => sum + tx.amount, 0)
-    const returnPremiumTotal = filteredTransactions
-      .filter((tx) => tx.type === 'return_premium' || tx.type === 'cancellation_premium')
-      .reduce((sum, tx) => sum + tx.amount, 0)
-    const pendingCount = filteredTransactions.filter((tx) =>
-      isOperationallyPendingTransaction(tx),
-    ).length
-    return {
-      total: filteredTransactions.length,
-      netVolume,
-      returnPremiumTotal,
-      pendingCount,
-    }
-  }, [filteredTransactions])
+  const kpis = useMemo(
+    () => buildTransactionsPageKpis(filteredTransactions),
+    [filteredTransactions],
+  )
 
   const sortedTransactions = useMemo(
     () =>

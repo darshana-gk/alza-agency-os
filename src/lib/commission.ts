@@ -717,15 +717,14 @@ export function normalizePremiumAmountForType(type: string, rawAmount: number): 
   return rawAmount
 }
 
-/** Operational "Pending" KPI: not paid, not voided, not archived. */
+/** Operational "Pending" KPI: live (not paid, not voided, not archived). */
 export function isOperationallyPendingTransaction(tx: {
   archived: boolean
   voidedAt?: string | null
   producerPaymentStatus: string
   paidDate?: string | null
 }): boolean {
-  if (tx.archived) return false
-  if (tx.voidedAt) return false
+  if (!isActiveFinancialTransaction(tx)) return false
   if (normalizePaymentStatus(tx.producerPaymentStatus) === 'paid') return false
   return true
 }
@@ -1801,6 +1800,28 @@ export function isActiveFinancialTransaction(tx: {
   archived?: boolean
 }): boolean {
   return !tx.archived && !tx.voidedAt
+}
+
+/** Transactions-page summary KPIs. History row count includes voided; amount KPIs do not. */
+export function buildTransactionsPageKpis(
+  rows: Array<{
+    amount: number
+    type: string
+    archived: boolean
+    voidedAt?: string | null
+    producerPaymentStatus: string
+    paidDate?: string | null
+  }>,
+) {
+  const live = rows.filter(isActiveFinancialTransaction)
+  return {
+    total: rows.length,
+    netVolume: live.reduce((sum, tx) => sum + tx.amount, 0),
+    returnPremiumTotal: live
+      .filter((tx) => tx.type === 'return_premium' || tx.type === 'cancellation_premium')
+      .reduce((sum, tx) => sum + tx.amount, 0),
+    pendingCount: rows.filter((tx) => isOperationallyPendingTransaction(tx)).length,
+  }
 }
 
 export function isReadyForPayout(tx: CommissionTransaction): boolean {
