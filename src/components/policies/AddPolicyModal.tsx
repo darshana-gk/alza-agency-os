@@ -184,8 +184,9 @@ export function AddPolicyModal({
           <div>
             <h3 className="text-lg font-semibold text-slate-900">Add Policy</h3>
             <p className="mt-1 text-sm text-slate-500">
-              Creates a policy with commission defaults. Live Current Policy Premium is the sum of
-              non-archived, non-voided transaction amounts for this policy.
+              Creates a policy with commission defaults. Live Current Policy Premium is the current
+              term (latest New Business or Renewal plus signed endorsements, audits, and
+              cancellations). It is not a sum of every historical term.
             </p>
           </div>
           <button type="button" disabled={saving} onClick={onClose} className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600">

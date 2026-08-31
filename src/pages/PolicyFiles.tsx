@@ -48,7 +48,7 @@ interface PolicyRow {
   expirationDate: string
   producer: string
   csr: string
-  /** On-screen Current Policy Premium = SUM(non-archived, non-voided txn amounts). */
+  /** On-screen Current Policy Premium = current-term live premium. */
   premium: number
   /** Raw policies.premium (opening / stored reference). */
   filePremium: number

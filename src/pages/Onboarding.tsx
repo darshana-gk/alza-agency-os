@@ -55,8 +55,9 @@ export function Onboarding() {
         <p className="mt-3">
           Imported Current Policy Premium is saved on the policy record (
           <span className="font-mono text-xs">policies.premium</span>) as a reference. Live Current
-          Policy Premium on Dashboard, Clients, and Policy screens is the sum of non-archived,
-          non-voided transaction amounts.
+          Policy Premium on Clients and Policy screens is the current term: latest New Business or
+          Renewal plus signed endorsements, audits, and cancellations. Dashboard Total Premium remains
+          agency book volume (all live transactions).
         </p>
       </div>
 

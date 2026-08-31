@@ -1,12 +1,58 @@
 /**
- * Current Policy Premium display / SoT helper.
+ * Current Policy Premium / policy-term financial SoT.
  *
- * Formula (same as Dashboard / Phase 4F):
- *   current = SUM(non-archived, non-voided transactions.amount)
+ * Current Policy Premium is the live premium for the current policy term, not a
+ * blind SUM of every non-voided transaction on the policy, and not policies.premium.
  *
- * policies.premium is a stored reference (Add Policy writes 0; onboarding may persist an
- * imported value) and is not added into live/current totals.
+ * Term-establishing types (New Business, Renewal) set the term premium.
+ * Term-adjusting types (Endorsement, Audit, Cancellation, legacy Return Premium)
+ * add their signed amount to that term.
+ * A later establishing transaction starts a new current term; prior-term amounts
+ * are not accumulated into Current Policy Premium.
+ * Voided and archived rows never count.
+ *
+ * policies.premium is a stored reference only (Add Policy writes 0; onboarding may
+ * persist an imported value) and is never added into live/current totals.
  */
+
+export const TERM_ESTABLISHING_TYPES = ['new_policy_premium', 'renewal_premium'] as const
+export const TERM_ADJUSTING_TYPES = [
+  'endorsement_premium',
+  'audit_premium',
+  'cancellation_premium',
+  'return_premium',
+] as const
+
+export type PolicyPremiumTxn = {
+  id?: string
+  type: string
+  amount: number
+  archived?: boolean
+  voidedAt?: string | null
+  transactionDate?: string | null
+  createdAt?: string | null
+  transactionEffectiveDate?: string | null
+  transactionExpirationDate?: string | null
+  brokerFee?: number
+  agencyCommissionAmount?: number
+  producerCommissionAmount?: number
+  agencyNetCommission?: number
+}
+
+export type PolicyTermOptions = {
+  policyEffectiveDate?: string | null
+  policyExpirationDate?: string | null
+}
+
+export type PolicyTermFinancialTotals = {
+  currentPolicyPremium: number
+  totalBrokerFees: number
+  totalAgencyCommission: number
+  totalCommissionPool: number
+  totalProducerCommission: number
+  totalAgencyNet: number
+  termTransactionIds: string[]
+}
 
 function toFiniteMoney(value: unknown): number {
   if (value === null || value === undefined || value === '') return 0
@@ -21,10 +67,188 @@ export function roundPolicyPremiumMoney(n: number): number {
   return Math.round((Number.isFinite(n) ? n : 0) * 100) / 100
 }
 
+function isoDate(value: string | null | undefined): string {
+  const raw = String(value ?? '').trim()
+  if (!raw) return ''
+  return raw.slice(0, 10)
+}
+
+function createdMs(tx: PolicyPremiumTxn): number {
+  const raw = tx.createdAt || tx.transactionDate || ''
+  const t = Date.parse(raw)
+  return Number.isFinite(t) ? t : 0
+}
+
+function isLiveTxn(tx: PolicyPremiumTxn): boolean {
+  return !tx.archived && !tx.voidedAt
+}
+
+export function isTermEstablishingType(type: string | null | undefined): boolean {
+  const t = String(type ?? '').trim()
+  if (!t) return true
+  return (TERM_ESTABLISHING_TYPES as readonly string[]).includes(t)
+}
+
+export function isTermAdjustingType(type: string | null | undefined): boolean {
+  return (TERM_ADJUSTING_TYPES as readonly string[]).includes(String(type ?? '').trim())
+}
+
+function termStartKey(tx: PolicyPremiumTxn): string {
+  return isoDate(tx.transactionEffectiveDate) || isoDate(tx.transactionDate)
+}
+
+function compareEstablishing(a: PolicyPremiumTxn, b: PolicyPremiumTxn): number {
+  const da = termStartKey(a)
+  const db = termStartKey(b)
+  if (da && db && da !== db) return db.localeCompare(da)
+  if (da && !db) return -1
+  if (!da && db) return 1
+  const created = createdMs(b) - createdMs(a)
+  if (created !== 0) return created
+  return String(b.id ?? '').localeCompare(String(a.id ?? ''))
+}
+
+function adjustmentBelongsToTerm(
+  tx: PolicyPremiumTxn,
+  establishing: PolicyPremiumTxn,
+  termStart: string,
+  termEnd: string,
+): boolean {
+  const eff = isoDate(tx.transactionEffectiveDate)
+  if (eff) {
+    if (termStart && eff < termStart) return false
+    if (termEnd && eff > termEnd) return false
+    return true
+  }
+  return createdMs(tx) > createdMs(establishing)
+}
+
 /**
- * Resolve on-screen Current Policy Premium for one policy.
- * @param policyPremium unused stored reference; kept so callers do not need a signature change
- * @param transactionPremiumSum SUM(transactions.amount) for non-archived, non-voided rows (signed)
+ * Live transactions that belong to the current policy term:
+ * the latest establishing New Business/Renewal, plus later signed adjustments
+ * in that term. Not "latest transaction only".
+ */
+export function selectCurrentTermTransactions(
+  transactions: PolicyPremiumTxn[],
+  options?: PolicyTermOptions,
+): PolicyPremiumTxn[] {
+  const live = transactions.filter(isLiveTxn)
+  const establishing = live.filter((tx) => isTermEstablishingType(tx.type))
+  if (establishing.length === 0) return []
+
+  const current = [...establishing].sort(compareEstablishing)[0]
+  const termStart =
+    isoDate(current.transactionEffectiveDate) || isoDate(options?.policyEffectiveDate)
+  const termEnd =
+    isoDate(current.transactionExpirationDate) || isoDate(options?.policyExpirationDate)
+
+  const adjustments = live
+    .filter((tx) => isTermAdjustingType(tx.type))
+    .filter((tx) => adjustmentBelongsToTerm(tx, current, termStart, termEnd))
+
+  return [current, ...adjustments]
+}
+
+export function currentPolicyPremiumFromTransactions(
+  transactions: PolicyPremiumTxn[],
+  options?: PolicyTermOptions,
+): number {
+  return roundPolicyPremiumMoney(
+    selectCurrentTermTransactions(transactions, options).reduce(
+      (sum, tx) => sum + toFiniteMoney(tx.amount),
+      0,
+    ),
+  )
+}
+
+/**
+ * Policy Details Financial Totals — same current-term set as Current Policy Premium.
+ * Pool = SUM(agency commission) + SUM(broker fee) on that set.
+ */
+export function policyTermFinancialTotals(
+  transactions: PolicyPremiumTxn[],
+  options?: PolicyTermOptions,
+): PolicyTermFinancialTotals {
+  const term = selectCurrentTermTransactions(transactions, options)
+  const currentPolicyPremium = roundPolicyPremiumMoney(
+    term.reduce((sum, tx) => sum + toFiniteMoney(tx.amount), 0),
+  )
+  const totalAgencyCommission = roundPolicyPremiumMoney(
+    term.reduce((sum, tx) => sum + toFiniteMoney(tx.agencyCommissionAmount), 0),
+  )
+  const totalBrokerFees = roundPolicyPremiumMoney(
+    term.reduce((sum, tx) => sum + toFiniteMoney(tx.brokerFee), 0),
+  )
+  const totalProducerCommission = roundPolicyPremiumMoney(
+    term.reduce((sum, tx) => sum + toFiniteMoney(tx.producerCommissionAmount), 0),
+  )
+  const totalAgencyNet = roundPolicyPremiumMoney(
+    term.reduce((sum, tx) => sum + toFiniteMoney(tx.agencyNetCommission), 0),
+  )
+  return {
+    currentPolicyPremium,
+    totalBrokerFees,
+    totalAgencyCommission,
+    totalCommissionPool: roundPolicyPremiumMoney(totalAgencyCommission + totalBrokerFees),
+    totalProducerCommission,
+    totalAgencyNet,
+    termTransactionIds: term.map((tx) => String(tx.id ?? '')).filter(Boolean),
+  }
+}
+
+export function toPolicyPremiumTxn(input: {
+  id?: string | null
+  type?: string | null
+  transaction_type?: string | null
+  amount?: unknown
+  premium_amount?: unknown
+  archived?: boolean
+  archived_at?: string | null
+  voidedAt?: string | null
+  voided_at?: string | null
+  transactionDate?: string | null
+  transaction_date?: string | null
+  createdAt?: string | null
+  created_at?: string | null
+  transactionEffectiveDate?: string | null
+  transaction_effective_date?: string | null
+  transactionExpirationDate?: string | null
+  transaction_expiration_date?: string | null
+  brokerFee?: unknown
+  broker_fee?: unknown
+  agencyCommissionAmount?: unknown
+  agency_commission_amount?: unknown
+  producerCommissionAmount?: unknown
+  producer_commission_amount?: unknown
+  agencyNetCommission?: unknown
+  agency_net_commission?: unknown
+}): PolicyPremiumTxn {
+  return {
+    id: input.id ?? undefined,
+    type: String(input.type ?? input.transaction_type ?? ''),
+    amount: toFiniteMoney(input.amount ?? input.premium_amount),
+    archived: Boolean(input.archived || input.archived_at),
+    voidedAt: input.voidedAt ?? input.voided_at ?? null,
+    transactionDate: input.transactionDate ?? input.transaction_date ?? null,
+    createdAt: input.createdAt ?? input.created_at ?? null,
+    transactionEffectiveDate:
+      input.transactionEffectiveDate ?? input.transaction_effective_date ?? null,
+    transactionExpirationDate:
+      input.transactionExpirationDate ?? input.transaction_expiration_date ?? null,
+    brokerFee: toFiniteMoney(input.brokerFee ?? input.broker_fee),
+    agencyCommissionAmount: toFiniteMoney(
+      input.agencyCommissionAmount ?? input.agency_commission_amount,
+    ),
+    producerCommissionAmount: toFiniteMoney(
+      input.producerCommissionAmount ?? input.producer_commission_amount,
+    ),
+    agencyNetCommission: toFiniteMoney(input.agencyNetCommission ?? input.agency_net_commission),
+  }
+}
+
+/**
+ * Apply a caller-provided live/current-term sum. policies.premium is ignored.
+ * Prefer currentPolicyPremiumFromTransactions when raw ledger rows are available.
  */
 export function resolveCurrentPolicyPremium(input: {
   policyPremium?: number | null | undefined
@@ -40,7 +264,7 @@ export function sumTransactionPremiumAmounts(
 }
 
 /**
- * Client Total Premium = SUM(resolveCurrentPolicyPremium) across that client's
+ * Client Total Premium = SUM(current-term premium) across that client's
  * non-archived policies. Same SoT as Policy Files / Policy Details / Client Details.
  */
 export function sumClientCurrentPremium(
@@ -63,7 +287,7 @@ export function sumClientCurrentPremium(
 }
 
 /**
- * Build per-client Total Premium maps from policy rows + per-policy txn sums.
+ * Build per-client Total Premium maps from policy rows + per-policy current-term sums.
  * Archived policies/transactions must be excluded by the caller before passing data.
  */
 export function buildClientTotalPremiumByClientId(input: {
@@ -72,7 +296,7 @@ export function buildClientTotalPremiumByClientId(input: {
     clientId: string
     premium: number | null | undefined
   }>
-  /** SUM(amount) by policy_id for non-archived, non-voided transactions only. */
+  /** Current-term premium by policy_id (from fetchPolicyTransactionSummaries). */
   transactionPremiumSumByPolicyId: Map<string, number> | Record<string, number>
 }): Map<string, number> {
   const txnMap =
@@ -101,4 +325,3 @@ export function buildClientTotalPremiumByClientId(input: {
   }
   return totals
 }
-

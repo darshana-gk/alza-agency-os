@@ -158,7 +158,7 @@ console.log('H. Voided/archived rows excluded from live sum')
   assertEq(totalPremiumByClientId.get(CLIENT_ONE), 100, 'voided and archived excluded')
 }
 
-console.log('I. Agency B UAT BUG 002 — stored $300 must not inflate live $914')
+console.log('I. Agency B UAT BUG 002 — stored $300 must not inflate injected current-term sums')
 {
   const { totalPremiumByClientId } = aggregateClientsListPremiumFromRows({
     policies: [
@@ -178,12 +178,36 @@ console.log('I. Agency B UAT BUG 002 — stored $300 must not inflate live $914'
       'b6100000-0000-4000-8000-000000000061': 814,
     },
   })
-  assertEq(totalPremiumByClientId.get(AGENCY_B_CLIENT), 914, 'matches Dashboard $914')
+  assertEq(totalPremiumByClientId.get(AGENCY_B_CLIENT), 914, 'injected current-term sums ignore stored $300')
   assertEq(
     formatCurrency(totalPremiumByClientId.get(AGENCY_B_CLIENT) ?? 0),
     '$914.00',
-    'displayed $914.00',
+    'displayed $914.00 from injected sums',
   )
+}
+
+console.log('J. Fallback txn rows use current-term (latest NB, not lifetime SUM)')
+{
+  const { totalPremiumByClientId } = aggregateClientsListPremiumFromRows({
+    policies: [{ id: 'p1', client_id: CLIENT_ONE, opening_premium: 300 }],
+    transactions: [
+      {
+        id: 'old',
+        policy_id: 'p1',
+        amount: 814,
+        transaction_type: 'new_policy_premium',
+        created_at: '2026-08-01T10:00:00Z',
+      },
+      {
+        id: 'uat011',
+        policy_id: 'p1',
+        amount: 1000,
+        transaction_type: 'new_policy_premium',
+        created_at: '2026-08-31T11:49:12Z',
+      },
+    ],
+  })
+  assertEq(totalPremiumByClientId.get(CLIENT_ONE), 1000, 'latest NB is current premium, not 1814')
 }
 
 console.log(`\n${passed} passed, ${failed} failed`)

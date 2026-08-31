@@ -53,7 +53,7 @@ interface ClientPolicy {
   writtenPremium: number
   status: PolicyStatus
   transactionCount: number
-  /** Current Policy Premium = SUM(non-archived, non-voided txn amounts). */
+  /** Current Policy Premium = current-term live premium. */
   totalPremium: number
   latestTransactionDate: string | null
 }
@@ -378,7 +378,7 @@ export function ClientDetails() {
 
     const clientTxns = txRes.data.filter((tx) => tx.clientId === id && !tx.archived)
     const liveClientTxns = clientTxns.filter(isActiveFinancialTransaction)
-    // Same SoT as Dashboard / Clients browse: SUM of live transaction premiums.
+    // Client Total Premium = SUM of per-policy current-term premiums (not Dashboard book volume).
     const totalPremium = sumClientCurrentPremium(
       policies.map((p) => ({
         policyPremium: p.writtenPremium,

@@ -197,7 +197,11 @@ console.log('H. No Phase 4 / product leakage')
   const extra = readdirSync(resolve(root, 'supabase/migrations')).filter((f) => {
     if (!f.endsWith('.sql')) return false
     const stamp = f.slice(0, 14)
-    return stamp > '20260828260000' && !f.startsWith('20260829090000_multitenancy_v1_phase4d_')
+    return (
+      stamp > '20260828260000' &&
+      !f.startsWith('20260829090000_multitenancy_v1_phase4d_') &&
+      !f.startsWith('20260831140000_staging_transactions_v1_financial_parity')
+    )
   })
   assert(extra.length === 0, `no migrations after 3E (${extra.join(', ') || 'none'})`)
   const between = readdirSync(resolve(root, 'supabase/migrations')).filter((f) => {

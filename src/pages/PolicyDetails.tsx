@@ -22,7 +22,7 @@ import {
   producerKeysMatch,
   roleInputFromProfile,
 } from '../lib/permissions'
-import { resolveCurrentPolicyPremium } from '../lib/policyPremium'
+import { policyTermFinancialTotals, toPolicyPremiumTxn } from '../lib/policyPremium'
 import {
   fetchCommissionTransactionsByPolicy,
   formatCommissionTypeLabel,
@@ -35,7 +35,6 @@ import {
   paymentStatusStyles,
   reviewStatusStyles,
   typeStyles,
-  isActiveFinancialTransaction,
   type CommissionTransaction,
   type CommissionType,
 } from '../lib/commission'
@@ -312,34 +311,14 @@ export function PolicyDetails() {
   }, [policy])
 
   const financialTotals = useMemo(() => {
-    let transactionPremiumSum = 0
-    let totalBrokerFees = 0
-    let totalAgencyCommission = 0
-    let totalProducerCommission = 0
-    let totalAgencyNet = 0
-    for (const tx of transactions) {
-      if (!isActiveFinancialTransaction(tx)) continue
-      transactionPremiumSum += tx.amount
-      totalBrokerFees += tx.brokerFee
-      totalAgencyCommission += tx.agencyCommissionAmount
-      totalProducerCommission += tx.producerCommissionAmount
-      totalAgencyNet += tx.agencyNetCommission
-    }
-    const totalCommissionPool = totalAgencyCommission + totalBrokerFees
-    const currentPolicyPremium = resolveCurrentPolicyPremium({
-      policyPremium: policy?.premium ?? 0,
-      transactionPremiumSum,
-    })
-    return {
-      currentPolicyPremium,
-      transactionPremiumSum,
-      totalBrokerFees,
-      totalAgencyCommission,
-      totalCommissionPool,
-      totalProducerCommission,
-      totalAgencyNet,
-    }
-  }, [transactions, policy?.premium])
+    return policyTermFinancialTotals(
+      transactions.map((tx) => toPolicyPremiumTxn(tx)),
+      {
+        policyEffectiveDate: policy?.effectiveDate,
+        policyExpirationDate: policy?.expirationDate,
+      },
+    )
+  }, [transactions, policy?.effectiveDate, policy?.expirationDate])
 
   function openEdit() {
     if (!policy || !canEdit) return
@@ -575,8 +554,9 @@ export function PolicyDetails() {
       <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
         <h2 className="mb-1 text-lg font-semibold text-slate-900">Financial Totals</h2>
         <p className="mb-5 text-xs text-slate-500">
-          Current Policy Premium and commission totals are SUM of related non-archived, non-voided
-          transactions (same live definition as Dashboard).
+          Current Policy Premium is the current term: latest New Business or Renewal plus signed
+          endorsements, audits, and cancellations in that term. Prior terms and voided or archived
+          transactions are excluded. Commission totals use the same current-term set.
         </p>
         <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
           <InfoField

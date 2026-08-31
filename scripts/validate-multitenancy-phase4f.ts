@@ -150,9 +150,10 @@ console.log('B. Voided transactions excluded from active totals')
   )
   const policyPremium = read('src/lib/policyPremium.ts')
   assert(
-    !policyPremium.includes('stored + txnSum') &&
-      policyPremium.includes('SUM(non-archived, non-voided transactions.amount)'),
-    'policy premium helper documents live-ledger formula',
+    policyPremium.includes('latest establishing') &&
+      policyPremium.includes('policies.premium is a stored reference') &&
+      !policyPremium.includes('stored + txnSum'),
+    'policy premium helper documents current-term formula and ignores stored premium',
   )
 }
 

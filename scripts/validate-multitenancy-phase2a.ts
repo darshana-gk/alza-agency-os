@@ -229,7 +229,8 @@ console.log('G. No application / Edge / Billing / Support / Integrations edits i
       !f.startsWith('20260828240100_multitenancy_v1_phase3c_') &&
       !f.startsWith('20260828250000_multitenancy_v1_phase3d_') &&
       !f.startsWith('20260828260000_multitenancy_v1_phase3e_') &&
-      !f.startsWith('20260829090000_multitenancy_v1_phase4d_')
+      !f.startsWith('20260829090000_multitenancy_v1_phase4d_') &&
+      !f.startsWith('20260831140000_staging_transactions_v1_financial_parity')
   )
   })
   assert(extra.length === 0, `no extra post-RC migrations (${extra.join(', ') || 'none'})`)

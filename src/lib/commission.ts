@@ -19,6 +19,10 @@ import {
 import { validateProducerSplitPercentage } from './producerSplitValidation'
 import { mapCreatedAtValue } from './createdFirstSort'
 import {
+  currentPolicyPremiumFromTransactions,
+  toPolicyPremiumTxn,
+} from './policyPremium'
+import {
   isPolicyTermUpdatingType,
   resolvePersistedTransactionDates,
   validateTransactionDateInputs,
@@ -939,6 +943,25 @@ export function missingColumnNameFromError(error: { message?: string; code?: str
 
 const TRANSACTION_INSERT_REQUIRED_COLUMNS = ['client_id', 'policy_id', 'transaction_type', 'transaction_date'] as const
 
+/** V1 snapshots that must persist. Missing columns must fail the save, not strip. */
+export const TRANSACTION_V1_FINANCIAL_SNAPSHOT_COLUMNS = [
+  'amount',
+  'premium_amount',
+  'commission_type',
+  'agency_commission_percentage',
+  'agency_commission_amount',
+  'broker_fee',
+  'expected_amount',
+  'producer_split_percentage',
+  'producer_commission_amount',
+  'agency_net_commission',
+  'transaction_effective_date',
+  'transaction_expiration_date',
+  'csr',
+  'carrier',
+  'mga',
+] as const
+
 async function insertTransactionCompat(payload: Record<string, unknown>) {
   const next: Record<string, unknown> = { ...payload }
   for (let attempt = 0; attempt < 40; attempt += 1) {
@@ -952,8 +975,17 @@ async function insertTransactionCompat(payload: Record<string, unknown>) {
     if (!column || !(column in next)) {
       return { data: null, error }
     }
-    if ((TRANSACTION_INSERT_REQUIRED_COLUMNS as readonly string[]).includes(column)) {
-      return { data: null, error }
+    if (
+      (TRANSACTION_INSERT_REQUIRED_COLUMNS as readonly string[]).includes(column) ||
+      (TRANSACTION_V1_FINANCIAL_SNAPSHOT_COLUMNS as readonly string[]).includes(column)
+    ) {
+      return {
+        data: null,
+        error: {
+          message: `Cannot save transaction: required V1 financial column "${column}" is missing from the database.`,
+          code: error.code,
+        },
+      }
     }
     delete next[column]
   }
@@ -1271,14 +1303,19 @@ export async function fetchCommissionTransactionsByPolicy(policyId: string) {
 export interface PolicyTransactionSummary {
   policyId: string
   transactionCount: number
-  /** SUM(transactions.amount) — signed premium movement; return premiums reduce total. */
+  /** Current-term premium (NB/Renewal + signed adjustments). Not a lifetime SUM. */
   totalPremium: number
   /** @deprecated Prefer totalPremium — same value (historical alias). */
   totalVolume: number
   latestTransactionDate: string | null
 }
 
-/** Aggregate live transaction counts/premium per policy UUID (no denormalization). */
+const POLICY_SUMMARY_SELECT_FULL =
+  'id, policy_id, amount, premium_amount, transaction_type, transaction_date, created_at, voided_at, transaction_effective_date, transaction_expiration_date'
+const POLICY_SUMMARY_SELECT_COMPAT =
+  'id, policy_id, premium_amount, transaction_type, transaction_date, created_at, voided_at'
+
+/** Aggregate live transaction counts + current-term premium per policy UUID. */
 export async function fetchPolicyTransactionSummaries(policyIds: string[]) {
   const ids = [...new Set(policyIds.filter(Boolean))]
   const empty = {
@@ -1289,7 +1326,7 @@ export async function fetchPolicyTransactionSummaries(policyIds: string[]) {
 
   const full = await supabase
     .from('transactions')
-    .select('id, policy_id, amount, transaction_date')
+    .select(POLICY_SUMMARY_SELECT_FULL)
     .in('policy_id', ids)
     .is('archived_at', null)
     .is('voided_at', null)
@@ -1298,7 +1335,7 @@ export async function fetchPolicyTransactionSummaries(policyIds: string[]) {
     full.error && isMissingColumnError(full.error)
       ? await supabase
           .from('transactions')
-          .select('id, policy_id, premium_amount, transaction_date')
+          .select(POLICY_SUMMARY_SELECT_COMPAT)
           .in('policy_id', ids)
           .is('archived_at', null)
           .is('voided_at', null)
@@ -1307,6 +1344,7 @@ export async function fetchPolicyTransactionSummaries(policyIds: string[]) {
   if (result.error) return { data: {} as Record<string, PolicyTransactionSummary>, error: result.error }
 
   const summaries: Record<string, PolicyTransactionSummary> = {}
+  const liveByPolicy = new Map<string, ReturnType<typeof toPolicyPremiumTxn>[]>()
   for (const id of ids) {
     summaries[id] = {
       policyId: id,
@@ -1315,6 +1353,7 @@ export async function fetchPolicyTransactionSummaries(policyIds: string[]) {
       totalVolume: 0,
       latestTransactionDate: null,
     }
+    liveByPolicy.set(id, [])
   }
 
   for (const row of result.data ?? []) {
@@ -1322,16 +1361,17 @@ export async function fetchPolicyTransactionSummaries(policyIds: string[]) {
     if (!policyId || !summaries[policyId]) continue
     const summary = summaries[policyId]
     summary.transactionCount += 1
-    const amount = toNumber(
-      ((row as { amount?: number | string | null; premium_amount?: number | string | null }).amount ??
-        (row as { premium_amount?: number | string | null }).premium_amount) as number | string | null,
-    )
-    summary.totalPremium += amount
-    summary.totalVolume += amount
+    liveByPolicy.get(policyId)?.push(toPolicyPremiumTxn(row))
     const date = String(row.transaction_date ?? '').trim()
     if (date && (!summary.latestTransactionDate || date > summary.latestTransactionDate)) {
       summary.latestTransactionDate = date
     }
+  }
+
+  for (const [policyId, txns] of liveByPolicy) {
+    const current = currentPolicyPremiumFromTransactions(txns)
+    summaries[policyId].totalPremium = current
+    summaries[policyId].totalVolume = current
   }
 
   return { data: summaries, error: null }

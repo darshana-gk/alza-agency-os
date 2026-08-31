@@ -341,7 +341,7 @@ export function Dashboard() {
       )}
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <Kpi title="Total Premium" value={formatCurrency(kpis.totalPremium)} icon={CircleDollarSign} tone="blue" hint="SUM(transaction amount)" />
+        <Kpi title="Total Premium" value={formatCurrency(kpis.totalPremium)} icon={CircleDollarSign} tone="blue" hint="Agency book volume — all live transactions" />
         <Kpi title="Agency Commission" value={formatCurrency(kpis.agencyCommission)} icon={Wallet} tone="teal" hint="Stored agency_commission_amount" />
         <Kpi title="Producer Commission" value={formatCurrency(kpis.producerCommission)} icon={TrendingUp} tone="violet" hint="Stored producer_commission_amount" />
         <Kpi title="Agency Net Commission" value={formatCurrency(kpis.agencyNet)} icon={FileText} tone="amber" hint="Stored agency_net_commission" />

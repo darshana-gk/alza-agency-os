@@ -1,15 +1,17 @@
 /**
  * Clients browse-page premium aggregation (query-row → displayed Total Premium).
  *
- * Same SoT as Dashboard / Policy Files / Policy Details / Client Details:
- *   per policy: SUM(non-archived, non-voided txn amounts)
- *   per client: SUM(per-policy current premium)
+ * Same Current Policy Premium SoT as Policy Files / Policy Details / Client Details:
+ *   per policy: current-term premium (NB/Renewal + signed adjustments)
+ *   per client: SUM(per-policy current-term premium)
  */
 
 import { parseMoney } from './reconciliationMatching'
 import {
   buildClientTotalPremiumByClientId,
+  currentPolicyPremiumFromTransactions,
   roundPolicyPremiumMoney,
+  toPolicyPremiumTxn,
 } from './policyPremium'
 
 function asId(value: unknown): string {
@@ -39,8 +41,16 @@ export type ClientsListPolicyRow = {
 export type ClientsListTransactionRow = {
   policy_id?: unknown
   amount?: unknown
+  premium_amount?: unknown
+  transaction_type?: unknown
+  type?: unknown
   archived_at?: unknown
   voided_at?: unknown
+  created_at?: unknown
+  transaction_date?: unknown
+  transaction_effective_date?: unknown
+  transaction_expiration_date?: unknown
+  id?: unknown
 }
 
 /**
@@ -54,7 +64,7 @@ export function aggregateClientsListPremiumFromRows(input: {
    * Prefer policy_id sums — matches Policy Files / Client Details.
    */
   transactions?: ClientsListTransactionRow[]
-  /** Pre-aggregated SUM(amount) by policy id (e.g. from fetchPolicyTransactionSummaries). */
+  /** Pre-aggregated current-term premium by policy id (fetchPolicyTransactionSummaries). */
   transactionPremiumSumByPolicyId?: Map<string, number> | Record<string, number>
 }): {
   policyCountByClientId: Map<string, number>
@@ -93,15 +103,33 @@ export function aggregateClientsListPremiumFromRows(input: {
     )
   } else {
     transactionPremiumSumByPolicyId = new Map()
+    const liveByPolicy = new Map<string, ReturnType<typeof toPolicyPremiumTxn>[]>()
     for (const row of input.transactions ?? []) {
       if (row.archived_at || row.voided_at) continue
       const policyId = asId(row.policy_id)
       if (!policyId) continue
-      const amount = coercePolicyPremiumValue(row.amount)
-      transactionPremiumSumByPolicyId.set(
-        policyId,
-        roundPolicyPremiumMoney((transactionPremiumSumByPolicyId.get(policyId) ?? 0) + amount),
+      const list = liveByPolicy.get(policyId) ?? []
+      list.push(
+        toPolicyPremiumTxn({
+          id: asId(row.id) || undefined,
+          type: String(row.type ?? row.transaction_type ?? ''),
+          amount: row.amount ?? row.premium_amount,
+          archived_at: row.archived_at ? String(row.archived_at) : null,
+          voided_at: row.voided_at ? String(row.voided_at) : null,
+          created_at: row.created_at ? String(row.created_at) : null,
+          transaction_date: row.transaction_date ? String(row.transaction_date) : null,
+          transaction_effective_date: row.transaction_effective_date
+            ? String(row.transaction_effective_date)
+            : null,
+          transaction_expiration_date: row.transaction_expiration_date
+            ? String(row.transaction_expiration_date)
+            : null,
+        }),
       )
+      liveByPolicy.set(policyId, list)
+    }
+    for (const [policyId, txns] of liveByPolicy) {
+      transactionPremiumSumByPolicyId.set(policyId, currentPolicyPremiumFromTransactions(txns))
     }
   }
 

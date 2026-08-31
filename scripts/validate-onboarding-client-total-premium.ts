@@ -1,6 +1,7 @@
 /**
  * Client Total Premium SoT — same resolveCurrentPolicyPremium used by Policy Files /
- * Policy Details / Client Details / Clients browse / Dashboard.
+ * Policy Details / Client Details / Clients browse.
+ * Dashboard Total Premium is agency book volume and is not this helper.
  *
  * Run: npx tsx scripts/validate-onboarding-client-total-premium.ts
  */
@@ -106,7 +107,7 @@ console.log('F. Archived/voided transactions excluded by caller (not in txn map)
   assertEq(totals.get('c1'), 250, 'only live txn sum')
 }
 
-console.log('G. Agency B UAT — stored $300 must not inflate live $914')
+console.log('G. Agency B UAT — stored $300 must not inflate injected current-term sums')
 {
   assertEq(
     resolveCurrentPolicyPremium({ policyPremium: 100, transactionPremiumSum: 100 }),
@@ -116,7 +117,7 @@ console.log('G. Agency B UAT — stored $300 must not inflate live $914')
   assertEq(
     resolveCurrentPolicyPremium({ policyPremium: 200, transactionPremiumSum: 814 }),
     814,
-    '2AG-B-POL-0001',
+    'injected current-term sum ignores stored $200',
   )
   assertEq(
     sumClientCurrentPremium([
@@ -124,7 +125,7 @@ console.log('G. Agency B UAT — stored $300 must not inflate live $914')
       { policyPremium: 200, transactionPremiumSum: 814 },
     ]),
     914,
-    'client total matches Dashboard',
+    'client total uses injected current-term sums, not stored opening',
   )
 }
 
