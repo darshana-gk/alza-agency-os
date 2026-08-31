@@ -1,15 +1,16 @@
-import { fetchActiveProducerNames } from './directory'
+import { fetchActiveProducerNames, isMissingDirectoryColumnError } from './directory'
 import { supabase } from './supabase'
 
 export type ProducerSplitSource = 'producer_default' | 'policy_override' | 'transaction_override'
 
-/** Look up producer default split % by exact producer_name (active preferred). */
+/** Look up producer default split % by exact producer_name (live directory preferred). */
 export async function fetchProducerDefaultSplit(
   producerName: string,
 ): Promise<{ split: number | null; error: string | null }> {
   const name = producerName.trim()
   if (!name) return { split: null, error: null }
-  const { data, error } = await supabase
+
+  const withStatus = await supabase
     .from('producers')
     .select('default_split_percentage, status, archived_at')
     .eq('producer_name', name)
@@ -17,9 +18,27 @@ export async function fetchProducerDefaultSplit(
     .order('status', { ascending: true })
     .limit(5)
 
-  if (error) return { split: null, error: error.message }
-  const active = (data ?? []).find((r) => String(r.status ?? '').toLowerCase() === 'active')
-  const row = active ?? data?.[0]
+  const queried =
+    withStatus.error && isMissingDirectoryColumnError(withStatus.error)
+      ? await supabase
+          .from('producers')
+          .select('default_split_percentage, archived_at')
+          .eq('producer_name', name)
+          .is('archived_at', null)
+          .limit(5)
+      : withStatus
+
+  if (queried.error) {
+    if (isMissingDirectoryColumnError(queried.error)) return { split: null, error: null }
+    return { split: null, error: queried.error.message }
+  }
+
+  const rows = (queried.data ?? []) as Array<{
+    default_split_percentage?: number | string | null
+    status?: string | null
+  }>
+  const active = rows.find((r) => String(r.status ?? 'active').toLowerCase() === 'active')
+  const row = active ?? rows[0]
   if (!row || row.default_split_percentage === null || row.default_split_percentage === undefined) {
     return { split: null, error: null }
   }

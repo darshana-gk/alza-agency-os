@@ -48,15 +48,52 @@ function err(message: string, table: string, operation: string, details?: unknow
   return { error: { message, table, operation, details } }
 }
 
+function isMissingColumnError(error: { message?: string; code?: string } | null): boolean {
+  if (!error) return false
+  const msg = error.message ?? ''
+  const code = error.code ?? ''
+  return code === '42703' || code === 'PGRST204' || /column .+ does not exist/i.test(msg)
+}
+
+export { isMissingColumnError as isMissingDirectoryColumnError }
+
+const PRODUCER_OPTIONAL_WRITE_COLUMNS = [
+  'status',
+  'phone',
+  'notes',
+  'license_number',
+  'default_split_percentage',
+] as const
+
+function withoutOptionalProducerColumns(payload: Record<string, unknown>) {
+  const next = { ...payload }
+  for (const col of PRODUCER_OPTIONAL_WRITE_COLUMNS) delete next[col]
+  return next
+}
+
+/**
+ * Live producer directory rows. Production filters producers.status = active.
+ * Schemas without that column treat non-archived rows as live (same as fetchProducerLinkOptions).
+ */
+async function fetchLiveProducerDirectory() {
+  const withStatus = await supabase
+    .from('producers')
+    .select('producer_name')
+    .is('archived_at', null)
+    .eq('status', 'active')
+    .order('producer_name', { ascending: true })
+  if (!withStatus.error || !isMissingColumnError(withStatus.error)) return withStatus
+  return supabase
+    .from('producers')
+    .select('producer_name')
+    .is('archived_at', null)
+    .order('producer_name', { ascending: true })
+}
+
 /** Active, non-archived producer names for TEXT dropdowns (directory + Producer-role users). */
 export async function fetchActiveProducerNames() {
   const [dirRes, usersRes, roleRes] = await Promise.all([
-    supabase
-      .from('producers')
-      .select('producer_name')
-      .is('archived_at', null)
-      .eq('status', 'active')
-      .order('producer_name', { ascending: true }),
+    fetchLiveProducerDirectory(),
     supabase
       .from('users')
       .select('id, full_name, role, status')
@@ -708,9 +745,18 @@ export async function createProducer(input: {
     payload.default_split_percentage = input.defaultSplitPercentage
   }
 
-  const { data, error } = await supabase.from('producers').insert(payload).select('id').single()
+  let { data, error } = await supabase.from('producers').insert(payload).select('id').single()
+  if (error && isMissingColumnError(error)) {
+    const retry = await supabase
+      .from('producers')
+      .insert(withoutOptionalProducerColumns(payload))
+      .select('id')
+      .single()
+    data = retry.data
+    error = retry.error
+  }
 
-  if (error) return err(error.message, 'producers', 'insert', error)
+  if (error || !data) return err(error?.message ?? 'Producer insert returned no row.', 'producers', 'insert', error)
   return { data: { id: data.id as string }, error: null }
 }
 
@@ -739,15 +785,26 @@ export async function updateProducer(input: {
         : input.defaultSplitPercentage,
   }
 
-  const { data, error } = await supabase
+  let { data, error } = await supabase
     .from('producers')
     .update(payload)
     .eq('id', input.id)
     .is('archived_at', null)
     .select('id')
     .single()
+  if (error && isMissingColumnError(error)) {
+    const retry = await supabase
+      .from('producers')
+      .update(withoutOptionalProducerColumns(payload))
+      .eq('id', input.id)
+      .is('archived_at', null)
+      .select('id')
+      .single()
+    data = retry.data
+    error = retry.error
+  }
 
-  if (error) return err(error.message, 'producers', 'update', error)
+  if (error || !data) return err(error?.message ?? 'Producer update returned no row.', 'producers', 'update', error)
   return { data: { id: data.id as string }, error: null }
 }
 
@@ -755,14 +812,26 @@ export async function archiveProducer(id: string) {
   const authz = await rejectUnlessRole(isAdminDirectoryRole)
   if (!authz.ok) return err(authz.message, 'producers', 'authorize')
   if (!id.trim()) return err('Producer id is required.', 'producers', 'validate')
-  const { data, error } = await supabase
+  const archivedAt = new Date().toISOString()
+  let { data, error } = await supabase
     .from('producers')
-    .update({ archived_at: new Date().toISOString(), status: 'inactive' })
+    .update({ archived_at: archivedAt, status: 'inactive' })
     .eq('id', id)
     .is('archived_at', null)
     .select('id')
     .single()
-  if (error) return err(error.message, 'producers', 'archive', error)
+  if (error && isMissingColumnError(error)) {
+    const retry = await supabase
+      .from('producers')
+      .update({ archived_at: archivedAt })
+      .eq('id', id)
+      .is('archived_at', null)
+      .select('id')
+      .single()
+    data = retry.data
+    error = retry.error
+  }
+  if (error || !data) return err(error?.message ?? 'Producer archive returned no row.', 'producers', 'archive', error)
   return { data: { id: data.id as string }, error: null }
 }
 

@@ -30,6 +30,7 @@ import {
   archiveProducer,
   createProducer,
   isAdminDirectoryRole,
+  isMissingDirectoryColumnError,
   updateProducer,
 } from '../../lib/directory'
 import {
@@ -311,33 +312,46 @@ export function Producers() {
   const loadRows = useCallback(async () => {
     setLoading(true)
     setFetchError(null)
-    const [producerRes, txRes] = await Promise.all([
+    const [producerFull, txRes] = await Promise.all([
       supabase
         .from('producers')
-        .select('id, producer_name, email, phone, status, notes, license_number, default_split_percentage, archived_at')
+        .select(
+          'id, producer_name, email, phone, status, notes, license_number, default_split_percentage, archived_at',
+        )
         .is('archived_at', null)
         .order('producer_name', { ascending: true }),
       fetchCommissionTransactions(),
     ])
+    const producerRes =
+      producerFull.error && isMissingDirectoryColumnError(producerFull.error)
+        ? await supabase
+            .from('producers')
+            .select('id, producer_name, email, archived_at')
+            .is('archived_at', null)
+            .order('producer_name', { ascending: true })
+        : producerFull
 
     if (producerRes.error) {
       setFetchError(producerRes.error.message)
       setRows([])
     } else {
       setRows(
-        (producerRes.data ?? []).map((row) => ({
-          id: row.id as string,
-          name: String(row.producer_name ?? '').trim() || '—',
-          email: String(row.email ?? '').trim(),
-          phone: String(row.phone ?? '').trim(),
-          status: normalizeStatus(row.status as string | null),
-          notes: String(row.notes ?? '').trim(),
-          licenseNumber: String(row.license_number ?? '').trim(),
-          defaultSplitPercentage:
-            row.default_split_percentage === null || row.default_split_percentage === undefined
-              ? null
-              : Number(row.default_split_percentage),
-        })),
+        (producerRes.data ?? []).map((raw) => {
+          const row = raw as Record<string, unknown>
+          return {
+            id: String(row.id ?? ''),
+            name: String(row.producer_name ?? '').trim() || '—',
+            email: String(row.email ?? '').trim(),
+            phone: String(row.phone ?? '').trim(),
+            status: normalizeStatus((row.status as string | null) ?? null),
+            notes: String(row.notes ?? '').trim(),
+            licenseNumber: String(row.license_number ?? '').trim(),
+            defaultSplitPercentage:
+              row.default_split_percentage === null || row.default_split_percentage === undefined
+                ? null
+                : Number(row.default_split_percentage),
+          }
+        }),
       )
     }
 

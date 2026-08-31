@@ -90,6 +90,8 @@ console.log('D. Producer identity linkage contract')
     'rejects foreign producer assignment',
   )
   assert(directory.includes(".eq('agency_profile_id', agencyProfileId)") || directory.includes(".eq('agency_profile_id', userAgencyId)"), 'options/sync scoped by agency')
+  assert(directory.includes('isMissingColumnError'), 'producer directory retries when optional columns are absent')
+  assert(directory.includes('fetchLiveProducerDirectory'), 'Add Transaction producer names use live-directory helper')
   const migration = 'supabase/migrations/20260829090000_multitenancy_v1_phase4d_producer_link.sql'
   assert(existsSync(resolve(root, migration)), '4D producer migration present')
   const sql = read(migration)
