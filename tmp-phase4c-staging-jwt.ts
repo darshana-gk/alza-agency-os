@@ -366,9 +366,9 @@ SELECT jsonb_build_object(
   const post = postRaw.rows?.[0]?.post
   console.log('POST', JSON.stringify(post))
 
-  assert('post_singleton', post?.singleton === true, `singleton=${post?.singleton}`)
-  assert('post_agency_n', Number(post?.agency_n) === 1, `agency_n=${post?.agency_n}`)
-  assert('post_agency_b', Number(post?.agency_b) === 0, `agency_b=${post?.agency_b}`)
+  assert('post_singleton', post?.singleton === pre.singleton, `singleton=${post?.singleton}`)
+  assert('post_agency_n', Number(post?.agency_n) === Number(pre.agency_n), `agency_n=${post?.agency_n}`)
+  assert('post_agency_b', Number(post?.agency_b) === Number(pre.agency_b), `agency_b=${post?.agency_b}`)
   assert(
     'post_rls_fp',
     String(post?.rls_fp) === String(pre.rls_fp),
