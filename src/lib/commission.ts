@@ -487,6 +487,12 @@ export function formatRecoverySettlementLabel(method: string | null | undefined)
   return 'Deduct from Next Payout'
 }
 
+export {
+  formatRecoveryReceiptColumn,
+  type RecoveryReceiptColumn,
+  type RecoveryReceiptAllocationRef,
+} from './recoveryReceiptColumn'
+
 /** Map Postgres/PostgREST failures to a user-facing sentence. Logs the technical error. */
 export function userFacingProducerWriteError(error: {
   message?: string

@@ -24,6 +24,7 @@ import {
   formatLabel,
   formatPercent,
   formatProducerPaymentMethodLabel,
+  formatRecoveryReceiptColumn,
   formatRecoverySettlementLabel,
   formatRecoveryStatusLabel,
   isDirectPaymentSettlement,
@@ -44,6 +45,8 @@ import {
   validateDirectRecoveryPaymentInput,
   voidProducerRecovery,
   type CommissionTransaction,
+  type RecoveryReceiptAllocationRef,
+  type RecoveryReceiptColumn,
 } from '../lib/commission'
 import { ExportMenu } from '../components/ui/ExportMenu'
 import { useAgency } from '../lib/agencyContext'
@@ -130,28 +133,20 @@ interface RecoveryRow {
   recovery_number: string | null
   transaction_id: string | null
   producer: string | null
-  receipt_id: string | null
   settlement_method: string | null
+  direct_payment_reference?: string | null
+  direct_paid_payment_method?: string | null
+  direct_paid_date?: string | null
+  direct_paid_at?: string | null
   transactions:
     | (TransactionEmbed & { client_id?: string | null; policy_id?: string | null })
     | (TransactionEmbed & { client_id?: string | null; policy_id?: string | null })[]
     | null
-  agency_commission_receipts:
-    | {
-        id: string
-        client_id: string | null
-        policy_id: string | null
-        client_name: string | null
-        policy_number: string | null
-      }
-    | {
-        id: string
-        client_id: string | null
-        policy_id: string | null
-        client_name: string | null
-        policy_number: string | null
-      }[]
-    | null
+}
+
+interface RecoveryAllocationRow {
+  recovery_id: string
+  payment_batch_id: string | null
 }
 
 interface PaymentBatchRow {
@@ -217,13 +212,8 @@ interface Recovery {
   settlementMethod: string
   notes: string
   transactionNumber: string
-  receiptLabel: string
   transactionId: string
-  receiptId: string | null
-  clientId: string
-  policyId: string
-  clientName: string
-  policyNumber: string
+  receiptColumn: RecoveryReceiptColumn
 }
 
 interface PaymentBatch {
@@ -325,18 +315,15 @@ function mapReceipt(row: ReceiptRow): Receipt {
   }
 }
 
-function mapRecovery(row: RecoveryRow): Recovery {
+function mapRecovery(row: RecoveryRow, allocations: RecoveryReceiptAllocationRef[]): Recovery {
   const txn = firstEmbed(row.transactions)
-  const receipt = firstEmbed(row.agency_commission_receipts)
-  const clientName = receipt?.client_name?.trim() || '—'
-  const policyNumber = receipt?.policy_number?.trim() || '—'
-  const receiptBits = [clientName !== '—' ? clientName : null, policyNumber !== '—' ? policyNumber : null].filter(
-    Boolean,
-  )
   const amount = toNumber(row.amount)
   const appliedAmount = toNumber(row.applied_amount)
   const remainingAmount =
     row.remaining_amount == null ? Math.max(0, amount - appliedAmount) : toNumber(row.remaining_amount)
+  const settlementMethod = isDirectPaymentSettlement(row.settlement_method)
+    ? 'direct_payment'
+    : 'next_payout'
   return {
     id: row.id,
     recoveryNumber: row.recovery_number?.trim() || null,
@@ -346,18 +333,18 @@ function mapRecovery(row: RecoveryRow): Recovery {
     appliedAmount,
     remainingAmount,
     status: normalizeRecoveryStatus(row.status),
-    settlementMethod: isDirectPaymentSettlement(row.settlement_method)
-      ? 'direct_payment'
-      : 'next_payout',
+    settlementMethod,
     notes: row.notes?.trim() || '—',
     transactionNumber: txn?.transaction_number?.trim() || '—',
-    receiptLabel: receiptBits.length > 0 ? receiptBits.join(' · ') : row.receipt_id ? 'Linked receipt' : '—',
     transactionId: row.transaction_id ?? '',
-    receiptId: row.receipt_id,
-    clientId: receipt?.client_id ?? txn?.client_id ?? '',
-    policyId: receipt?.policy_id ?? txn?.policy_id ?? '',
-    clientName,
-    policyNumber,
+    receiptColumn: formatRecoveryReceiptColumn({
+      settlementMethod,
+      directPaidAt: row.direct_paid_at,
+      directPaymentReference: row.direct_payment_reference,
+      directPaidPaymentMethodLabel: formatProducerPaymentMethodLabel(row.direct_paid_payment_method),
+      directPaidDateLabel: formatDate(row.direct_paid_date || row.direct_paid_at),
+      allocations,
+    }),
   }
 }
 
@@ -525,7 +512,7 @@ export function Financials() {
     setRecoveriesError(null)
     setTransactionsError(null)
 
-    const [receiptsResult, batchesFirst, recoveriesFirst, txResult, recoveryAmtResult] =
+    const [receiptsResult, batchesFirst, recoveriesFirst, txResult, recoveryAmtResult, allocationsFirst] =
       await Promise.all([
         supabase
           .from('agency_commission_receipts')
@@ -550,9 +537,9 @@ export function Financials() {
           .select(
             `
             id, created_at, notes, status, amount, applied_amount, remaining_amount,
-            recovery_number, transaction_id, producer, receipt_id, settlement_method,
-            transactions!producer_commission_recoveries_transaction_id_fkey ( transaction_number, client_id, policy_id ),
-            agency_commission_receipts ( id, client_id, policy_id, client_name, policy_number )
+            recovery_number, transaction_id, producer, settlement_method,
+            direct_payment_reference, direct_paid_payment_method, direct_paid_date, direct_paid_at,
+            transactions!producer_commission_recoveries_transaction_id_fkey ( transaction_number, client_id, policy_id )
           `,
           )
           .order('created_at', { ascending: false }),
@@ -560,6 +547,9 @@ export function Financials() {
         supabase
           .from('producer_commission_recoveries')
           .select('producer, amount, applied_amount, remaining_amount, status, settlement_method'),
+        supabase
+          .from('producer_recovery_allocations')
+          .select('recovery_id, payment_batch_id'),
       ])
 
     let batchesResult: { data: unknown; error: { message: string } | null } = batchesFirst
@@ -572,18 +562,13 @@ export function Financials() {
     }
 
     let recoveriesResult: { data: unknown; error: { message: string } | null } = recoveriesFirst
-    if (
-      recoveriesResult.error &&
-      /could not find a relationship between .* and 'agency_commission_receipts'/i.test(
-        recoveriesResult.error.message,
-      )
-    ) {
+    if (recoveriesResult.error && isMissingColumnError(recoveriesResult.error)) {
       recoveriesResult = await supabase
         .from('producer_commission_recoveries')
         .select(
           `
             id, created_at, notes, status, amount, applied_amount, remaining_amount,
-            recovery_number, transaction_id, producer, receipt_id, settlement_method,
+            recovery_number, transaction_id, producer, settlement_method,
             transactions!producer_commission_recoveries_transaction_id_fkey ( transaction_number, client_id, policy_id )
           `,
         )
@@ -597,18 +582,41 @@ export function Financials() {
       setReceipts(((receiptsResult.data ?? []) as unknown as ReceiptRow[]).map(mapReceipt))
     }
 
+    const mappedBatches = batchesResult.error
+      ? []
+      : ((batchesResult.data ?? []) as unknown as PaymentBatchRow[]).map(mapBatch)
     if (batchesResult.error) {
       setBatchesError(batchesResult.error.message)
       setBatches([])
     } else {
-      setBatches(((batchesResult.data ?? []) as unknown as PaymentBatchRow[]).map(mapBatch))
+      setBatches(mappedBatches)
+    }
+
+    const batchNumberById = new Map(mappedBatches.map((batch) => [batch.id, batch.batchNumber]))
+    const allocationsByRecovery = new Map<string, RecoveryReceiptAllocationRef[]>()
+    if (!allocationsFirst.error) {
+      for (const row of (allocationsFirst.data ?? []) as RecoveryAllocationRow[]) {
+        const recoveryId = row.recovery_id?.trim()
+        const batchId = row.payment_batch_id?.trim()
+        if (!recoveryId || !batchId) continue
+        const list = allocationsByRecovery.get(recoveryId) ?? []
+        list.push({
+          batchId,
+          batchNumber: batchNumberById.get(batchId) ?? null,
+        })
+        allocationsByRecovery.set(recoveryId, list)
+      }
     }
 
     if (recoveriesResult.error) {
       setRecoveriesError(recoveriesResult.error.message)
       setRecoveries([])
     } else {
-      setRecoveries(((recoveriesResult.data ?? []) as unknown as RecoveryRow[]).map(mapRecovery))
+      setRecoveries(
+        ((recoveriesResult.data ?? []) as unknown as RecoveryRow[]).map((row) =>
+          mapRecovery(row, allocationsByRecovery.get(row.id) ?? []),
+        ),
+      )
     }
 
     if (txResult.error) {
@@ -944,7 +952,8 @@ export function Financials() {
         row.producer.toLowerCase().includes(query) ||
         row.transactionNumber.toLowerCase().includes(query) ||
         (row.recoveryNumber || '').toLowerCase().includes(query) ||
-        row.notes.toLowerCase().includes(query)
+        row.notes.toLowerCase().includes(query) ||
+        row.receiptColumn.label.toLowerCase().includes(query)
       )
     })
   }, [recoveries, search, statusFilter, producerFilter, yearFilter, dateFrom, dateTo])
@@ -2180,12 +2189,29 @@ export function Financials() {
                         </RecordLink>
                       </td>
                       <td className="px-6 py-4 text-sm text-slate-700">
-                        {row.receiptId ? (
-                          <RecordLink to={row.clientId ? `/clients/${row.clientId}` : undefined} state={navState}>
-                            {row.receiptLabel}
-                          </RecordLink>
-                        ) : (
+                        {row.receiptColumn.kind === 'empty' ? (
                           '—'
+                        ) : row.receiptColumn.kind === 'payout_batch' ? (
+                          <div className="flex flex-col items-start gap-0.5">
+                            {row.receiptColumn.batches.map((ref) => {
+                              const batch = batches.find((item) => item.id === ref.batchId)
+                              if (!batch) {
+                                return <span key={ref.batchId}>{ref.batchNumber}</span>
+                              }
+                              return (
+                                <button
+                                  key={ref.batchId}
+                                  type="button"
+                                  onClick={() => setViewBatch(batch)}
+                                  className="text-sm font-medium text-alza-blue-700 hover:text-alza-blue-800"
+                                >
+                                  {ref.batchNumber}
+                                </button>
+                              )
+                            })}
+                          </div>
+                        ) : (
+                          row.receiptColumn.label
                         )}
                       </td>
                       <td className="px-6 py-4 text-sm text-slate-600">{row.notes}</td>

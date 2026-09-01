@@ -16,6 +16,7 @@ import {
   PAYOUT_SCHEDULE_DB_FIELDS,
   payoutScheduleIsPlanningOnly,
 } from '../src/lib/producerPayoutSchedule.ts'
+import { formatRecoveryReceiptColumn } from '../src/lib/recoveryReceiptColumn.ts'
 
 let passed = 0
 let failed = 0
@@ -932,6 +933,46 @@ assert(
     COMMISSION_TS.includes('userFacingProducerWriteError') &&
     COMMISSION_TS.includes('validateDirectRecoveryPaymentInput'),
   'Financials create-recovery requires settlement method; Direct Payment confirmation is explicit',
+)
+assertEq(
+  formatRecoveryReceiptColumn({ settlementMethod: 'next_payout' }).label,
+  '—',
+  'Open next-payout recovery with no allocations shows — in Receipt',
+)
+assertEq(
+  formatRecoveryReceiptColumn({ settlementMethod: 'direct_payment' }).label,
+  '—',
+  'Open Direct Payment recovery before confirm shows — in Receipt',
+)
+assertEq(
+  formatRecoveryReceiptColumn({
+    settlementMethod: 'next_payout',
+    directPaymentReference: 'should-not-appear',
+    allocations: [{ batchId: 'batch-1', batchNumber: 'PPB-2026-000007' }],
+  }).label,
+  'PPB-2026-000007',
+  'Applied next-payout recovery Receipt uses payment batch number',
+)
+assertEq(
+  formatRecoveryReceiptColumn({
+    settlementMethod: 'direct_payment',
+    directPaidAt: '2026-09-01T12:00:00.000Z',
+    directPaymentReference: 'CHQ-44',
+    directPaidPaymentMethodLabel: 'Check',
+    directPaidDateLabel: 'Sep 1, 2026',
+  }).label,
+  'CHQ-44 · Check · Sep 1, 2026',
+  'Confirmed Direct Payment Receipt shows recorded payment details',
+)
+assert(
+  COMMISSION_TS.includes('formatRecoveryReceiptColumn') &&
+    FINANCIALS.includes('formatRecoveryReceiptColumn') &&
+    FINANCIALS.includes(".from('producer_recovery_allocations')") &&
+    FINANCIALS.includes('direct_payment_reference, direct_paid_payment_method, direct_paid_date, direct_paid_at') &&
+    !FINANCIALS.includes("'Linked receipt'") &&
+    !FINANCIALS.includes('row.receiptId') &&
+    !FINANCIALS.includes('agency_commission_receipts ( id, client_id, policy_id, client_name, policy_number )'),
+  'Recoveries Receipt column uses settlement/application records, never Linked receipt or a Client URL',
 )
 
 console.log(`Producer Payment V1 validation: ${passed} passed, ${failed} failed`)
