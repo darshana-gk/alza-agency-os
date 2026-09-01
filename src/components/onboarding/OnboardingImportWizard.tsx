@@ -4,6 +4,8 @@ import {
   listWorkbookSheets,
   parseOnboardingDelimitedText,
   parseOnboardingSpreadsheet,
+  preferredOnboardingSheetIndex,
+  ONBOARDING_EXCEL_UNREADABLE,
   type WorkbookSheetInfo,
 } from '../../lib/onboardingIntake'
 import {
@@ -151,9 +153,10 @@ export function OnboardingImportWizard(props: {
     try {
       const list = await listWorkbookSheets(next)
       setSheets(list)
-      setSheetIndex(0)
+      setSheetIndex(preferredOnboardingSheetIndex(list))
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Unable to read file.')
+      const message = e instanceof Error ? e.message : 'Unable to read file.'
+      setError(/Cannot read propert|reading ['"]sheets['"]/i.test(message) ? ONBOARDING_EXCEL_UNREADABLE : message)
       setFile(null)
       if (fileInputRef.current) fileInputRef.current.value = ''
     }

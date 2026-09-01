@@ -7,9 +7,13 @@
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import ExcelJS from 'exceljs'
+import * as XLSX from 'xlsx'
 import {
+  listWorkbookSheets,
+  ONBOARDING_EXCEL_NO_SHEET,
   parseOnboardingDelimitedText,
   parseOnboardingSpreadsheet,
+  preferredOnboardingSheetIndex,
 } from '../src/lib/onboardingIntake.ts'
 import { buildOnboardingMappingUiState } from '../src/lib/onboardingImport.ts'
 
@@ -70,6 +74,10 @@ console.log('A. Wizard wires the same UI-state builder after parse')
   assert(wizard.includes('runOnboardingParseToMappingStep'), 'Wizard calls runOnboardingParseToMappingStep')
   assert(wizard.includes('setMapping(next.mapping)'), 'Wizard sets mapping from pipeline step')
   assert(wizard.includes('justOpened'), 'Wizard resets only on open transition (not mid-parse)')
+  assert(wizard.includes('preferredOnboardingSheetIndex'), 'Wizard defaults to first usable data sheet')
+  const intake = readFileSync(resolve('src/lib/onboardingIntake.ts'), 'utf8')
+  assert(intake.includes("from 'xlsx'"), 'Excel files parse via SheetJS xlsx')
+  assert(!intake.includes('workbook.xlsx.load'), 'onboarding intake no longer uses ExcelJS xlsx.load')
 }
 
 console.log('B. XLSX rich-text headers (real Excel bold header path)')
@@ -131,6 +139,88 @@ console.log('F. Paste equivalent')
   const parsed = parseOnboardingDelimitedText(paste, 'paste')
   const ui = buildOnboardingMappingUiState('carriers', parsed)
   expectCarrierMapping('Paste', ui)
+}
+
+console.log('G. XLSX multi-sheet: skip empty/notes, parse Master Agency Data')
+{
+  function sheetJsFile(
+    bookType: 'xlsx' | 'xls',
+    sheets: Array<{ name: string; rows: unknown[][] }>,
+    filename: string,
+  ) {
+    const wb = XLSX.utils.book_new()
+    for (const sheet of sheets) {
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(sheet.rows), sheet.name)
+    }
+    const buf = XLSX.write(wb, { bookType, type: 'array' })
+    return new File([buf], filename, {
+      type:
+        bookType === 'xls'
+          ? 'application/vnd.ms-excel'
+          : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    })
+  }
+
+  const dataRows = [
+    ['Carrier Name', 'NAIC', 'Status'],
+    ['North Star Mutual', '12345', 'active'],
+    ['Acme Insurance', '999', 'active'],
+  ]
+
+  const notesFirst = sheetJsFile(
+    'xlsx',
+    [
+      { name: 'UAT Notes', rows: [['UAT Notes'], ['Do not import this sheet']] },
+      { name: 'Master Agency Data', rows: dataRows },
+    ],
+    'master-agency-notes-first.xlsx',
+  )
+  const listed = await listWorkbookSheets(notesFirst)
+  assert(
+    listed.some((s) => s.name === 'Master Agency Data') && listed.every((s) => s.name !== 'Empty'),
+    `listed usable sheets: ${listed.map((s) => s.name).join(', ')}`,
+  )
+  assert(
+    listed[preferredOnboardingSheetIndex(listed)]?.name === 'Master Agency Data',
+    'preferred sheet is Master Agency Data, not UAT Notes',
+  )
+  const parsedNotesFirst = await parseOnboardingSpreadsheet(notesFirst)
+  expectCarrierMapping('XLSX notes-first', buildOnboardingMappingUiState('carriers', parsedNotesFirst))
+  assert(parsedNotesFirst.sheetName === 'Master Agency Data', 'parsed sheet is Master Agency Data')
+  assert(parsedNotesFirst.source === 'xlsx', 'source xlsx')
+
+  const emptyNotes = sheetJsFile(
+    'xlsx',
+    [
+      { name: 'UAT Notes', rows: [] },
+      { name: 'Master Agency Data', rows: dataRows },
+    ],
+    'master-agency-empty-notes.xlsx',
+  )
+  const listedEmptyNotes = await listWorkbookSheets(emptyNotes)
+  assert(
+    listedEmptyNotes.length === 1 && listedEmptyNotes[0]?.name === 'Master Agency Data',
+    'empty UAT Notes omitted from sheet list',
+  )
+  const parsedEmptyNotes = await parseOnboardingSpreadsheet(emptyNotes)
+  expectCarrierMapping('XLSX empty-notes', buildOnboardingMappingUiState('carriers', parsedEmptyNotes))
+
+  const xls = sheetJsFile('xls', [{ name: 'Carriers', rows: dataRows }], 'carriers.xls')
+  const parsedXls = await parseOnboardingSpreadsheet(xls)
+  expectCarrierMapping('XLS', buildOnboardingMappingUiState('carriers', parsedXls))
+  assert(parsedXls.source === 'xls', 'source xls')
+
+  const emptyBook = sheetJsFile('xlsx', [{ name: 'Empty', rows: [] }], 'empty.xlsx')
+  let emptyMessage = ''
+  try {
+    await parseOnboardingSpreadsheet(emptyBook)
+  } catch (error) {
+    emptyMessage = error instanceof Error ? error.message : String(error)
+  }
+  assert(
+    emptyMessage === ONBOARDING_EXCEL_NO_SHEET && !/sheets/i.test(emptyMessage),
+    `empty workbook customer error (got ${emptyMessage})`,
+  )
 }
 
 console.log('')

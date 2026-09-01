@@ -1,5 +1,5 @@
-import ExcelJS from 'exceljs'
 import Papa from 'papaparse'
+import * as XLSX from 'xlsx'
 
 export interface ParsedSpreadsheet {
   headers: string[]
@@ -13,7 +13,14 @@ export interface WorkbookSheetInfo {
   index: number
   name: string
   rowCount: number
+  columnCount: number
 }
+
+export const ONBOARDING_EXCEL_UNREADABLE =
+  'This Excel workbook could not be read. Save the file as .xlsx or .xls, or upload a CSV instead.'
+
+export const ONBOARDING_EXCEL_NO_SHEET =
+  'This workbook has no visible worksheet with a header row. Use the sheet that contains your import data, or upload a CSV.'
 
 function cellToString(value: unknown): string {
   if (value == null) return ''
@@ -33,35 +40,142 @@ function cellToString(value: unknown): string {
     }
     if ('result' in v) return cellToString(v.result)
     if ('text' in v && v.text != null) return String(v.text)
+    if ('v' in v && v.v != null) return cellToString(v.v)
+    if ('w' in v && v.w != null) return String(v.w)
   }
   return String(value)
 }
 
-function sheetToParsed(sheet: ExcelJS.Worksheet, source: 'xlsx' | 'xls'): ParsedSpreadsheet {
-  const headerRow = sheet.getRow(1)
+function isExcelWorkbookName(name: string): boolean {
+  return name.endsWith('.xlsx') || name.endsWith('.xls')
+}
+
+function isWorksheetHidden(workbook: XLSX.WorkBook, sheetIndex: number): boolean {
+  const meta = workbook.Workbook?.Sheets?.[sheetIndex]
+  const hidden = Number(meta?.Hidden ?? 0)
+  return hidden !== 0
+}
+
+function sheetAoa(sheet: XLSX.WorkSheet): unknown[][] {
+  return XLSX.utils.sheet_to_json(sheet, {
+    header: 1,
+    raw: true,
+    defval: '',
+    blankrows: true,
+  }) as unknown[][]
+}
+
+function inspectOnboardingSheet(sheet: XLSX.WorkSheet): { headers: string[]; rowCount: number; columnCount: number } {
+  const aoa = sheetAoa(sheet)
+  const headerRow = Array.isArray(aoa[0]) ? aoa[0] : []
+  const headers = headerRow.map((cell) => cellToString(cell).replace(/^\uFEFF/, '').trim()).filter(Boolean)
+  let rowCount = 0
+  for (let r = 1; r < aoa.length; r += 1) {
+    const row = Array.isArray(aoa[r]) ? aoa[r] : []
+    const any = row.some((cell) => cellToString(cell).trim() !== '')
+    if (any) rowCount += 1
+  }
+  return { headers, rowCount, columnCount: headers.length }
+}
+
+function isUsableOnboardingSheet(sheet: XLSX.WorkSheet | undefined): boolean {
+  if (!sheet) return false
+  return inspectOnboardingSheet(sheet).columnCount > 0
+}
+
+function readOnboardingWorkbook(buffer: ArrayBuffer): XLSX.WorkBook {
+  try {
+    return XLSX.read(new Uint8Array(buffer), { type: 'array', cellDates: true })
+  } catch (error) {
+    const message = error instanceof Error ? error.message : ''
+    if (/sheets/i.test(message) || error instanceof TypeError) {
+      throw new Error(ONBOARDING_EXCEL_UNREADABLE)
+    }
+    throw new Error(ONBOARDING_EXCEL_UNREADABLE)
+  }
+}
+
+function collectUsableOnboardingSheets(workbook: XLSX.WorkBook): WorkbookSheetInfo[] {
+  const names = workbook.SheetNames ?? []
+  const out: WorkbookSheetInfo[] = []
+  names.forEach((name, workbookIndex) => {
+    if (isWorksheetHidden(workbook, workbookIndex)) return
+    const sheet = workbook.Sheets?.[name]
+    if (!isUsableOnboardingSheet(sheet)) return
+    const info = inspectOnboardingSheet(sheet)
+    out.push({
+      index: out.length,
+      name,
+      rowCount: info.rowCount,
+      columnCount: info.columnCount,
+    })
+  })
+  return out
+}
+
+/** Prefer a real data table (2+ columns) over a 1-column notes sheet. */
+export function preferredOnboardingSheetIndex(sheets: WorkbookSheetInfo[]): number {
+  if (sheets.length === 0) return 0
+  const tabularWithData = sheets.findIndex((s) => s.columnCount >= 2 && s.rowCount > 0)
+  if (tabularWithData >= 0) return tabularWithData
+  const withData = sheets.findIndex((s) => s.rowCount > 0)
+  if (withData >= 0) return withData
+  const tabular = sheets.findIndex((s) => s.columnCount >= 2)
+  return tabular >= 0 ? tabular : 0
+}
+
+function sheetToParsed(sheet: XLSX.WorkSheet, sheetName: string, source: 'xlsx' | 'xls'): ParsedSpreadsheet {
+  const aoa = sheetAoa(sheet)
+  const headerRow = Array.isArray(aoa[0]) ? aoa[0] : []
   const headersByCol: string[] = []
-  headerRow.eachCell({ includeEmpty: false }, (cell, col) => {
-    const label = cellToString(cell.value).replace(/^\uFEFF/, '').trim()
-    if (label) headersByCol[col] = label
+  headerRow.forEach((cell, idx) => {
+    const label = cellToString(cell).replace(/^\uFEFF/, '').trim()
+    if (label) headersByCol[idx] = label
   })
   const headers = headersByCol.filter(Boolean)
-  if (!headers.length) throw new Error(`Sheet “${sheet.name}” has no header row.`)
+  if (!headers.length) throw new Error(`Sheet “${sheetName}” has no header row.`)
 
   const rows: Record<string, unknown>[] = []
-  sheet.eachRow({ includeEmpty: false }, (row, rowNumber) => {
-    if (rowNumber === 1) return
+  for (let r = 1; r < aoa.length; r += 1) {
+    const row = Array.isArray(aoa[r]) ? aoa[r] : []
     const obj: Record<string, unknown> = {}
     let any = false
     headers.forEach((header) => {
       const col = headersByCol.indexOf(header)
-      const raw = col >= 0 ? row.getCell(col).value : null
+      const raw = col >= 0 ? row[col] : null
       const text = cellToString(raw)
       obj[header] = raw instanceof Date ? raw : text
       if (text.trim()) any = true
     })
     if (any) rows.push(obj)
-  })
-  return { headers, rows, sheetName: sheet.name, delimiter: null, source }
+  }
+  return { headers, rows, sheetName, delimiter: null, source }
+}
+
+function resolveOnboardingWorksheet(
+  workbook: XLSX.WorkBook,
+  options?: { sheetIndex?: number; sheetName?: string | null },
+): { name: string; sheet: XLSX.WorkSheet } {
+  const usable = collectUsableOnboardingSheets(workbook)
+  if (options?.sheetName) {
+    const named = usable.find((s) => s.name === options.sheetName)
+    const sheet = workbook.Sheets?.[options.sheetName]
+    if (!named || !sheet) {
+      throw new Error(
+        `Sheet “${options.sheetName}” was not found or has no header row. Choose a worksheet that contains your import data.`,
+      )
+    }
+    return { name: options.sheetName, sheet }
+  }
+  if (usable.length === 0) throw new Error(ONBOARDING_EXCEL_NO_SHEET)
+  const idx =
+    typeof options?.sheetIndex === 'number' && options.sheetIndex >= 0
+      ? options.sheetIndex
+      : preferredOnboardingSheetIndex(usable)
+  const chosen = usable[idx] ?? usable[preferredOnboardingSheetIndex(usable)]
+  const sheet = workbook.Sheets?.[chosen.name]
+  if (!sheet) throw new Error(ONBOARDING_EXCEL_NO_SHEET)
+  return { name: chosen.name, sheet }
 }
 
 export function normalizeOnboardingText(value: string | null | undefined): string {
@@ -151,22 +265,19 @@ export function parseOnboardingDelimitedText(
   )
 }
 
-/** List worksheets with approximate data row counts (excludes header). */
+/** List visible worksheets that have a header row (excludes empty auxiliary sheets). */
 export async function listWorkbookSheets(file: File): Promise<WorkbookSheetInfo[]> {
   const name = file.name.toLowerCase()
   if (name.endsWith('.csv') || name.endsWith('.txt') || file.type === 'text/csv' || file.type === 'text/plain') {
-    return [{ index: 0, name: file.name || 'Text', rowCount: -1 }]
+    return [{ index: 0, name: file.name || 'Text', rowCount: -1, columnCount: 0 }]
   }
-  if (!(name.endsWith('.xlsx') || name.endsWith('.xls'))) {
+  if (!isExcelWorkbookName(name)) {
     throw new Error('Unsupported file type. Use CSV, TXT, XLSX, or XLS.')
   }
-  const workbook = new ExcelJS.Workbook()
-  await workbook.xlsx.load(await file.arrayBuffer())
-  return workbook.worksheets.map((sheet, index) => ({
-    index,
-    name: sheet.name,
-    rowCount: Math.max(0, sheet.rowCount - 1),
-  }))
+  const workbook = readOnboardingWorkbook(await file.arrayBuffer())
+  const sheets = collectUsableOnboardingSheets(workbook)
+  if (sheets.length === 0) throw new Error(ONBOARDING_EXCEL_NO_SHEET)
+  return sheets
 }
 
 /**
@@ -196,18 +307,16 @@ export async function parseOnboardingSpreadsheet(
   }
 
   if (name.endsWith('.xlsx') || name.endsWith('.xls')) {
-    const workbook = new ExcelJS.Workbook()
-    await workbook.xlsx.load(await file.arrayBuffer())
-    let sheet: ExcelJS.Worksheet | undefined
-    if (options?.sheetName) {
-      sheet = workbook.worksheets.find((s) => s.name === options.sheetName)
-      if (!sheet) throw new Error(`Sheet “${options.sheetName}” was not found.`)
-    } else {
-      const idx = options?.sheetIndex ?? 0
-      sheet = workbook.worksheets[idx]
-      if (!sheet) throw new Error('Workbook has no worksheets at that index.')
+    try {
+      const workbook = readOnboardingWorkbook(await file.arrayBuffer())
+      const resolved = resolveOnboardingWorksheet(workbook, options)
+      return sheetToParsed(resolved.sheet, resolved.name, name.endsWith('.xls') ? 'xls' : 'xlsx')
+    } catch (error) {
+      if (error instanceof Error && error.message && !/Cannot read propert/i.test(error.message)) {
+        throw error
+      }
+      throw new Error(ONBOARDING_EXCEL_UNREADABLE)
     }
-    return sheetToParsed(sheet, name.endsWith('.xls') ? 'xls' : 'xlsx')
   }
 
   throw new Error('Unsupported file type. Use CSV, TXT, XLSX, or XLS.')
