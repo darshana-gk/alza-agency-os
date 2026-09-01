@@ -190,7 +190,8 @@ console.log('G. No Phase 3 RLS / app / Billing / Support / Integrations / task c
       !f.startsWith('20260828260000_multitenancy_v1_phase3e_') &&
       !f.startsWith('20260829090000_multitenancy_v1_phase4d_') &&
       !f.startsWith('20260831140000_staging_transactions_v1_financial_parity') &&
-      !f.startsWith('20260831200000_confirm_paid_require_payment_reference')
+      !f.startsWith('20260831200000_confirm_paid_require_payment_reference') &&
+      !f.startsWith('20260901090000_recovery_numbering_sync_and_direct_pay_method')
   )
   })
   assert(extra.length === 0, `no unexpected migrations after 2B-finalize (${extra.join(', ') || 'none'})`)

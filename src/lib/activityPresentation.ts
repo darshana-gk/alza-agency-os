@@ -1,5 +1,5 @@
 import type { ActivityHistoryRow } from './activity'
-import { formatCurrency, formatProducerPaymentMethodLabel, formatTypeLabel } from './commission'
+import { formatCurrency, formatProducerPaymentMethodLabel, formatRecoverySettlementLabel, formatTypeLabel } from './commission'
 import { formatPaymentChannelLabel } from './producerPayoutSchedule'
 
 function formatMoneyMaybe(value: unknown): string | null {
@@ -50,6 +50,10 @@ const FIELD_LABELS: Record<string, string> = {
   grossCommission: 'Gross Producer Commission',
   recoveryApplied: 'Recovery / Chargeback Applied',
   batchNumber: 'Payment Batch',
+  recoveryNumber: 'Recovery Number',
+  transactionNumber: 'Transaction',
+  settlementMethod: 'Settlement Method',
+  confirmedAt: 'Confirmed At',
 }
 
 const SKIP_KEYS = new Set([
@@ -87,6 +91,12 @@ export function humanActivityValue(key: string, value: unknown): string | null {
 
   if (key === 'paymentMethod') {
     return formatProducerPaymentMethodLabel(String(value))
+  }
+  if (key === 'settlementMethod') {
+    return formatRecoverySettlementLabel(String(value))
+  }
+  if (key === 'confirmedAt') {
+    return formatDateMaybe(String(value)) ?? String(value)
   }
   if (key === 'paymentChannel') {
     return formatPaymentChannelLabel(String(value))
@@ -291,10 +301,10 @@ export function formatActivityDetailsSummary(row: ActivityHistoryRow): string {
         humanActivityValue('amount', newObj.amount) ||
         humanActivityValue('amount', newObj.recoveryAmount)
       const producer = humanActivityValue('producer', newObj.producer)
-      if (amount && producer) return `Recovery recorded — ${amount} for ${producer}`
-      if (amount) return `Recovery recorded — ${amount}`
-      if (ref) return `Recovery recorded — ${ref}`
-      return 'Recovery recorded'
+      const number = humanActivityValue('recoveryNumber', newObj.recoveryNumber) || ref
+      const settlement = humanActivityValue('settlementMethod', newObj.settlementMethod)
+      const parts = [number, amount, producer, settlement].filter(Boolean)
+      return parts.length ? `Recovery recorded — ${parts.join(' · ')}` : 'Recovery recorded'
     }
 
     case 'payment_batch_create': {
@@ -355,8 +365,13 @@ export function formatActivityDetailsSummary(row: ActivityHistoryRow): string {
       return ref ? `Transaction archived — ${ref}` : 'Transaction archived'
 
     case 'recovery_direct_payment': {
-      const amount = humanActivityValue('amount', newObj.amount)
-      return amount ? `Direct recovery payment recorded — ${amount}` : 'Direct recovery payment recorded'
+      const amount = humanActivityValue('amountReceived', newObj.amountReceived) || humanActivityValue('amount', newObj.amount)
+      const reference = humanActivityValue('paymentReference', newObj.paymentReference)
+      const method = humanActivityValue('paymentMethod', newObj.paymentMethod)
+      const parts = [amount, method, reference ? `Ref ${reference}` : null].filter(Boolean)
+      return parts.length
+        ? `Direct recovery payment confirmed — ${parts.join(' · ')}`
+        : 'Direct recovery payment confirmed'
     }
 
     case 'recovery_void':
@@ -505,9 +520,36 @@ export function activityDrawerDetailLines(row: ActivityHistoryRow): string[] {
   if (row.action === 'recovery_create') {
     const amount = humanActivityValue('amount', newObj.amount)
     const producer = humanActivityValue('producer', newObj.producer)
+    const number = humanActivityValue('recoveryNumber', newObj.recoveryNumber)
+    const txn = humanActivityValue('transactionNumber', newObj.transactionNumber)
+    const settlement = humanActivityValue('settlementMethod', newObj.settlementMethod)
+    const reason = humanActivityValue('reason', newObj.reason) || humanActivityValue('notes', newObj.notes)
+    const lines: string[] = []
+    if (number) lines.push(`Recovery Number: ${number}`)
+    if (producer) lines.push(`Producer: ${producer}`)
+    if (txn) lines.push(`Transaction: ${txn}`)
+    if (amount) lines.push(`Amount: ${amount}`)
+    if (settlement) lines.push(`Settlement Method: ${settlement}`)
+    if (reason) lines.push(`Reason: ${reason}`)
+    return lines
+  }
+
+  if (row.action === 'recovery_direct_payment') {
+    const amount =
+      humanActivityValue('amountReceived', newObj.amountReceived) ||
+      humanActivityValue('amount', newObj.amount)
+    const paymentDate = humanActivityValue('paymentDate', newObj.paymentDate)
+    const paymentMethod = humanActivityValue('paymentMethod', newObj.paymentMethod)
+    const paymentReference = humanActivityValue('paymentReference', newObj.paymentReference)
+    const notes = humanActivityValue('notes', newObj.notes)
+    const confirmedAt = humanActivityValue('confirmedAt', newObj.confirmedAt)
     const lines: string[] = []
     if (amount) lines.push(`Amount: ${amount}`)
-    if (producer) lines.push(`Producer: ${producer}`)
+    if (paymentDate) lines.push(`Payment Date: ${paymentDate}`)
+    if (paymentMethod) lines.push(`Payment Method: ${paymentMethod}`)
+    if (paymentReference) lines.push(`Payment Reference: ${paymentReference}`)
+    if (notes) lines.push(`Notes: ${notes}`)
+    if (confirmedAt) lines.push(`Confirmed At: ${confirmedAt}`)
     return lines
   }
 

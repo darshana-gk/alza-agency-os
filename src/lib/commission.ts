@@ -483,8 +483,47 @@ export function isDirectPaymentSettlement(method: string | null | undefined): bo
 }
 
 export function formatRecoverySettlementLabel(method: string | null | undefined): string {
-  if (isDirectPaymentSettlement(method)) return 'Direct payment'
-  return 'Next payout'
+  if (isDirectPaymentSettlement(method)) return 'Direct Payment / Paid Back Separately'
+  return 'Deduct from Next Payout'
+}
+
+/** Map Postgres/PostgREST failures to a user-facing sentence. Logs the technical error. */
+export function userFacingProducerWriteError(error: {
+  message?: string
+  table?: string
+  operation?: string
+  details?: unknown
+}): string {
+  const raw = (error.message ?? '').trim()
+  console.error(
+    '[producer-write]',
+    error.operation ?? 'unknown',
+    error.table ?? '',
+    raw,
+    error.details ?? null,
+  )
+  if (
+    /producer_commission_recoveries_agency_recovery_number_uidx/i.test(raw) ||
+    (/duplicate key/i.test(raw) && /recovery_number/i.test(raw))
+  ) {
+    return 'Could not assign a unique recovery number. Please try again.'
+  }
+  if (/duplicate key value violates unique constraint/i.test(raw)) {
+    return 'This recovery could not be saved because it conflicts with an existing record. Refresh and try again.'
+  }
+  if (raw) return raw
+  return 'Something went wrong while saving. Please try again.'
+}
+
+export function validateDirectRecoveryPaymentInput(input: {
+  paymentDate?: string | null
+  paymentMethod?: string | null
+  paymentReference?: string | null
+}): string | null {
+  if (!(input.paymentDate ?? '').trim()) return 'Payment date is required.'
+  if (!isValidProducerPaymentConfirmMethod(input.paymentMethod)) return 'Payment method is required.'
+  if (!(input.paymentReference ?? '').trim()) return PAYMENT_REFERENCE_REQUIRED_MESSAGE
+  return null
 }
 
 export function normalizeRecoveryStatus(value: string | null | undefined): RecoveryStatus | string {
@@ -3501,7 +3540,7 @@ export async function createProducerRecovery(input: CreateRecoveryInput) {
   // Cap recoveries on negative producer-commission transactions.
   const { data: txnRow, error: txnFetchError } = await supabase
     .from('transactions')
-    .select('id, producer_commission_amount')
+    .select('id, producer_commission_amount, transaction_number')
     .eq('id', input.transactionId)
     .maybeSingle()
 
@@ -3579,13 +3618,18 @@ export async function createProducerRecovery(input: CreateRecoveryInput) {
   const { data, error } = await supabase
     .from('producer_commission_recoveries')
     .insert(payload)
-    .select('id')
+    .select('id, recovery_number')
     .single()
 
   if (error) {
     return {
       error: {
-        message: error.message,
+        message: userFacingProducerWriteError({
+          message: error.message,
+          table: 'producer_commission_recoveries',
+          operation: 'insert',
+          details: error,
+        }),
         table: 'producer_commission_recoveries',
         operation: 'insert',
         details: error,
@@ -3593,15 +3637,19 @@ export async function createProducerRecovery(input: CreateRecoveryInput) {
     }
   }
 
+  const recoveryNumber = String(data.recovery_number ?? '').trim()
   await recordActivity({
     action: 'recovery_create',
     entityType: 'recovery',
     entityId: data.id as string,
-    recordReference: producer,
+    recordReference: recoveryNumber || producer,
     clientId: input.clientId ?? null,
     policyId: input.policyId ?? null,
     transactionId: input.transactionId,
     newValue: {
+      recoveryNumber: recoveryNumber || null,
+      producer,
+      transactionNumber: String(txnRow.transaction_number ?? '').trim() || null,
       amount,
       settlementMethod,
       reason: payload.reason,
@@ -3616,6 +3664,7 @@ export async function recordDirectRecoveryPayment(input: {
   recoveryId: string
   amountReceived: number
   receivedDate: string
+  paymentMethod?: string
   paymentReference?: string
   notes?: string
 }) {
@@ -3640,6 +3689,24 @@ export async function recordDirectRecoveryPayment(input: {
       },
     }
   }
+
+  const confirmValidation = validateDirectRecoveryPaymentInput({
+    paymentDate: input.receivedDate,
+    paymentMethod: input.paymentMethod,
+    paymentReference: input.paymentReference,
+  })
+  if (confirmValidation) {
+    return {
+      error: {
+        message: confirmValidation,
+        table: 'producer_commission_recoveries',
+        operation: 'direct_pay_validation',
+      },
+    }
+  }
+
+  const paymentMethod = (input.paymentMethod ?? '').trim()
+  const paymentReference = (input.paymentReference ?? '').trim()
 
   const { data: row, error: fetchError } = await supabase
     .from('producer_commission_recoveries')
@@ -3693,6 +3760,7 @@ export async function recordDirectRecoveryPayment(input: {
   // Live CHECK: open (remaining > 0) | applied (remaining = 0) | voided
   const status = nextRemaining > 0 ? 'open' : 'applied'
   const actorId = authz.profileId ?? (await currentAppUserId())
+  const confirmedAt = new Date().toISOString()
 
   const { data: updated, error } = await supabase
     .from('producer_commission_recoveries')
@@ -3705,9 +3773,10 @@ export async function recordDirectRecoveryPayment(input: {
         toNumber(row.direct_paid_amount ?? 0) + amount,
       ),
       direct_paid_date: input.receivedDate,
-      direct_paid_at: new Date().toISOString(),
+      direct_paid_at: confirmedAt,
       direct_paid_by: actorId,
-      direct_payment_reference: input.paymentReference?.trim() || null,
+      direct_paid_payment_method: paymentMethod,
+      direct_payment_reference: paymentReference,
       direct_paid_notes: input.notes?.trim() || null,
     })
     .eq('id', input.recoveryId)
@@ -3717,7 +3786,12 @@ export async function recordDirectRecoveryPayment(input: {
   if (error) {
     return {
       error: {
-        message: error.message,
+        message: userFacingProducerWriteError({
+          message: error.message,
+          table: 'producer_commission_recoveries',
+          operation: 'direct_pay_update',
+          details: error,
+        }),
         table: 'producer_commission_recoveries',
         operation: 'direct_pay_update',
         details: error,
@@ -3741,8 +3815,11 @@ export async function recordDirectRecoveryPayment(input: {
       amountReceived: amount,
       remaining: nextRemaining,
       status,
-      receivedDate: input.receivedDate,
-      paymentReference: input.paymentReference ?? null,
+      paymentDate: input.receivedDate,
+      paymentMethod,
+      paymentReference,
+      notes: input.notes?.trim() || null,
+      confirmedAt,
     },
   })
 

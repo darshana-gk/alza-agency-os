@@ -46,6 +46,9 @@ const CONFIRM_SQL = readRepo(
 const CONFIRM_REF_SQL = readRepo(
   'supabase/migrations/20260831200000_confirm_paid_require_payment_reference.sql',
 )
+const RECOVERY_NUM_SQL = readRepo(
+  'supabase/migrations/20260901090000_recovery_numbering_sync_and_direct_pay_method.sql',
+)
 const METHODS_SQL = readRepo('supabase/migrations/20260817223000_expand_producer_payment_methods.sql')
 const COMMISSION_TS = readRepo('src/lib/commission.ts')
 const PERMISSIONS_TS = readRepo('src/lib/permissions.ts')
@@ -908,6 +911,27 @@ assert(
     !RECONCILE_FN.includes('txnPatch.review_status') &&
     !RECONCILE_FN.includes('producer_payment_status:'),
   'N: reconciliation receipt flow uses tenant-scoped Phase 3C receipt RPC',
+)
+assert(
+  RECOVERY_NUM_SQL.includes('GREATEST(c.last_value + 1, EXCLUDED.last_value)') &&
+    RECOVERY_NUM_SQL.includes('GREATEST(1, max_existing + 1)') &&
+    RECOVERY_NUM_SQL.includes('agency_profile_id IS NOT DISTINCT FROM agency') &&
+    !RECOVERY_NUM_SQL.includes('COUNT(*)') &&
+    !/DROP (INDEX|CONSTRAINT)[\s\S]{0,80}agency_recovery_number_uidx/i.test(RECOVERY_NUM_SQL) &&
+    !/SET\s+recovery_number\s*=/i.test(RECOVERY_NUM_SQL) &&
+    RECOVERY_NUM_SQL.includes('direct_paid_amount') &&
+    RECOVERY_NUM_SQL.includes('direct_payment_reference'),
+  'Recovery numbers increment from an agency-year counter, never row count, without rewriting existing numbers or dropping the unique index',
+)
+assert(
+  FINANCIALS.includes('Settlement Method *') &&
+    FINANCIALS.includes('Deduct from Next Payout') &&
+    FINANCIALS.includes('Direct Payment / Paid Back Separately') &&
+    FINANCIALS.includes('Confirm Recovery Payment') &&
+    FINANCIALS.includes('settlementMethod: recoverySettlementMethod') &&
+    COMMISSION_TS.includes('userFacingProducerWriteError') &&
+    COMMISSION_TS.includes('validateDirectRecoveryPaymentInput'),
+  'Financials create-recovery requires settlement method; Direct Payment confirmation is explicit',
 )
 
 console.log(`Producer Payment V1 validation: ${passed} passed, ${failed} failed`)

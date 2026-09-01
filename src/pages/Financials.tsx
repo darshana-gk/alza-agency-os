@@ -36,9 +36,12 @@ import {
   normalizeRecoveryStatus,
   PAYMENT_REFERENCE_REQUIRED_MESSAGE,
   PRODUCER_PAYMENT_CONFIRM_METHODS,
+  recordDirectRecoveryPayment,
   todayIsoDate,
   toNumber,
+  userFacingProducerWriteError,
   validateConfirmPaidOutsideAlzaFlowInput,
+  validateDirectRecoveryPaymentInput,
   voidProducerRecovery,
   type CommissionTransaction,
 } from '../lib/commission'
@@ -494,8 +497,17 @@ export function Financials() {
   const [recoveryTxnId, setRecoveryTxnId] = useState('')
   const [recoveryAmount, setRecoveryAmount] = useState('')
   const [recoveryNotes, setRecoveryNotes] = useState('')
+  const [recoverySettlementMethod, setRecoverySettlementMethod] = useState<
+    'next_payout' | 'direct_payment'
+  >('next_payout')
   const [voidRecoveryId, setVoidRecoveryId] = useState<string | null>(null)
   const [voidRecoveryLabel, setVoidRecoveryLabel] = useState('')
+  const [directPayRecovery, setDirectPayRecovery] = useState<Recovery | null>(null)
+  const [directPayDate, setDirectPayDate] = useState(todayIsoDate())
+  const [directPayMethod, setDirectPayMethod] = useState('')
+  const [directPayReference, setDirectPayReference] = useState('')
+  const [directPayNotes, setDirectPayNotes] = useState('')
+  const [directPayRefTouched, setDirectPayRefTouched] = useState(false)
 
   const [confirmTxn, setConfirmTxn] = useState<CommissionTransaction | null>(null)
   const [receivedAmount, setReceivedAmount] = useState('')
@@ -1158,6 +1170,10 @@ export function Financials() {
       setActionError('Reason / notes are required.')
       return
     }
+    if (recoverySettlementMethod !== 'next_payout' && recoverySettlementMethod !== 'direct_payment') {
+      setActionError('Settlement method is required.')
+      return
+    }
 
     setSaving(true)
     setActionError(null)
@@ -1167,13 +1183,15 @@ export function Financials() {
       producer: tx.producer,
       amount,
       notes: recoveryNotes,
+      clientId: tx.clientId,
+      policyId: tx.policyId,
+      reason: recoveryNotes,
+      settlementMethod: recoverySettlementMethod,
     })
     setSaving(false)
 
     if (result.error) {
-      setActionError(
-        `RLS/query error on ${result.error.table} (${result.error.operation}): ${result.error.message}`,
-      )
+      setActionError(userFacingProducerWriteError(result.error))
       return
     }
 
@@ -1181,7 +1199,57 @@ export function Financials() {
     setRecoveryTxnId('')
     setRecoveryAmount('')
     setRecoveryNotes('')
-    setActionSuccess('Recovery / chargeback recorded as Open.')
+    setRecoverySettlementMethod('next_payout')
+    setActionSuccess(
+      recoverySettlementMethod === 'direct_payment'
+        ? 'Recovery recorded as Open. Confirm Recovery Payment when the producer has paid the agency back. It will not reduce a future payout.'
+        : 'Recovery recorded as Open. It will reduce a future producer payout.',
+    )
+    await loadAll()
+  }
+
+  async function handleConfirmRecoveryPayment(e: FormEvent) {
+    e.preventDefault()
+    if (!canPay) {
+      setActionError('You do not have permission to confirm recovery payments.')
+      return
+    }
+    if (!directPayRecovery) return
+    const confirmValidation = validateDirectRecoveryPaymentInput({
+      paymentDate: directPayDate,
+      paymentMethod: directPayMethod,
+      paymentReference: directPayReference,
+    })
+    if (confirmValidation) {
+      if (confirmValidation === PAYMENT_REFERENCE_REQUIRED_MESSAGE) setDirectPayRefTouched(true)
+      setActionError(confirmValidation)
+      return
+    }
+
+    setSaving(true)
+    setActionError(null)
+    const result = await recordDirectRecoveryPayment({
+      recoveryId: directPayRecovery.id,
+      amountReceived: directPayRecovery.remainingAmount,
+      receivedDate: directPayDate,
+      paymentMethod: directPayMethod,
+      paymentReference: directPayReference,
+      notes: directPayNotes,
+    })
+    setSaving(false)
+
+    if (result.error) {
+      setActionError(userFacingProducerWriteError(result.error))
+      return
+    }
+
+    setDirectPayRecovery(null)
+    setDirectPayMethod('')
+    setDirectPayReference('')
+    setDirectPayNotes('')
+    setDirectPayRefTouched(false)
+    const label = directPayRecovery.recoveryNumber?.trim() || 'payment'
+    setActionSuccess(`Recovery ${label} confirmed as Recovered / Settled via Direct Payment.`)
     await loadAll()
   }
 
@@ -1196,9 +1264,7 @@ export function Financials() {
     const result = await voidProducerRecovery(voidRecoveryId)
     setSaving(false)
     if (result.error) {
-      setActionError(
-        `RLS/query error on ${result.error.table} (${result.error.operation}): ${result.error.message}`,
-      )
+      setActionError(userFacingProducerWriteError(result.error))
       return
     }
     setVoidRecoveryId(null)
@@ -1715,6 +1781,7 @@ export function Financials() {
             type="button"
             onClick={() => {
               setActionError(null)
+              setRecoverySettlementMethod('next_payout')
               setRecoveryOpen(true)
             }}
             className="inline-flex items-center justify-center rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
@@ -2123,25 +2190,56 @@ export function Financials() {
                       </td>
                       <td className="px-6 py-4 text-sm text-slate-600">{row.notes}</td>
                       <td className="px-6 py-4">
-                        {canPay && row.status === 'open' && row.appliedAmount === 0 ? (
-                          <button
-                            type="button"
-                            disabled={saving}
-                            onClick={() => {
-                              setVoidRecoveryId(row.id)
-                              setVoidRecoveryLabel(
-                                row.recoveryNumber?.trim() ||
-                                  formatCurrency(row.amount) ||
-                                  'this recovery',
-                              )
-                            }}
-                            className="text-sm font-medium text-slate-600 hover:text-red-700"
-                          >
-                            Void Recovery
-                          </button>
-                        ) : (
-                          <span className="text-sm text-slate-400">—</span>
-                        )}
+                        {(() => {
+                          const canConfirmDirect =
+                            canPay &&
+                            row.status === 'open' &&
+                            isDirectPaymentSettlement(row.settlementMethod) &&
+                            row.remainingAmount > 0
+                          const canVoidRow = canPay && row.status === 'open' && row.appliedAmount === 0
+                          if (!canConfirmDirect && !canVoidRow) {
+                            return <span className="text-sm text-slate-400">—</span>
+                          }
+                          return (
+                            <div className="flex flex-col items-start gap-1">
+                              {canConfirmDirect && (
+                                <button
+                                  type="button"
+                                  disabled={saving}
+                                  onClick={() => {
+                                    setActionError(null)
+                                    setDirectPayRecovery(row)
+                                    setDirectPayDate(todayIsoDate())
+                                    setDirectPayMethod('')
+                                    setDirectPayReference('')
+                                    setDirectPayNotes('')
+                                    setDirectPayRefTouched(false)
+                                  }}
+                                  className="text-sm font-medium text-alza-blue-700 hover:text-alza-blue-800"
+                                >
+                                  Confirm Recovery Payment
+                                </button>
+                              )}
+                              {canVoidRow && (
+                                <button
+                                  type="button"
+                                  disabled={saving}
+                                  onClick={() => {
+                                    setVoidRecoveryId(row.id)
+                                    setVoidRecoveryLabel(
+                                      row.recoveryNumber?.trim() ||
+                                        formatCurrency(row.amount) ||
+                                        'this recovery',
+                                    )
+                                  }}
+                                  className="text-sm font-medium text-slate-600 hover:text-red-700"
+                                >
+                                  Void Recovery
+                                </button>
+                              )}
+                            </div>
+                          )
+                        })()}
                       </td>
                     </tr>
                   ))
@@ -2554,6 +2652,27 @@ export function Financials() {
               <input required type="number" step="0.01" min="0.01" value={recoveryAmount} onChange={(e) => setRecoveryAmount(e.target.value)} className={inputClassName} />
             </label>
             <label className="block">
+              <span className="mb-1.5 block text-xs font-medium text-slate-500">Settlement Method *</span>
+              <select
+                required
+                value={recoverySettlementMethod}
+                onChange={(e) =>
+                  setRecoverySettlementMethod(
+                    e.target.value === 'direct_payment' ? 'direct_payment' : 'next_payout',
+                  )
+                }
+                className={selectClassName}
+              >
+                <option value="next_payout">Deduct from Next Payout</option>
+                <option value="direct_payment">Direct Payment / Paid Back Separately</option>
+              </select>
+              <p className="mt-1.5 text-xs text-slate-500">
+                {recoverySettlementMethod === 'direct_payment'
+                  ? 'Stays Open until you Confirm Recovery Payment. Does not reduce a future producer payout.'
+                  : 'Stays Open and is applied automatically against a future producer payment batch.'}
+              </p>
+            </label>
+            <label className="block">
               <span className="mb-1.5 block text-xs font-medium text-slate-500">Reason / notes</span>
               <textarea required value={recoveryNotes} onChange={(e) => setRecoveryNotes(e.target.value)} rows={3} className={textareaClassName} />
             </label>
@@ -2561,6 +2680,120 @@ export function Financials() {
               <button type="button" disabled={saving} onClick={() => setRecoveryOpen(false)} className="rounded-lg border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50">Cancel</button>
               <button type="submit" disabled={saving} className="rounded-lg gradient-alza px-4 py-2.5 text-sm font-medium text-white shadow-sm hover:opacity-90 disabled:opacity-50">
                 {saving ? 'Saving…' : 'Create Recovery'}
+              </button>
+            </div>
+          </form>
+        </Modal>
+      )}
+
+      {directPayRecovery && (
+        <Modal title="Confirm Recovery Payment" onClose={() => !saving && setDirectPayRecovery(null)}>
+          <form onSubmit={handleConfirmRecoveryPayment} className="space-y-4">
+            <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+              Confirm only after the producer has paid the agency back. This does not reduce a future producer payout.
+            </p>
+            <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-3 text-sm space-y-1.5">
+              <p>
+                <span className="text-slate-500">Recovery #:</span>{' '}
+                <span className="font-medium text-slate-900">{directPayRecovery.recoveryNumber || '—'}</span>
+              </p>
+              <p>
+                <span className="text-slate-500">Producer:</span>{' '}
+                <span className="font-medium text-slate-900">{directPayRecovery.producer}</span>
+              </p>
+              <p>
+                <span className="text-slate-500">Amount:</span>{' '}
+                <span className="font-medium text-slate-900">{formatCurrency(directPayRecovery.remainingAmount)}</span>
+              </p>
+            </div>
+            {actionError && actionError !== PAYMENT_REFERENCE_REQUIRED_MESSAGE && (
+              <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                {actionError}
+              </div>
+            )}
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className="block">
+                <span className="mb-1.5 block text-xs font-medium text-slate-500">Payment Date *</span>
+                <input
+                  required
+                  type="date"
+                  value={directPayDate}
+                  onChange={(e) => setDirectPayDate(e.target.value)}
+                  className={inputClassName}
+                />
+              </label>
+              <label className="block">
+                <span className="mb-1.5 block text-xs font-medium text-slate-500">Payment Method *</span>
+                <select
+                  required
+                  value={directPayMethod}
+                  onChange={(e) => setDirectPayMethod(e.target.value)}
+                  className={selectClassName}
+                >
+                  <option value="">Select payment method…</option>
+                  {PRODUCER_PAYMENT_CONFIRM_METHODS.map((method) => (
+                    <option key={method.value} value={method.value}>
+                      {method.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="block sm:col-span-2">
+                <span className="mb-1.5 block text-xs font-medium text-slate-500">
+                  Payment Reference / Confirmation # *
+                </span>
+                <input
+                  required
+                  aria-required="true"
+                  value={directPayReference}
+                  onChange={(e) => {
+                    setDirectPayReference(e.target.value)
+                    e.currentTarget.setCustomValidity('')
+                    if (actionError === PAYMENT_REFERENCE_REQUIRED_MESSAGE) setActionError(null)
+                  }}
+                  onBlur={() => setDirectPayRefTouched(true)}
+                  onInvalid={(e) => {
+                    e.currentTarget.setCustomValidity(PAYMENT_REFERENCE_REQUIRED_MESSAGE)
+                  }}
+                  className={inputClassName}
+                />
+                {directPayRefTouched && !directPayReference.trim() && (
+                  <p className="mt-1 text-sm text-red-700" role="alert">
+                    {PAYMENT_REFERENCE_REQUIRED_MESSAGE}
+                  </p>
+                )}
+              </label>
+              <label className="block sm:col-span-2">
+                <span className="mb-1.5 block text-xs font-medium text-slate-500">Notes</span>
+                <textarea
+                  value={directPayNotes}
+                  onChange={(e) => setDirectPayNotes(e.target.value)}
+                  rows={3}
+                  className={textareaClassName}
+                  placeholder="Optional"
+                />
+              </label>
+            </div>
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                disabled={saving}
+                onClick={() => setDirectPayRecovery(null)}
+                className="rounded-lg border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={
+                  saving ||
+                  !directPayDate.trim() ||
+                  !isValidProducerPaymentConfirmMethod(directPayMethod) ||
+                  !directPayReference.trim()
+                }
+                className="rounded-lg gradient-alza px-4 py-2.5 text-sm font-medium text-white shadow-sm hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {saving ? 'Confirming…' : 'Confirm Recovery Payment'}
               </button>
             </div>
           </form>

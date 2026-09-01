@@ -51,12 +51,15 @@ import {
   getTransactionWorkflowTimeline,
   isCorrectionRequired,
   isReadyForPayout,
+  isValidProducerPaymentConfirmMethod,
   buildTransactionsPageKpis,
   canMarkProducerCommissionReady,
   markReadyBlockedReason,
   markProducerCommissionReady,
   normalizeCommissionType,
   paymentStatusStyles,
+  PAYMENT_REFERENCE_REQUIRED_MESSAGE,
+  PRODUCER_PAYMENT_CONFIRM_METHODS,
   PRODUCER_PAYMENT_STATUSES,
   recordDirectRecoveryPayment,
   REVIEW_STATUSES,
@@ -70,6 +73,8 @@ import {
   typeStyles,
   TRANSACTION_TYPES_FOR_CREATE,
   updateTransactionMetadata,
+  userFacingProducerWriteError,
+  validateDirectRecoveryPaymentInput,
   voidTransaction,
   workflowStatusStyles,
   type CommissionTransaction,
@@ -140,6 +145,7 @@ interface RecoverySummary {
   remainingAmount: number
   appliedAmount: number
   voidedAt: string | null
+  settlementMethod: string | null
 }
 
 function mapRecoveryRows(
@@ -164,12 +170,13 @@ function mapRecoveryRows(
       remainingAmount: Number.isFinite(remainingAmount) ? remainingAmount : amount,
       appliedAmount: Number(row.applied_amount ?? 0) || 0,
       voidedAt: row.voided_at ? String(row.voided_at) : null,
+      settlementMethod: row.settlement_method ? String(row.settlement_method) : null,
     }
   })
 }
 
 const RECOVERY_SELECT =
-  'id, recovery_number, amount, status, notes, created_at, remaining_amount, applied_amount, voided_at'
+  'id, recovery_number, amount, status, notes, created_at, remaining_amount, applied_amount, voided_at, settlement_method'
 
 export function Transactions() {
   const { profile } = useAuth()
@@ -253,8 +260,10 @@ export function Transactions() {
   const [selectedRecoveryId, setSelectedRecoveryId] = useState<string | null>(null)
   const [directPayAmount, setDirectPayAmount] = useState('')
   const [directPayDate, setDirectPayDate] = useState(todayIsoDate())
+  const [directPayMethod, setDirectPayMethod] = useState('')
   const [directPayRef, setDirectPayRef] = useState('')
   const [directPayNotes, setDirectPayNotes] = useState('')
+  const [directPayRefTouched, setDirectPayRefTouched] = useState(false)
 
   const [editDate, setEditDate] = useState('')
   const [editType, setEditType] = useState('')
@@ -844,8 +853,10 @@ export function Transactions() {
     setSelectedRecoveryId(recovery.id)
     setDirectPayAmount(String(recovery.remainingAmount > 0 ? recovery.remainingAmount : recovery.amount))
     setDirectPayDate(todayIsoDate())
+    setDirectPayMethod('')
     setDirectPayRef('')
     setDirectPayNotes('')
+    setDirectPayRefTouched(false)
     setDirectPayOpen(true)
   }
 
@@ -885,19 +896,19 @@ export function Transactions() {
     })
     setSaving(false)
     if (result.error) {
-      setActionError(
-        `RLS/query error on ${result.error.table} (${result.error.operation}): ${result.error.message}`,
-      )
+      setActionError(userFacingProducerWriteError(result.error))
       return
     }
-    const createdId = result.data?.id ? String(result.data.id) : null
-    const wasDirect = recoverySettlementMethod === 'direct_payment'
     setRecoveryOpen(false)
     setRecoveryAssistOpen(false)
     setRecoveryAmount('')
     setRecoveryNotes('')
     setRecoverySettlementMethod('next_payout')
-    setActionSuccess('Producer commission recovery recorded.')
+    setActionSuccess(
+      recoverySettlementMethod === 'direct_payment'
+        ? 'Recovery recorded as Open. Confirm Recovery Payment when the producer has paid the agency back.'
+        : 'Producer commission recovery recorded as Open.',
+    )
     setSelectedId(selected.id)
     const { data } = await supabase
       .from('producer_commission_recoveries')
@@ -912,10 +923,6 @@ export function Transactions() {
       return next
     })
     await loadTransactions()
-    if (wasDirect && createdId) {
-      const created = mapped.find((row) => row.id === createdId)
-      if (created) openDirectPayModal(created)
-    }
   }
 
   async function handleDirectRecoveryPayment(e: FormEvent) {
@@ -927,7 +934,17 @@ export function Transactions() {
       return
     }
     if (!directPayDate) {
-      setActionError('Received date is required.')
+      setActionError('Payment date is required.')
+      return
+    }
+    const confirmValidation = validateDirectRecoveryPaymentInput({
+      paymentDate: directPayDate,
+      paymentMethod: directPayMethod,
+      paymentReference: directPayRef,
+    })
+    if (confirmValidation) {
+      if (confirmValidation === PAYMENT_REFERENCE_REQUIRED_MESSAGE) setDirectPayRefTouched(true)
+      setActionError(confirmValidation)
       return
     }
     setSaving(true)
@@ -936,14 +953,13 @@ export function Transactions() {
       recoveryId: selectedRecoveryId,
       amountReceived: amount,
       receivedDate: directPayDate,
+      paymentMethod: directPayMethod,
       paymentReference: directPayRef,
       notes: directPayNotes,
     })
     setSaving(false)
     if (result.error) {
-      setActionError(
-        `RLS/query error on ${result.error.table} (${result.error.operation}): ${result.error.message}`,
-      )
+      setActionError(userFacingProducerWriteError(result.error))
       return
     }
     setDirectPayOpen(false)
@@ -2193,7 +2209,8 @@ export function Transactions() {
                         canRecovery &&
                         row.status === 'open' &&
                         !row.voidedAt &&
-                        row.remainingAmount > 0
+                        row.remainingAmount > 0 &&
+                        row.settlementMethod === 'direct_payment'
                       return (
                         <li key={row.id} className="rounded-lg border border-slate-200 px-3 py-2 text-sm">
                           <div className="flex items-center justify-between gap-3">
@@ -2224,7 +2241,7 @@ export function Transactions() {
                               onClick={() => openDirectPayModal(row)}
                               className="mt-2 inline-flex items-center justify-center rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
                             >
-                              Record Direct Payment
+                              Confirm Recovery Payment
                             </button>
                           )}
                         </li>
@@ -2485,8 +2502,9 @@ export function Transactions() {
                 className={inputClassName}
               />
             </Field>
-            <Field label="Settlement method">
+            <Field label="Settlement Method *">
               <select
+                required
                 value={recoverySettlementMethod}
                 onChange={(e) =>
                   setRecoverySettlementMethod(
@@ -2495,8 +2513,8 @@ export function Transactions() {
                 }
                 className={selectClassName}
               >
-                <option value="next_payout">Next payout</option>
-                <option value="direct_payment">Direct payment</option>
+                <option value="next_payout">Deduct from Next Payout</option>
+                <option value="direct_payment">Direct Payment / Paid Back Separately</option>
               </select>
             </Field>
             <Field label="Reason / notes">
@@ -2523,10 +2541,10 @@ export function Transactions() {
       )}
 
       {directPayOpen && selectedRecoveryId && (
-        <Modal title="Record Direct Recovery Payment" onClose={() => !saving && setDirectPayOpen(false)}>
+        <Modal title="Confirm Recovery Payment" onClose={() => !saving && setDirectPayOpen(false)}>
           <form onSubmit={handleDirectRecoveryPayment} className="space-y-4">
             <p className="text-sm text-slate-600">
-              Records producer paid agency directly against an open recovery. Does not create a payout batch.
+              Confirm only after the producer has paid the agency back. Does not create a payout batch or reduce a future payout.
             </p>
             <Field label="Amount received">
               <input
@@ -2539,7 +2557,7 @@ export function Transactions() {
                 className={inputClassName}
               />
             </Field>
-            <Field label="Received date">
+            <Field label="Payment Date *">
               <input
                 required
                 type="date"
@@ -2548,12 +2566,42 @@ export function Transactions() {
                 className={inputClassName}
               />
             </Field>
-            <Field label="Payment reference">
+            <Field label="Payment Method *">
+              <select
+                required
+                value={directPayMethod}
+                onChange={(e) => setDirectPayMethod(e.target.value)}
+                className={selectClassName}
+              >
+                <option value="">Select payment method…</option>
+                {PRODUCER_PAYMENT_CONFIRM_METHODS.map((method) => (
+                  <option key={method.value} value={method.value}>
+                    {method.label}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            <Field label="Payment Reference / Confirmation # *">
               <input
+                required
+                aria-required="true"
                 value={directPayRef}
-                onChange={(e) => setDirectPayRef(e.target.value)}
+                onChange={(e) => {
+                  setDirectPayRef(e.target.value)
+                  e.currentTarget.setCustomValidity('')
+                  if (actionError === PAYMENT_REFERENCE_REQUIRED_MESSAGE) setActionError(null)
+                }}
+                onBlur={() => setDirectPayRefTouched(true)}
+                onInvalid={(e) => {
+                  e.currentTarget.setCustomValidity(PAYMENT_REFERENCE_REQUIRED_MESSAGE)
+                }}
                 className={inputClassName}
               />
+              {directPayRefTouched && !directPayRef.trim() && (
+                <p className="mt-1 text-sm text-red-700" role="alert">
+                  {PAYMENT_REFERENCE_REQUIRED_MESSAGE}
+                </p>
+              )}
             </Field>
             <Field label="Notes">
               <textarea
@@ -2561,6 +2609,7 @@ export function Transactions() {
                 onChange={(e) => setDirectPayNotes(e.target.value)}
                 rows={3}
                 className={textareaClassName}
+                placeholder="Optional"
               />
             </Field>
             <div className="flex justify-end gap-2">
@@ -2574,10 +2623,15 @@ export function Transactions() {
               </button>
               <button
                 type="submit"
-                disabled={saving}
+                disabled={
+                  saving ||
+                  !directPayDate.trim() ||
+                  !isValidProducerPaymentConfirmMethod(directPayMethod) ||
+                  !directPayRef.trim()
+                }
                 className="rounded-lg gradient-alza px-4 py-2.5 text-sm font-medium text-white shadow-sm hover:opacity-90 disabled:opacity-50"
               >
-                {saving ? 'Saving…' : 'Record Payment'}
+                {saving ? 'Saving…' : 'Confirm Recovery Payment'}
               </button>
             </div>
           </form>

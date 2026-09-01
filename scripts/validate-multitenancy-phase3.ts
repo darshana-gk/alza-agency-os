@@ -201,7 +201,8 @@ console.log('H. No Phase 4 / product leakage')
       stamp > '20260828260000' &&
       !f.startsWith('20260829090000_multitenancy_v1_phase4d_') &&
       !f.startsWith('20260831140000_staging_transactions_v1_financial_parity') &&
-      !f.startsWith('20260831200000_confirm_paid_require_payment_reference')
+      !f.startsWith('20260831200000_confirm_paid_require_payment_reference') &&
+      !f.startsWith('20260901090000_recovery_numbering_sync_and_direct_pay_method')
     )
   })
   assert(extra.length === 0, `no migrations after 3E (${extra.join(', ') || 'none'})`)
