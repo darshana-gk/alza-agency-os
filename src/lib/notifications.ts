@@ -9,6 +9,7 @@ import {
 import {
   isAdminDirectoryRole,
   isAlzaSupportRole,
+  isPurePlatformSupport,
   isProducerBookScoped,
   isProducerRole,
   producerKeysMatch,
@@ -274,10 +275,13 @@ export async function fetchOperationalNotifications(params: {
   const today = todayIso()
   const in90 = addDaysIso(90)
   const profileId = (params.profileId ?? '').trim() || null
+  const platformSupportOnly = isPurePlatformSupport(roleInput)
 
   const [txRes, batchesRes, recoveriesRes, policiesRes, readMap] = await Promise.all([
-    fetchCommissionTransactions(),
-    isAdminDirectoryRole(roleInput)
+    platformSupportOnly
+      ? Promise.resolve({ data: [] as CommissionTransaction[], error: null })
+      : fetchCommissionTransactions(),
+    !platformSupportOnly && isAdminDirectoryRole(roleInput)
       ? supabase
           .from('producer_payment_batches')
           .select('id, batch_number, producer, status, created_at, payment_date, net_payment')
@@ -286,7 +290,7 @@ export async function fetchOperationalNotifications(params: {
           .order('created_at', { ascending: false })
           .limit(50)
       : Promise.resolve({ data: [] as BatchRow[], error: null }),
-    isAdminDirectoryRole(roleInput)
+    !platformSupportOnly && isAdminDirectoryRole(roleInput)
       ? supabase
           .from('producer_commission_recoveries')
           .select(
@@ -296,19 +300,21 @@ export async function fetchOperationalNotifications(params: {
           .order('created_at', { ascending: false })
           .limit(100)
       : Promise.resolve({ data: [] as RecoveryRow[], error: null }),
-    supabase
-      .from('policies')
-      .select(
-        `
+    platformSupportOnly
+      ? Promise.resolve({ data: [] as PolicyAlertRow[], error: null })
+      : supabase
+          .from('policies')
+          .select(
+            `
         id, policy_number, expiration_date, producer, status, client_id,
         clients!policies_client_id_fkey ( business_name )
       `,
-      )
-      .is('archived_at', null)
-      .or(
-        `and(expiration_date.gte.${today},expiration_date.lte.${in90}),status.eq.renewal_due`,
-      )
-      .limit(200),
+          )
+          .is('archived_at', null)
+          .or(
+            `and(expiration_date.gte.${today},expiration_date.lte.${in90}),status.eq.renewal_due`,
+          )
+          .limit(200),
     loadReadMap(profileId),
   ])
 

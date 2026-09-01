@@ -232,7 +232,9 @@ console.log('G. No application / Edge / Billing / Support / Integrations edits i
       !f.startsWith('20260829090000_multitenancy_v1_phase4d_') &&
       !f.startsWith('20260831140000_staging_transactions_v1_financial_parity') &&
       !f.startsWith('20260831200000_confirm_paid_require_payment_reference') &&
-      !f.startsWith('20260901090000_recovery_numbering_sync_and_direct_pay_method')
+      !f.startsWith('20260901090000_recovery_numbering_sync_and_direct_pay_method') &&
+      !f.startsWith('20260901120000_alza_support_platform_login_and_agency_brief') &&
+      !f.startsWith('20260901121000_alza_support_user_roles_select_no_recursion')
   )
   })
   assert(extra.length === 0, `no extra post-RC migrations (${extra.join(', ') || 'none'})`)

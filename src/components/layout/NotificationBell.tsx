@@ -16,7 +16,7 @@ import {
   type NotificationCategory,
   type OperationalNotification,
 } from '../../lib/notifications'
-import { roleInputFromProfile } from '../../lib/permissions'
+import { roleInputFromProfile, isPurePlatformSupport } from '../../lib/permissions'
 
 function categoryIcon(category: NotificationCategory) {
   switch (category) {
@@ -43,6 +43,9 @@ export function NotificationBell() {
   const [items, setItems] = useState<OperationalNotification[]>([])
   const [badgeCount, setBadgeCount] = useState(0)
   const [producerLimitation, setProducerLimitation] = useState<string | null>(null)
+  const viewAllHref = isPurePlatformSupport(roleInputFromProfile(profile))
+    ? '/admin/support-inbox'
+    : '/notifications'
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -130,7 +133,7 @@ export function NotificationBell() {
             </div>
             <div className="flex items-center gap-2">
               <Link
-                to="/notifications"
+                to={viewAllHref}
                 onClick={() => setOpen(false)}
                 className="text-xs font-medium text-alza-blue-700 hover:text-alza-blue-800"
               >

@@ -171,6 +171,7 @@ const CONVERSATION_SELECT = `
 
 /**
  * Hydrate limited agency id/name via support_agency_brief() — does not reopen agency_profile RLS.
+ * ALZA Support receives every agency; agency users receive only their own membership.
  * Returns conversations unchanged when the RPC is unavailable or returns nothing.
  */
 async function hydrateConversationAgencyNames(

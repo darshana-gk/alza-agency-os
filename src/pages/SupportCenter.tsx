@@ -3,6 +3,7 @@ import { useSearchParams } from 'react-router-dom'
 import { LifeBuoy, MessageSquarePlus, ArrowLeft } from 'lucide-react'
 import { SortableTh } from '../components/ui/SortableTh'
 import { useAuth } from '../lib/auth'
+import { useAgency } from '../lib/agencyContext'
 import { canAccessSupportCenter, roleInputFromProfile } from '../lib/permissions'
 import {
   SUPPORT_CATEGORIES,
@@ -42,6 +43,7 @@ type Tab = 'open' | 'resolved' | 'all'
 
 export function SupportCenterPage() {
   const { profile } = useAuth()
+  const { agency } = useAgency()
   const role = roleInputFromProfile(profile)
   const allowed = canAccessSupportCenter(role)
   const [searchParams, setSearchParams] = useSearchParams()
@@ -290,7 +292,9 @@ export function SupportCenterPage() {
             </div>
             <div>
               <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">Agency</dt>
-              <dd className="mt-0.5 text-slate-800">{selected.agencyName || '—'}</dd>
+              <dd className="mt-0.5 text-slate-800">
+                {selected.agencyName || agency?.agencyName || '—'}
+              </dd>
             </div>
             <div>
               <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">Opened by</dt>

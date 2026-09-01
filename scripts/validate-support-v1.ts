@@ -3,6 +3,9 @@
  * Run: npx tsx scripts/validate-support-v1.ts
  */
 
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
+
 type Check = { id: string; passed: boolean; detail: string }
 const checks: Check[] = []
 
@@ -91,6 +94,52 @@ assert('no anon write policies', true, 'authenticated only')
 assert('deep link Agency B blocked by RLS', true, 'SELECT USING agency membership')
 assert('sender_type forged → trigger rewrite', true, 'BEFORE INSERT')
 assert('resolve via RPC alza-only', true, 'support_resolve_conversation')
+
+{
+  const sql = readFileSync(
+    resolve('supabase/migrations/20260901120000_alza_support_platform_login_and_agency_brief.sql'),
+    'utf8',
+  )
+  const auth = readFileSync(resolve('src/lib/auth.tsx'), 'utf8')
+  const support = readFileSync(resolve('src/lib/support.ts'), 'utf8')
+  const center = readFileSync(resolve('src/pages/SupportCenter.tsx'), 'utf8')
+  assert(
+    'platform login reads own users row by auth.uid',
+    sql.includes('auth_user_id = auth.uid()') &&
+      sql.includes("lower(au.email) = 'support@alzabusiness.com'") &&
+      !sql.includes('u.id = user_roles.user_id'),
+    'users SELECT self + support@ link',
+  )
+  assert(
+    'support user stays off customer agencies',
+    sql.includes('agency_profile_id = NULL') && sql.includes("lower(role) <> 'alza_support'"),
+    'NULL membership and strip agency roles',
+  )
+  assert(
+    'agency brief is support-all or own-membership',
+    sql.includes('public.is_alza_support()') &&
+      sql.includes('public.current_user_agency_profile_id()') &&
+      sql.includes('public.can_use_agency_support()'),
+    'support_agency_brief scoped',
+  )
+  assert(
+    'no operational same_agency weakening',
+    !sql.includes('DROP POLICY IF EXISTS clients_select_agency') &&
+      !sql.includes('CREATE POLICY clients_select'),
+    'clients RLS untouched',
+  )
+  assert(
+    'auth still requires linked public.users',
+    auth.includes('Your Supabase login is not linked to an active ALZA Flow user'),
+    'access-denied copy unchanged',
+  )
+  assert(
+    'customer ticket Agency uses hydrated name',
+    support.includes("rpc('support_agency_brief')") &&
+      center.includes('selected.agencyName || agency?.agencyName'),
+    'brief + workspace fallback',
+  )
+}
 
 const failed = checks.filter((c) => !c.passed)
 for (const c of checks) {
