@@ -1333,11 +1333,29 @@ export function evaluateOnboardingRows(input: {
         policyPremium = 0
       }
 
+      // Agency commission / broker fee are optional on onboarding. Book-of-business
+      // import stores policy defaults only — it never creates transactions.
       const pctMapped = Boolean(input.mapping.agency_commission_percentage)
       const amtMapped = Boolean(input.mapping.agency_commission_amount)
+      const pctCell = cell(row, input.mapping, 'agency_commission_percentage')
+      const amtCell = cell(row, input.mapping, 'agency_commission_amount')
       const typeRaw = text(row, input.mapping, 'commission_type').toLowerCase()
-      const pct = parsePercent(cell(row, input.mapping, 'agency_commission_percentage'))
-      const amt = parseMoney(cell(row, input.mapping, 'agency_commission_amount'))
+      const pctText = text(row, input.mapping, 'agency_commission_percentage')
+      const amtText = text(row, input.mapping, 'agency_commission_amount')
+      const pct = parsePercent(pctCell)
+      const amt = parseMoney(amtCell)
+      const pctProvided =
+        pctMapped && (pctText !== '' || (typeof pctCell === 'number' && Number.isFinite(pctCell)))
+      const amtProvided =
+        amtMapped && (amtText !== '' || (typeof amtCell === 'number' && Number.isFinite(amtCell)))
+
+      if (pctProvided && (pct === null || pct < 0)) {
+        mark(state, 'invalid', 'Agency Commission % is invalid.')
+      }
+      if (amtProvided && amt === null) {
+        mark(state, 'invalid', 'Agency Commission Amount is invalid.')
+      }
+
       let commissionType: 'percentage' | 'flat' | null = null
       if (typeRaw.includes('flat') || typeRaw === 'amount') commissionType = 'flat'
       else if (typeRaw.includes('percent') || typeRaw === '%' || typeRaw === 'percentage') {
@@ -1348,20 +1366,6 @@ export function evaluateOnboardingRows(input: {
         commissionType = 'flat'
       } else if (pctMapped && pct !== null) {
         commissionType = 'percentage'
-      }
-
-      if (!commissionType) {
-        mark(
-          state,
-          'missing_required',
-          'Agency commission is required (map Agency Commission % or Agency Commission Amount, or Commission Type).',
-        )
-      } else if (commissionType === 'percentage') {
-        if (pct === null || pct < 0) {
-          mark(state, 'missing_required', 'Agency Commission % is required and must be zero or greater.')
-        }
-      } else if (amt === null) {
-        mark(state, 'missing_required', 'Agency Commission Amount is required for flat commission.')
       }
 
       // Producer Split: blank = missing_required; never default to 60 or 0.
@@ -1945,6 +1949,14 @@ export async function executeOnboardingImport(input: {
       }
       const premium =
         p.premium === null || p.premium === undefined ? null : Number(p.premium)
+      const agencyPct =
+        p.agencyCommissionPercentage == null || p.agencyCommissionPercentage === ''
+          ? 0
+          : Number(p.agencyCommissionPercentage)
+      const agencyAmt =
+        p.agencyCommissionAmount == null || p.agencyCommissionAmount === ''
+          ? 0
+          : Number(p.agencyCommissionAmount)
       const result = await createPolicyFn({
         clientId: String(p.clientId ?? ''),
         policyNumber: String(p.policyNumber ?? ''),
@@ -1958,10 +1970,8 @@ export async function executeOnboardingImport(input: {
         status: (p.status as PolicyStatusValue) || 'pending',
         notes: String(p.notes ?? ''),
         commissionType,
-        agencyCommissionPercentage:
-          commissionType === 'percentage' ? Number(p.agencyCommissionPercentage) : null,
-        agencyCommissionAmount:
-          commissionType === 'flat' ? Number(p.agencyCommissionAmount) : null,
+        agencyCommissionPercentage: commissionType === 'percentage' ? agencyPct : null,
+        agencyCommissionAmount: commissionType === 'flat' ? agencyAmt : null,
         producerSplitPercentage: split,
         brokerFee: Number(p.brokerFee ?? 0),
         premium,
@@ -2156,6 +2166,9 @@ export function runOnboardingMappingChecks(): Array<{
       passed:
         ONBOARDING_FIELDS.policies.some(
           (f) => f.key === 'producer_split_percentage' && f.required,
+        ) &&
+        ONBOARDING_FIELDS.master_agency.some(
+          (f) => f.key === 'producer_split_percentage' && f.required,
         ),
       detail: 'producer_split_percentage required',
     },
@@ -2164,6 +2177,20 @@ export function runOnboardingMappingChecks(): Array<{
       name: 'Client Number optional field present',
       passed: ONBOARDING_FIELDS.clients.some((f) => f.key === 'client_number' && !f.required),
       detail: 'client_number optional',
+    },
+    {
+      id: '15',
+      name: 'Agency commission fields optional on onboarding policies',
+      passed: ['policies', 'master_agency'].every((entity) => {
+        const fields = ONBOARDING_FIELDS[entity as 'policies' | 'master_agency']
+        return [
+          'commission_type',
+          'agency_commission_percentage',
+          'agency_commission_amount',
+          'broker_fee',
+        ].every((key) => fields.some((f) => f.key === key && !f.required))
+      }),
+      detail: 'commission type/%/amount and broker fee optional',
     },
   ]
   return cases

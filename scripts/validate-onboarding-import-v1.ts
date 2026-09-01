@@ -407,6 +407,52 @@ console.log('referencePremium persists to policies.premium via payload.premium')
   )
 }
 
+console.log('Agency commission optional; Producer Split still required')
+{
+  const noCommHeaders = ['Client Name', 'Policy Number', 'Producer Split %']
+  const noCommMap = mappingFromHeaders('policies', noCommHeaders)
+  const noComm = evaluateOnboardingRows({
+    entity: 'policies',
+    rows: [rowFromHeaders(noCommHeaders, ['Existing Client LLC', 'P-NOCOMM', '40'])],
+    mapping: noCommMap,
+    caches: seedDirectoryCaches(),
+  })
+  assert(noComm.ready === 1, 'policy ready without agency commission columns')
+  assert(noComm.rows[0]?.payload.commissionType == null, 'commission type left unset')
+  assert(
+    !noComm.rows.some((r) => r.reasons.some((reason) => /agency commission is required/i.test(reason))),
+    'no agency-commission required error',
+  )
+
+  const emptyCommHeaders = [
+    'Client Name',
+    'Policy Number',
+    'Commission Type',
+    'Agency Commission %',
+    'Agency Commission Amount',
+    'Default Broker Fee',
+    'Producer Split %',
+  ]
+  const emptyCommMap = mappingFromHeaders('policies', emptyCommHeaders)
+  const emptyComm = evaluateOnboardingRows({
+    entity: 'policies',
+    rows: [rowFromHeaders(emptyCommHeaders, ['Existing Client LLC', 'P-EMPTYCOMM', '', '', '', '', '0'])],
+    mapping: emptyCommMap,
+    caches: seedDirectoryCaches(),
+  })
+  assert(emptyComm.ready === 1, 'empty mapped commission + broker fee still ready')
+  assert(emptyComm.rows[0]?.payload.producerSplitPercentage === 0, 'Producer Split 0 accepted without commission')
+
+  const blankSplit = evaluateOnboardingRows({
+    entity: 'policies',
+    rows: [rowFromHeaders(noCommHeaders, ['Existing Client LLC', 'P-NOSPLIT', ''])],
+    mapping: noCommMap,
+    caches: seedDirectoryCaches(),
+  })
+  assert(blankSplit.missingRequired === 1, 'blank Producer Split still missing_required without commission')
+  assert(planOnboardingInsert(blankSplit).length === 0, 'blank Producer Split not insertable')
+}
+
 console.log('')
 console.log(`${passed} passed, ${failed} failed`)
 if (failed > 0) process.exit(1)

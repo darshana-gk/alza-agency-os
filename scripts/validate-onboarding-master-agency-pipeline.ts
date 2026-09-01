@@ -335,6 +335,109 @@ console.log('17. Re-import same master file is idempotent')
   assertEq(out.data?.createdTransactions, 0, 'still no transactions')
 }
 
+console.log('18. Master Agency Data policies import without agency commission')
+{
+  const uat = [
+    'client,policy_number,line_of_business,carrier,mga,producer,csr,effective_date,expiration_date,current_policy_premium,producer_split_percent,status',
+    'Alpha LLC,P1,GL,Carrier One,MGA One,Pat Producer,Casey CSR,2026-01-01,2027-01-01,10000,60,active',
+    'Alpha LLC,P2,WC,Carrier Two,MGA One,Pat Producer,Casey CSR,2026-01-01,2027-01-01,8000,0,active',
+    'Bravo Inc,P3,GL,Carrier Three,MGA Two,Quinn Producer,Drew CSR,2026-02-01,2027-02-01,12000,50,active',
+    'Charlie Co,P4,AUTO,Carrier Four,MGA Two,Quinn Producer,Drew CSR,2026-03-01,2027-03-01,9000,40,active',
+    'Delta LLC,P5,GL,Carrier One,MGA Three,Pat Producer,Casey CSR,2026-04-01,2027-04-01,11000,60,active',
+    'Echo Corp,P6,WC,Carrier Two,MGA Three,Quinn Producer,Drew CSR,2026-05-01,2027-05-01,7000,25,active',
+    'Echo Corp,P7,GL,Carrier Three,MGA One,Pat Producer,Casey CSR,2026-06-01,2027-06-01,13000,55,active',
+    'Bravo Inc,P8,PROPERTY,Carrier Four,MGA Three,Quinn Producer,Drew CSR,2026-07-01,2027-07-01,15000,45,active',
+  ].join('\n')
+  const parsed = parseOnboardingDelimitedText(uat, 'paste')
+  const mapping = suggestOnboardingMapping('master_agency', parsed.headers)
+  assert(!mapping.commission_type, 'commission type unmapped')
+  assert(!mapping.agency_commission_percentage, 'agency % unmapped')
+  assert(!mapping.agency_commission_amount, 'agency amount unmapped')
+  assert(!mapping.broker_fee, 'broker fee unmapped')
+  assert(mapping.producer_split_percentage === 'producer_split_percent', 'producer split still mapped')
+
+  const preview = evaluateMasterAgencyImport({
+    rows: parsed.rows,
+    mapping,
+    caches: emptyOnboardingCaches(),
+  })
+  assertEq(summary(preview, 'carriers').newCount, 4, 'UAT-shaped: Carriers 4 New')
+  assertEq(summary(preview, 'mgas').newCount, 3, 'UAT-shaped: MGAs 3 New')
+  assertEq(summary(preview, 'producers').newCount, 2, 'UAT-shaped: Producers 2 New')
+  assertEq(summary(preview, 'csrs').newCount, 2, 'UAT-shaped: CSRs 2 New')
+  assertEq(summary(preview, 'clients').newCount, 5, 'UAT-shaped: Clients 5 New')
+  assertEq(summary(preview, 'policies').newCount, 8, 'UAT-shaped: Policies 8 New')
+  assertEq(summary(preview, 'policies').invalid, 0, 'UAT-shaped: Policies Invalid 0')
+  assertEq(preview.totalNew, 24, 'UAT-shaped: Import 24 new records')
+  assert(
+    summary(preview, 'policies').preview.rows.every(
+      (r) => !r.reasons.some((reason) => /agency commission is required/i.test(reason)),
+    ),
+    'no agency-commission required errors',
+  )
+  assert(
+    summary(preview, 'policies').preview.rows.some((r) => r.payload.producerSplitPercentage === 0),
+    'Producer Split 0 remains ready',
+  )
+
+  const store = {
+    carriers: [] as string[],
+    mgas: [] as string[],
+    producers: [] as string[],
+    csrs: [] as string[],
+    clients: [] as Array<{ id: string; businessName: string }>,
+    policies: [] as Array<Record<string, unknown>>,
+    transactions: 0,
+  }
+  const out = await executeMasterAgencyImport({
+    preview,
+    deps: mockDeps(store),
+  })
+  assertEq(out.data?.imported, 24, 'execute imports 24 records')
+  assertEq(out.data?.createdTransactions, 0, 'still no synthetic transactions')
+  assertEq(store.policies.length, 8, '8 policies persisted')
+  assert(
+    store.policies.every((p) => Number(p.premium) > 0),
+    'Current Policy Premium stored on policy rows',
+  )
+  assert(
+    store.policies.some((p) => Number(p.producerSplitPercentage) === 0),
+    'split 0 persisted',
+  )
+}
+
+console.log('19. Empty mapped commission columns still import; blank split still blocked')
+{
+  const emptyComm = [
+    'client,policy_number,carrier,commission_type,agency_commission_percent,agency_commission_amount,default_broker_fee,producer_split_percent',
+    'Solo LLC,P-EMPTY,CNA,,,,,60',
+  ].join('\n')
+  const parsed = parseOnboardingDelimitedText(emptyComm, 'paste')
+  const mapping = suggestOnboardingMapping('master_agency', parsed.headers)
+  assert(mapping.agency_commission_percentage === 'agency_commission_percent', 'empty % column still maps')
+  const preview = evaluateMasterAgencyImport({
+    rows: parsed.rows,
+    mapping,
+    caches: emptyOnboardingCaches(),
+  })
+  assertEq(summary(preview, 'policies').newCount, 1, 'empty commission cells → policy New')
+  assertEq(summary(preview, 'policies').invalid, 0, 'empty commission cells → not invalid')
+
+  const blankSplit = [
+    'client,policy_number,carrier,producer,producer_split_percent',
+    'Solo LLC,P-SPLIT,CNA,Pat Producer,',
+  ].join('\n')
+  const splitParsed = parseOnboardingDelimitedText(blankSplit, 'paste')
+  const splitMapping = suggestOnboardingMapping('master_agency', splitParsed.headers)
+  const splitPreview = evaluateMasterAgencyImport({
+    rows: splitParsed.rows,
+    mapping: splitMapping,
+    caches: emptyOnboardingCaches(),
+  })
+  assert(summary(splitPreview, 'policies').invalid >= 1, 'blank Producer Split still invalid when producer assigned')
+  assertEq(summary(splitPreview, 'policies').newCount, 0, 'blank Producer Split not ready')
+}
+
 console.log(`\n${passed} passed, ${failed} failed`)
 if (failed > 0) process.exit(1)
 console.log('validate-onboarding-master-agency-pipeline: ALL GREEN')
