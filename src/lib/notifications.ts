@@ -7,6 +7,7 @@ import {
   type CommissionTransaction,
 } from './commission'
 import {
+  canAccessSupportCenter,
   isAdminDirectoryRole,
   isAlzaSupportRole,
   isPurePlatformSupport,
@@ -15,6 +16,7 @@ import {
   producerKeysMatch,
   csrAssignmentMatches,
   resolveProducerBookName,
+  supportNotificationDeepLink,
   toAppRoles,
   type RoleInput,
 } from './permissions'
@@ -650,31 +652,12 @@ export async function fetchOperationalNotifications(params: {
   }
 
   // Support Center — derived from conversation status (in-app only).
+  // Audience (agency vs platform) chooses the path; never inbox for Support Center roles.
   const supportSeeds = await fetchSupportNotificationSeeds({
     role: roleInput,
     profileId,
   })
-  if (isAlzaSupportRole(roleInput)) {
-    for (const row of supportSeeds.waitingOnAlza) {
-      items.push(
-        withReadState(
-          {
-            id: `support_waiting_alza:${row.id}:${row.updatedAt}`,
-            kind: 'support_waiting_alza',
-            category: 'support',
-            title: 'Support request needs ALZA reply',
-            context: `${row.subject} · ${row.agencyName || 'Agency'}`,
-            dateLabel: row.updatedAt ? row.updatedAt.slice(0, 10) : null,
-            href: `/admin/support-inbox?c=${row.id}`,
-            actionLabel: 'Open Support Inbox',
-            sortDate: row.updatedAt || row.createdAt,
-            reviewQueue: null,
-          },
-          readMap,
-        ),
-      )
-    }
-  } else {
+  if (canAccessSupportCenter(roleInput)) {
     for (const row of supportSeeds.waitingOnCustomer) {
       items.push(
         withReadState(
@@ -685,7 +668,7 @@ export async function fetchOperationalNotifications(params: {
             title: 'ALZA replied to your support request',
             context: row.subject,
             dateLabel: row.updatedAt ? row.updatedAt.slice(0, 10) : null,
-            href: `/support?c=${row.id}`,
+            href: supportNotificationDeepLink(roleInput, row.id),
             actionLabel: 'Open Conversation',
             sortDate: row.updatedAt || row.createdAt,
             reviewQueue: null,
@@ -704,9 +687,29 @@ export async function fetchOperationalNotifications(params: {
             title: 'Support request resolved',
             context: row.subject,
             dateLabel: (row.resolvedAt || row.updatedAt || '').slice(0, 10) || null,
-            href: `/support?c=${row.id}`,
+            href: supportNotificationDeepLink(roleInput, row.id),
             actionLabel: 'View Conversation',
             sortDate: row.resolvedAt || row.updatedAt || row.createdAt,
+            reviewQueue: null,
+          },
+          readMap,
+        ),
+      )
+    }
+  } else if (isAlzaSupportRole(roleInput)) {
+    for (const row of supportSeeds.waitingOnAlza) {
+      items.push(
+        withReadState(
+          {
+            id: `support_waiting_alza:${row.id}:${row.updatedAt}`,
+            kind: 'support_waiting_alza',
+            category: 'support',
+            title: 'Support request needs ALZA reply',
+            context: `${row.subject} · ${row.agencyName || 'Agency'}`,
+            dateLabel: row.updatedAt ? row.updatedAt.slice(0, 10) : null,
+            href: supportNotificationDeepLink(roleInput, row.id),
+            actionLabel: 'Open Support Inbox',
+            sortDate: row.updatedAt || row.createdAt,
             reviewQueue: null,
           },
           readMap,

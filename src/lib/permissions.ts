@@ -74,6 +74,27 @@ export function homePathForRoles(role: RoleInput): string {
   return '/'
 }
 
+/**
+ * In-app / email-style support ticket deep link.
+ * Agency Support Center access always wins — Owner/Admin/CSR/Producer/Viewer
+ * open `/support?c=`, never the ALZA Support Inbox. Platform ALZA Support
+ * continues to use `/admin/support-inbox?c=`.
+ */
+export function supportNotificationDeepLink(role: RoleInput, conversationId: string): string {
+  const id = String(conversationId ?? '').trim()
+  const qs = id ? `?c=${id}` : ''
+  if (canAccessSupportCenter(role)) return `/support${qs}`
+  if (isAlzaSupportRole(role)) return `/admin/support-inbox${qs}`
+  return `/support${qs}`
+}
+
+/** Split a stored notification href so React Router treats `?c=` as search, not path. */
+export function notificationHrefTo(href: string): { pathname: string; search: string } | string {
+  const q = href.indexOf('?')
+  if (q <= 0) return href
+  return { pathname: href.slice(0, q), search: href.slice(q) }
+}
+
 /** Match producers.producer_name ↔ clients/policies/transactions.producer TEXT. */
 export function normalizeProducerKey(name: string | null | undefined): string {
   return (name ?? '').trim().toLowerCase().replace(/\s+/g, ' ')

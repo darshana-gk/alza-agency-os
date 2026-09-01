@@ -16,7 +16,7 @@ import {
   type NotificationCategory,
   type OperationalNotification,
 } from '../../lib/notifications'
-import { roleInputFromProfile, isPurePlatformSupport } from '../../lib/permissions'
+import { roleInputFromProfile, isPurePlatformSupport, notificationHrefTo } from '../../lib/permissions'
 
 function categoryIcon(category: NotificationCategory) {
   switch (category) {
@@ -175,7 +175,7 @@ export function NotificationBell() {
                       return (
                         <li key={item.id}>
                           <Link
-                            to={item.href}
+                            to={item.category === 'support' ? notificationHrefTo(item.href) : item.href}
                             onClick={() => setOpen(false)}
                             className={`flex gap-3 px-4 py-3 transition-colors hover:bg-alza-blue-50/50 ${
                               item.read ? 'bg-white' : 'bg-alza-blue-50/40'

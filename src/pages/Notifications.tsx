@@ -19,7 +19,7 @@ import {
   type OperationalNotification,
   type ReviewQueueFilter,
 } from '../lib/notifications'
-import { roleInputFromProfile } from '../lib/permissions'
+import { notificationHrefTo, roleInputFromProfile } from '../lib/permissions'
 
 const ALL = 'all'
 
@@ -311,7 +311,7 @@ export function NotificationsPage() {
                       <p className="mt-1 text-sm text-slate-600">{item.context}</p>
                       <div className="mt-3 flex flex-wrap items-center gap-2">
                         <Link
-                          to={item.href}
+                          to={item.category === 'support' ? notificationHrefTo(item.href) : item.href}
                           className="rounded-lg border border-alza-blue-200 bg-alza-blue-50 px-3 py-1.5 text-xs font-medium text-alza-blue-800 hover:bg-alza-blue-100"
                         >
                           {item.actionLabel}

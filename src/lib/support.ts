@@ -5,6 +5,7 @@ import {
   isAlzaSupportRole,
   canAccessSupportCenter,
   canAccessAlzaSupportInbox,
+  supportNotificationDeepLink,
   toAppRoles,
   type RoleInput,
 } from './permissions'
@@ -655,8 +656,8 @@ export async function fetchSupportNotificationSeeds(params: {
   }
   if (!roles.length) return empty
 
-  const isAlza = isAlzaSupportRole(roles)
   const agencyOk = canAccessSupportCenter(roles)
+  const isAlza = isAlzaSupportRole(roles)
   if (!isAlza && !agencyOk) return empty
 
   const { data, error } = await supabase
@@ -670,19 +671,21 @@ export async function fetchSupportNotificationSeeds(params: {
     (data ?? []).map((r) => mapConversation(r as Record<string, unknown>)),
   )
 
-  if (isAlza) {
+  // Agency Support Center takes precedence so Owner/CSR/Producer never inherit
+  // ALZA Inbox notification targets, even if alza_support is present in roles.
+  if (agencyOk) {
     return {
-      waitingOnAlza: rows.filter((r) => r.status === 'waiting_on_alza'),
-      waitingOnCustomer: [],
-      recentlyResolved: [],
+      waitingOnAlza: [],
+      waitingOnCustomer: rows.filter((r) => r.status === 'waiting_on_customer'),
+      recentlyResolved: rows.filter((r) => r.status === 'resolved').slice(0, 20),
       error: null,
     }
   }
 
   return {
-    waitingOnAlza: [],
-    waitingOnCustomer: rows.filter((r) => r.status === 'waiting_on_customer'),
-    recentlyResolved: rows.filter((r) => r.status === 'resolved').slice(0, 20),
+    waitingOnAlza: rows.filter((r) => r.status === 'waiting_on_alza'),
+    waitingOnCustomer: [],
+    recentlyResolved: [],
     error: null,
   }
 }
@@ -704,6 +707,16 @@ export function runSupportPresentationSelfChecks(): { name: string; passed: bool
       name: 'category reconciliation label',
       passed: supportCategoryLabel('reconciliation') === 'Reconciliation',
       detail: supportCategoryLabel('reconciliation'),
+    },
+    {
+      name: 'agency owner deep link is Support Center',
+      passed: supportNotificationDeepLink('owner', 'c1') === '/support?c=c1',
+      detail: supportNotificationDeepLink('owner', 'c1'),
+    },
+    {
+      name: 'alza support deep link is inbox',
+      passed: supportNotificationDeepLink('alza_support', 'c1') === '/admin/support-inbox?c=c1',
+      detail: supportNotificationDeepLink('alza_support', 'c1'),
     },
   ]
 }

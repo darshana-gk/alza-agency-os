@@ -11,6 +11,7 @@ import {
   isPurePlatformSupport,
   rolesOf,
   resolveProducerBookName,
+  supportNotificationDeepLink,
   type AppRole,
 } from '../src/lib/permissions.ts'
 
@@ -144,6 +145,34 @@ console.log('F. 4C cleanup narrowed')
   assert(preclean.includes('05000000-0000-4000-8000-000000000005'), 'precleanup protects seed policy id')
   const staging = read('tmp-phase4c-staging-jwt.ts')
   assert(staging.includes('fixtureIds.policyId'), '4C test deletes by fixture policy id')
+}
+
+console.log('G. Support notification deep links stay on the caller side')
+{
+  const conv = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1'
+  assert(
+    supportNotificationDeepLink('owner', conv) === `/support?c=${conv}`,
+    'owner notification → /support?c=',
+  )
+  assert(
+    supportNotificationDeepLink('csr', conv) === `/support?c=${conv}`,
+    'csr notification → /support?c=',
+  )
+  assert(
+    supportNotificationDeepLink('producer', conv) === `/support?c=${conv}`,
+    'producer notification → /support?c=',
+  )
+  assert(
+    !supportNotificationDeepLink('owner', conv).includes('support-inbox'),
+    'owner never inbox',
+  )
+  assert(
+    supportNotificationDeepLink('alza_support', conv) === `/admin/support-inbox?c=${conv}`,
+    'alza notification → inbox',
+  )
+  assert(canAccessPath('owner', '/support'), 'owner guard still allows /support')
+  assert(!canAccessPath('owner', '/admin/support-inbox'), 'owner guard still denies inbox')
+  assert(!canAccessPath('alza_support', '/support'), 'alza guard still denies /support')
 }
 
 console.log('')
