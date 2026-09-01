@@ -14,7 +14,9 @@ import {
   reopenSupportConversation,
   replyToSupportConversation,
   resolveSupportConversation,
+  mergeSupportReply,
   supportCategoryLabel,
+  supportMessageSenderLabel,
   supportPriorityLabel,
   supportStatusClass,
   supportStatusLabel,
@@ -172,6 +174,9 @@ export function SupportCenterPage() {
       return
     }
     setReply('')
+    if (result.data) {
+      setMessages((prev) => mergeSupportReply(prev, result.data!))
+    }
     await loadDetail(selectedId)
     await loadList()
   }
@@ -319,11 +324,7 @@ export function SupportCenterPage() {
               >
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <p className="text-sm font-semibold text-slate-900">
-                    {isAlza
-                      ? m.senderName
-                        ? `ALZA Support · ${m.senderName}`
-                        : 'ALZA Support'
-                      : m.senderName || 'Agency User'}
+                    {supportMessageSenderLabel(m)}
                   </p>
                   <p className="text-xs text-slate-500">{formatWhen(m.createdAt)}</p>
                 </div>

@@ -1,6 +1,7 @@
 import { resolveCurrentAgencyProfileId } from './agency'
 import { recordActivity } from './activity'
 import type { AppUserProfile } from './auth'
+import { sortNewestCreatedThenCode } from './createdFirstSort'
 import {
   isAlzaSupportRole,
   canAccessSupportCenter,
@@ -56,6 +57,7 @@ export type SupportMessage = {
   conversationId: string
   senderUserId: string | null
   senderName: string | null
+  senderRole: string | null
   senderType: SupportSenderType
   body: string
   createdAt: string
@@ -114,6 +116,69 @@ export function supportPriorityLabel(priority: string | null | undefined): strin
   return priority === 'urgent' ? 'Urgent' : 'Normal'
 }
 
+export function supportSenderRoleLabel(role: string | null | undefined): string | null {
+  const value = String(role ?? '').trim().toLowerCase()
+  if (!value) return null
+  switch (value) {
+    case 'owner':
+      return 'Owner'
+    case 'admin':
+      return 'Admin'
+    case 'csr':
+      return 'CSR'
+    case 'producer':
+      return 'Producer'
+    case 'viewer':
+      return 'Viewer'
+    case 'alza_support':
+      return 'ALZA Support'
+    default:
+      return value
+        .split(/[_\s-]+/)
+        .filter(Boolean)
+        .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+        .join(' ')
+  }
+}
+
+/** Agency message header. Fall back to “Agency User” only when name and role are missing. */
+export function supportAgencySenderLabel(
+  name: string | null | undefined,
+  role: string | null | undefined,
+): string {
+  const displayName = String(name ?? '').trim()
+  const roleLabel = supportSenderRoleLabel(role)
+  if (displayName && roleLabel) return `${displayName} · ${roleLabel}`
+  if (displayName) return displayName
+  if (roleLabel) return roleLabel
+  return 'Agency User'
+}
+
+export function supportMessageSenderLabel(
+  message: Pick<SupportMessage, 'senderType' | 'senderName' | 'senderRole'>,
+): string {
+  if (message.senderType === 'alza_support') {
+    const name = String(message.senderName ?? '').trim()
+    return name ? `ALZA Support · ${name}` : 'ALZA Support'
+  }
+  return supportAgencySenderLabel(message.senderName, message.senderRole)
+}
+
+/** Newest created_at first, then id DESC. */
+export function sortSupportMessagesNewestFirst(messages: SupportMessage[]): SupportMessage[] {
+  return sortNewestCreatedThenCode(messages, (m) => m.createdAt, (m) => m.id)
+}
+
+export function mergeSupportReply(
+  messages: SupportMessage[],
+  incoming: SupportMessage,
+): SupportMessage[] {
+  return sortSupportMessagesNewestFirst([
+    incoming,
+    ...messages.filter((m) => m.id !== incoming.id),
+  ])
+}
+
 function firstEmbed<T>(value: T | T[] | null | undefined): T | null {
   if (!value) return null
   return Array.isArray(value) ? (value[0] ?? null) : value
@@ -151,12 +216,15 @@ function mapConversation(row: Record<string, unknown>): SupportConversation {
 }
 
 function mapMessage(row: Record<string, unknown>): SupportMessage {
-  const sender = firstEmbed(row.sender as { full_name?: string } | { full_name?: string }[] | null)
+  const sender = firstEmbed(
+    row.sender as { full_name?: string; role?: string } | { full_name?: string; role?: string }[] | null,
+  )
   return {
     id: String(row.id),
     conversationId: String(row.conversation_id ?? ''),
     senderUserId: row.sender_user_id ? String(row.sender_user_id) : null,
     senderName: sender?.full_name?.trim() || null,
+    senderRole: sender?.role?.trim() || null,
     senderType: String(row.sender_type ?? 'agency_user') as SupportSenderType,
     body: String(row.body ?? ''),
     createdAt: String(row.created_at ?? ''),
@@ -196,8 +264,37 @@ async function hydrateConversationAgencyNames(
 
 const MESSAGE_SELECT = `
   id, conversation_id, sender_user_id, sender_type, body, created_at,
-  sender:sender_user_id ( full_name )
+  sender:sender_user_id ( full_name, role )
 `
+
+async function hydrateSupportMessageActors(
+  conversationId: string,
+  messages: SupportMessage[],
+): Promise<SupportMessage[]> {
+  if (messages.length === 0) return messages
+  const { data, error } = await supabase.rpc('support_ticket_actor_brief', {
+    p_conversation_id: conversationId,
+  })
+  if (error || !data) return messages
+  const byId = new Map<string, { fullName: string | null; role: string | null }>()
+  for (const row of data as Array<{ id?: string; full_name?: string | null; role?: string | null }>) {
+    const id = String(row.id ?? '').trim()
+    if (!id) continue
+    byId.set(id, {
+      fullName: String(row.full_name ?? '').trim() || null,
+      role: String(row.role ?? '').trim() || null,
+    })
+  }
+  if (byId.size === 0) return messages
+  return messages.map((m) => {
+    const actor = m.senderUserId ? byId.get(m.senderUserId) : undefined
+    return {
+      ...m,
+      senderName: m.senderName || actor?.fullName || null,
+      senderRole: m.senderRole || actor?.role || null,
+    }
+  })
+}
 
 export async function fetchSupportConversations(params?: {
   tab?: 'open' | 'resolved' | 'all'
@@ -273,9 +370,12 @@ export async function fetchSupportMessages(
     .from('support_messages')
     .select(MESSAGE_SELECT)
     .eq('conversation_id', conversationId)
-    .order('created_at', { ascending: true })
+    .order('created_at', { ascending: false })
+    .order('id', { ascending: false })
   if (error) return { data: [], error: error.message }
-  return { data: (data ?? []).map((r) => mapMessage(r as Record<string, unknown>)), error: null }
+  const mapped = (data ?? []).map((r) => mapMessage(r as Record<string, unknown>))
+  const hydrated = await hydrateSupportMessageActors(conversationId, mapped)
+  return { data: sortSupportMessagesNewestFirst(hydrated), error: null }
 }
 
 export async function createSupportRequest(input: {
@@ -405,7 +505,15 @@ export async function replyToSupportConversation(input: {
     conversationId: input.conversationId,
   })
 
-  return { data: mapMessage(msg as Record<string, unknown>), error: null }
+  const mapped = mapMessage(msg as Record<string, unknown>)
+  return {
+    data: {
+      ...mapped,
+      senderName: mapped.senderName || input.profile.fullName.trim() || null,
+      senderRole: mapped.senderRole || input.profile.role || null,
+    },
+    error: null,
+  }
 }
 
 export async function resolveSupportConversation(input: {
@@ -717,6 +825,98 @@ export function runSupportPresentationSelfChecks(): { name: string; passed: bool
       name: 'alza support deep link is inbox',
       passed: supportNotificationDeepLink('alza_support', 'c1') === '/admin/support-inbox?c=c1',
       detail: supportNotificationDeepLink('alza_support', 'c1'),
+    },
+    {
+      name: 'agency sender uses name and role',
+      passed: supportAgencySenderLabel('2AG-B Owner', 'owner') === '2AG-B Owner · Owner',
+      detail: supportAgencySenderLabel('2AG-B Owner', 'owner'),
+    },
+    {
+      name: 'agency sender falls back to Agency User',
+      passed: supportAgencySenderLabel('', '') === 'Agency User',
+      detail: supportAgencySenderLabel('', ''),
+    },
+    {
+      name: 'messages newest created_at first',
+      passed: (() => {
+        const sorted = sortSupportMessagesNewestFirst([
+          {
+            id: 'a',
+            conversationId: 'c',
+            senderUserId: null,
+            senderName: null,
+            senderRole: null,
+            senderType: 'agency_user',
+            body: 'old',
+            createdAt: '2026-09-01T10:00:00.000Z',
+          },
+          {
+            id: 'b',
+            conversationId: 'c',
+            senderUserId: null,
+            senderName: null,
+            senderRole: null,
+            senderType: 'alza_support',
+            body: 'new',
+            createdAt: '2026-09-01T11:00:00.000Z',
+          },
+        ])
+        return sorted[0]?.id === 'b' && sorted[1]?.id === 'a'
+      })(),
+      detail: 'created_at desc',
+    },
+    {
+      name: 'equal created_at ties break on id desc',
+      passed: (() => {
+        const stamp = '2026-09-01T11:00:00.000Z'
+        const sorted = sortSupportMessagesNewestFirst([
+          {
+            id: '11111111-1111-4111-8111-111111111111',
+            conversationId: 'c',
+            senderUserId: null,
+            senderName: null,
+            senderRole: null,
+            senderType: 'agency_user',
+            body: 'a',
+            createdAt: stamp,
+          },
+          {
+            id: '99999999-9999-4999-8999-999999999999',
+            conversationId: 'c',
+            senderUserId: null,
+            senderName: null,
+            senderRole: null,
+            senderType: 'agency_user',
+            body: 'b',
+            createdAt: stamp,
+          },
+        ])
+        return sorted[0]?.id === '99999999-9999-4999-8999-999999999999'
+      })(),
+      detail: 'id desc tie-break',
+    },
+    {
+      name: 'merge reply puts incoming first',
+      passed: (() => {
+        const older = {
+          id: 'old',
+          conversationId: 'c',
+          senderUserId: null,
+          senderName: null,
+          senderRole: null,
+          senderType: 'agency_user' as const,
+          body: 'old',
+          createdAt: '2026-09-01T10:00:00.000Z',
+        }
+        const newer = {
+          ...older,
+          id: 'new',
+          body: 'new',
+          createdAt: '2026-09-01T12:00:00.000Z',
+        }
+        return mergeSupportReply([older], newer)[0]?.id === 'new'
+      })(),
+      detail: 'prepend newest',
     },
   ]
 }

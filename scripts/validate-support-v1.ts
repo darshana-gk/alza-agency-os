@@ -12,6 +12,14 @@ import {
   notificationHrefTo,
   supportNotificationDeepLink,
 } from '../src/lib/permissions.ts'
+import {
+  mergeSupportReply,
+  runSupportPresentationSelfChecks,
+  supportAgencySenderLabel,
+  supportMessageSenderLabel,
+  sortSupportMessagesNewestFirst,
+  type SupportMessage,
+} from '../src/lib/support.ts'
 
 type Check = { id: string; passed: boolean; detail: string }
 const checks: Check[] = []
@@ -222,6 +230,110 @@ assert('resolve via RPC alza-only', true, 'support_resolve_conversation')
     bell.includes('notificationHrefTo') && notifPage.includes('notificationHrefTo'),
     'object to for support items',
   )
+}
+
+{
+  const actorSql = readFileSync(
+    resolve('supabase/migrations/20260901220000_support_ticket_actor_brief.sql'),
+    'utf8',
+  )
+  const support = readFileSync(resolve('src/lib/support.ts'), 'utf8')
+  const center = readFileSync(resolve('src/pages/SupportCenter.tsx'), 'utf8')
+  const inbox = readFileSync(resolve('src/pages/admin/AlzaSupportInbox.tsx'), 'utf8')
+  assert(
+    'actor brief is SECURITY DEFINER and conversation-gated',
+    actorSql.includes('SECURITY DEFINER') &&
+      actorSql.includes('p_conversation_id') &&
+      actorSql.includes('public.is_alza_support()') &&
+      actorSql.includes('current_support_agency_ids()') &&
+      !actorSql.includes('DROP POLICY') &&
+      !/from\s+public\.clients/i.test(actorSql),
+    'ticket-scoped identity, no RLS/policy drops',
+  )
+  assert(
+    'actor brief does not return email',
+    !actorSql.includes('u.email') && actorSql.includes('full_name'),
+    'name+role only',
+  )
+  assert(
+    'messages fetched newest first then id',
+    support.includes(".order('created_at', { ascending: false })") &&
+      support.includes('sortSupportMessagesNewestFirst') &&
+      support.includes('mergeSupportReply'),
+    'newest-first fetch + merge',
+  )
+  assert(
+    'both ticket UIs use sender helper and prepend replies',
+    center.includes('supportMessageSenderLabel') &&
+      inbox.includes('supportMessageSenderLabel') &&
+      center.includes('mergeSupportReply') &&
+      inbox.includes('mergeSupportReply') &&
+      !center.includes("m.senderName || 'Agency User'") &&
+      !inbox.includes("m.senderName || 'Agency User'"),
+    'shared label + immediate prepend',
+  )
+  assert(
+    'hydrate uses actor brief RPC',
+    support.includes("support_ticket_actor_brief"),
+    'RPC hydrate',
+  )
+}
+
+{
+  const sample = (partial: Partial<SupportMessage> & Pick<SupportMessage, 'id' | 'createdAt'>): SupportMessage => ({
+    conversationId: 'c',
+    senderUserId: null,
+    senderName: null,
+    senderRole: null,
+    senderType: 'agency_user',
+    body: 'x',
+    ...partial,
+  })
+  const sorted = sortSupportMessagesNewestFirst([
+    sample({ id: 'old', createdAt: '2026-09-01T10:00:00.000Z', body: 'old' }),
+    sample({ id: 'new', createdAt: '2026-09-01T12:00:00.000Z', body: 'new', senderType: 'alza_support' }),
+  ])
+  assert('validator newest message first', sorted[0]?.id === 'new', sorted[0]?.id ?? 'missing')
+  const tied = sortSupportMessagesNewestFirst([
+    sample({ id: '11111111-1111-4111-8111-111111111111', createdAt: '2026-09-01T12:00:00.000Z' }),
+    sample({ id: '99999999-9999-4999-8999-999999999999', createdAt: '2026-09-01T12:00:00.000Z' }),
+  ])
+  assert(
+    'validator id desc tie-break',
+    tied[0]?.id === '99999999-9999-4999-8999-999999999999',
+    tied[0]?.id ?? 'missing',
+  )
+  const merged = mergeSupportReply(
+    [sample({ id: 'old', createdAt: '2026-09-01T10:00:00.000Z' })],
+    sample({ id: 'reply', createdAt: '2026-09-01T13:00:00.000Z', body: 'reply' }),
+  )
+  assert('validator merge reply is top', merged[0]?.id === 'reply', merged[0]?.id ?? 'missing')
+  assert(
+    'ALZA inbox agency sender shows name and role',
+    supportAgencySenderLabel('2AG-B Owner', 'owner') === '2AG-B Owner · Owner',
+    supportAgencySenderLabel('2AG-B Owner', 'owner'),
+  )
+  assert(
+    'missing identity falls back to Agency User',
+    supportAgencySenderLabel(null, null) === 'Agency User',
+    supportAgencySenderLabel(null, null),
+  )
+  assert(
+    'ALZA sender label unchanged shape',
+    supportMessageSenderLabel({
+      senderType: 'alza_support',
+      senderName: 'Pat',
+      senderRole: 'alza_support',
+    }) === 'ALZA Support · Pat',
+    supportMessageSenderLabel({
+      senderType: 'alza_support',
+      senderName: 'Pat',
+      senderRole: 'alza_support',
+    }),
+  )
+  for (const check of runSupportPresentationSelfChecks()) {
+    assert(check.name, check.passed, check.detail)
+  }
 }
 
 const failed = checks.filter((c) => !c.passed)
