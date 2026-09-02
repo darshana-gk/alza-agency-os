@@ -30,7 +30,7 @@ import {
   transactionDateSemantics,
   validateTransactionDateInputs,
 } from '../../lib/transactionDateSemantics'
-import { defaultNextTermDates } from '../../lib/policyRenewRewrite'
+import { defaultNextTermDates, renewPolicy } from '../../lib/policyRenewRewrite'
 
 const inputClassName =
   'h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-900 placeholder:text-slate-400 focus:border-alza-blue-500 focus:outline-none focus:ring-2 focus:ring-alza-blue-500/20'
@@ -60,6 +60,7 @@ interface PolicyOption {
   id: string
   clientId: string
   number: string
+  policyType: string
   producer: string
   csr: string
   carrier: string
@@ -105,6 +106,8 @@ export function AddTransactionModal({
   const [form, setForm] = useState({
     clientId: '',
     policyId: '',
+    policyNumber: '',
+    policyType: '',
     transactionDate: todayIsoDate(),
     transactionEffectiveDate: '',
     transactionExpirationDate: '',
@@ -136,6 +139,8 @@ export function AddTransactionModal({
     setForm({
       clientId: lockedClientId ?? '',
       policyId: lockedPolicyId ?? '',
+      policyNumber: '',
+      policyType: '',
       transactionDate: todayIsoDate(),
       transactionEffectiveDate: '',
       transactionExpirationDate: '',
@@ -171,7 +176,7 @@ export function AddTransactionModal({
         supabase
           .from('policies')
           .select(
-            'id, client_id, policy_number, producer, csr, carrier, mga, premium, effective_date, expiration_date, commission_type, agency_commission_percentage, agency_commission_amount, broker_fee, producer_split_percentage, override_split, archived_at',
+            'id, client_id, policy_number, policy_type, producer, csr, carrier, mga, premium, effective_date, expiration_date, commission_type, agency_commission_percentage, agency_commission_amount, broker_fee, producer_split_percentage, override_split, archived_at',
           )
           .is('archived_at', null)
           .order('policy_number'),
@@ -206,6 +211,7 @@ export function AddTransactionModal({
           id: String(row.id),
           clientId: String(row.client_id ?? ''),
           number: String(row.policy_number ?? '').trim() || row.id,
+          policyType: String(row.policy_type ?? '').trim(),
           producer: String(row.producer ?? '').trim(),
           csr: String(row.csr ?? '').trim(),
           carrier: String(row.carrier ?? '').trim(),
@@ -365,7 +371,9 @@ export function AddTransactionModal({
       return {
         ...prev,
         policyId: policy.id,
-        clientId: lockedClientId || policy.clientId,
+        clientId: isRenewal ? prev.clientId || policy.clientId : lockedClientId || policy.clientId,
+        policyNumber: isRenewal ? prev.policyNumber || policy.number : prev.policyNumber,
+        policyType: isRenewal ? prev.policyType || policy.policyType : prev.policyType,
         producer: policy.producer,
         csr: policy.csr,
         carrier: policy.carrier,
@@ -428,37 +436,77 @@ export function AddTransactionModal({
       setError(dateError)
       return
     }
+    if (mode === 'renew' && !form.clientId.trim()) {
+      setError('Client is required.')
+      return
+    }
+    if (mode === 'renew' && !form.policyNumber.trim()) {
+      setError('Policy number is required.')
+      return
+    }
     const commissionType = normalizeCommissionType(form.commissionType)
     setSaving(true)
     setError(null)
-    const result = await createTransaction({
-      clientId: form.clientId,
-      policyId: form.policyId,
-      transactionDate: form.transactionDate,
-      transactionEffectiveDate: form.transactionEffectiveDate || null,
-      transactionExpirationDate: form.transactionExpirationDate || null,
-      policyEffectiveDate: form.policyEffectiveDate || null,
-      policyExpirationDate: form.policyExpirationDate || null,
-      transactionType: form.transactionType,
-      description: form.description,
-      notes: form.notes,
-      remarks: form.remarks,
-      producer: form.producer,
-      csr: form.csr,
-      carrier: form.carrier,
-      mga: form.mga,
-      premiumAmount,
-      commissionType,
-      agencyCommissionPercentage:
-        commissionType === 'percentage' ? Number(form.agencyCommissionPercentage) : null,
-      agencyCommissionAmount:
-        commissionType === 'flat' ? Number(form.agencyCommissionAmount) : null,
-      brokerFee: Number(form.brokerFee),
-      producerSplitPercentage: splitParsed.value,
-      producerSplitSource: splitSource,
-      reviewerUserId: form.reviewerUserId.trim() || null,
-      originalTransactionId: null,
-    })
+    const result =
+      mode === 'renew'
+        ? await renewPolicy({
+            sourcePolicyId: form.policyId,
+            clientId: form.clientId,
+            policyNumber: form.policyNumber,
+            policyType: form.policyType,
+            carrier: form.carrier,
+            mga: form.mga,
+            producer: form.producer,
+            csr: form.csr,
+            effectiveDate: form.policyEffectiveDate,
+            expirationDate: form.policyExpirationDate,
+            description: form.description,
+            notes: form.notes,
+            remarks: form.remarks,
+            premiumAmount,
+            commissionType,
+            agencyCommissionPercentage:
+              commissionType === 'percentage' ? Number(form.agencyCommissionPercentage) : null,
+            agencyCommissionAmount:
+              commissionType === 'flat' ? Number(form.agencyCommissionAmount) : null,
+            brokerFee: Number(form.brokerFee),
+            producerSplitPercentage: splitParsed.value,
+            reviewerUserId: form.reviewerUserId.trim() || null,
+            transactionDate: form.transactionDate,
+            producerSplitSource: splitSource,
+          }).then((renewed) =>
+            renewed.error || !renewed.data
+              ? { error: { message: renewed.error || 'Could not save renewal.' }, data: undefined }
+              : { error: null, data: { id: renewed.data.transactionId } },
+          )
+        : await createTransaction({
+            clientId: form.clientId,
+            policyId: form.policyId,
+            transactionDate: form.transactionDate,
+            transactionEffectiveDate: form.transactionEffectiveDate || null,
+            transactionExpirationDate: form.transactionExpirationDate || null,
+            policyEffectiveDate: form.policyEffectiveDate || null,
+            policyExpirationDate: form.policyExpirationDate || null,
+            transactionType: form.transactionType,
+            description: form.description,
+            notes: form.notes,
+            remarks: form.remarks,
+            producer: form.producer,
+            csr: form.csr,
+            carrier: form.carrier,
+            mga: form.mga,
+            premiumAmount,
+            commissionType,
+            agencyCommissionPercentage:
+              commissionType === 'percentage' ? Number(form.agencyCommissionPercentage) : null,
+            agencyCommissionAmount:
+              commissionType === 'flat' ? Number(form.agencyCommissionAmount) : null,
+            brokerFee: Number(form.brokerFee),
+            producerSplitPercentage: splitParsed.value,
+            producerSplitSource: splitSource,
+            reviewerUserId: form.reviewerUserId.trim() || null,
+            originalTransactionId: null,
+          })
     setSaving(false)
     if (result.error) {
       setError(
@@ -490,7 +538,7 @@ export function AddTransactionModal({
             </h3>
             <p className="mt-1 text-sm text-slate-500">
               {mode === 'renew'
-                ? 'Creates a Renewal transaction on this policy file. Enter the new term premium and commission — prior-term amounts are not copied. After save, this renewal is the current term.'
+                ? 'Prefills this Policy File as a starting point. You can edit setup before saving. This stays a Renewal on the same file — even if you change the policy number. Prior-term amounts are not copied.'
                 : 'Creates an unconfirmed transaction. Number is assigned by the database on insert.'}
             </p>
           </div>
@@ -591,7 +639,7 @@ export function AddTransactionModal({
           <div className="grid gap-3 sm:grid-cols-2">
             <label className="block">
               <span className="mb-1.5 block text-xs font-medium text-slate-500">Client</span>
-              {lockedClientId ? (
+              {mode !== 'renew' && lockedClientId ? (
                 <input disabled value={clientLabel || lockedClientId} className={`${inputClassName} bg-slate-50`} />
               ) : (
                 <select
@@ -599,6 +647,10 @@ export function AddTransactionModal({
                   value={form.clientId}
                   onChange={(e) => {
                     const nextClient = e.target.value
+                    if (mode === 'renew') {
+                      setForm((prev) => ({ ...prev, clientId: nextClient }))
+                      return
+                    }
                     setForm((prev) => ({
                       ...prev,
                       clientId: nextClient,
@@ -632,7 +684,14 @@ export function AddTransactionModal({
             </label>
             <label className="block">
               <span className="mb-1.5 block text-xs font-medium text-slate-500">Policy #</span>
-              {lockedPolicyId ? (
+              {mode === 'renew' ? (
+                <input
+                  required
+                  value={form.policyNumber}
+                  onChange={(e) => setForm((p) => ({ ...p, policyNumber: e.target.value }))}
+                  className={inputClassName}
+                />
+              ) : lockedPolicyId ? (
                 <input disabled value={policyLabel || lockedPolicyId} className={`${inputClassName} bg-slate-50`} />
               ) : (
                 <select
@@ -654,6 +713,16 @@ export function AddTransactionModal({
                 </select>
               )}
             </label>
+            {mode === 'renew' ? (
+              <label className="block sm:col-span-2">
+                <span className="mb-1.5 block text-xs font-medium text-slate-500">Policy Type / LOB</span>
+                <input
+                  value={form.policyType}
+                  onChange={(e) => setForm((p) => ({ ...p, policyType: e.target.value }))}
+                  className={inputClassName}
+                />
+              </label>
+            ) : null}
             <label className="block">
               <span className="mb-1.5 block text-xs font-medium text-slate-500">
                 {dateSemantics.policyEffectiveLabel}

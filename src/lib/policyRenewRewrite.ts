@@ -6,8 +6,9 @@
  */
 
 import { createTransaction, normalizeCommissionType, todayIsoDate, type CommissionType } from './commission'
-import { createPolicy, type PolicyStatusValue } from './directory'
+import { createPolicy, roundMoney, type PolicyStatusValue } from './directory'
 import { canManagePolicies, canManageTransactions, rejectUnlessRole, type RoleInput } from './permissions'
+import { validateProducerSplitPercentage } from './producerSplitValidation'
 import { isoDateOnly } from './transactionDateSemantics'
 import { recordActivity } from './activity'
 import { supabase } from './supabase'
@@ -121,6 +122,339 @@ export function renewalPrefillFromPolicy(policy: RenewRewritePolicySnapshot): Re
     producerSplitPercentage: String(policy.producerSplitPercentage ?? ''),
     premiumAmount: '',
   }
+}
+
+/** Current Policy File setup written after a successful Renewal. Never includes rewrite lineage. */
+export type RenewedPolicyCurrentSetup = {
+  clientId: string
+  policyId: string
+  policyNumber: string
+  policyType: string
+  carrier: string
+  mga: string
+  producer: string
+  csr: string
+  effectiveDate: string
+  expirationDate: string
+  commissionType: CommissionType
+  agencyCommissionPercentage: number | null
+  agencyCommissionAmount: number
+  brokerFee: number
+  producerSplitPercentage: number
+  overrideSplit: boolean
+}
+
+export function buildRenewedPolicyCurrentSetup(
+  source: RenewRewritePolicySnapshot,
+  input: {
+    clientId: string
+    policyNumber: string
+    policyType: string
+    carrier: string
+    mga: string
+    producer: string
+    csr: string
+    effectiveDate: string
+    expirationDate: string
+    commissionType: CommissionType
+    agencyCommissionPercentage: number | null
+    agencyCommissionAmount: number | null
+    brokerFee: number
+    producerSplitPercentage: number
+    overrideSplit?: boolean
+  },
+): RenewedPolicyCurrentSetup {
+  const commissionType = normalizeCommissionType(input.commissionType)
+  return {
+    clientId: input.clientId.trim() || source.clientId,
+    policyId: source.id,
+    policyNumber: input.policyNumber.trim(),
+    policyType: input.policyType.trim(),
+    carrier: input.carrier.trim(),
+    mga: input.mga.trim(),
+    producer: input.producer.trim(),
+    csr: input.csr.trim(),
+    effectiveDate: isoDateOnly(input.effectiveDate),
+    expirationDate: isoDateOnly(input.expirationDate),
+    commissionType,
+    agencyCommissionPercentage:
+      commissionType === 'percentage' ? Number(input.agencyCommissionPercentage) : null,
+    agencyCommissionAmount:
+      commissionType === 'flat' ? roundMoney(Number(input.agencyCommissionAmount)) : 0,
+    brokerFee: roundMoney(input.brokerFee),
+    producerSplitPercentage: roundMoney(input.producerSplitPercentage),
+    overrideSplit:
+      input.overrideSplit ??
+      (roundMoney(input.producerSplitPercentage) !== roundMoney(source.producerSplitPercentage)
+        ? true
+        : source.overrideSplit),
+  }
+}
+
+export function renewedSetupToPolicyPatch(setup: RenewedPolicyCurrentSetup): Record<string, unknown> {
+  return {
+    client_id: setup.clientId,
+    policy_number: setup.policyNumber,
+    policy_type: setup.policyType || null,
+    carrier: setup.carrier || null,
+    mga: setup.mga || null,
+    producer: setup.producer || null,
+    csr: setup.csr || null,
+    effective_date: setup.effectiveDate || null,
+    expiration_date: setup.expirationDate || null,
+    commission_type: setup.commissionType,
+    agency_commission_percentage: setup.agencyCommissionPercentage,
+    agency_commission_amount: setup.agencyCommissionAmount,
+    broker_fee: setup.brokerFee,
+    producer_split_percentage: setup.producerSplitPercentage,
+    override_split: setup.overrideSplit,
+  }
+}
+
+export function sourceSnapshotToPolicyPatch(source: RenewRewritePolicySnapshot): Record<string, unknown> {
+  return {
+    client_id: source.clientId,
+    policy_number: source.policyNumber,
+    policy_type: source.policyType || null,
+    carrier: source.carrier || null,
+    mga: source.mga || null,
+    producer: source.producer || null,
+    csr: source.csr || null,
+    effective_date: source.effectiveDate || null,
+    expiration_date: source.expirationDate || null,
+    commission_type: source.commissionType,
+    agency_commission_percentage: source.agencyCommissionPercentage,
+    agency_commission_amount:
+      source.commissionType === 'flat' ? roundMoney(source.agencyCommissionAmount) : 0,
+    broker_fee: roundMoney(source.brokerFee),
+    producer_split_percentage: roundMoney(source.producerSplitPercentage),
+    override_split: source.overrideSplit,
+  }
+}
+
+export type RenewPolicyInput = {
+  sourcePolicyId: string
+  clientId: string
+  policyNumber: string
+  policyType: string
+  carrier: string
+  mga: string
+  producer: string
+  csr: string
+  effectiveDate: string
+  expirationDate: string
+  description?: string
+  notes?: string
+  remarks?: string
+  premiumAmount: number
+  commissionType: CommissionType
+  agencyCommissionPercentage: number | null
+  agencyCommissionAmount: number | null
+  brokerFee: number
+  producerSplitPercentage: number
+  overrideSplit?: boolean
+  reviewerUserId?: string | null
+  transactionDate?: string
+  producerSplitSource?: 'producer_default' | 'policy_override' | 'transaction_override' | null
+}
+
+export type RenewPolicyDeps = {
+  bypassAuth?: boolean
+  skipActivity?: boolean
+  callerAgencyId?: string
+  loadSource?: (id: string) => Promise<{ data: RenewRewritePolicySnapshot | null; error: string | null }>
+  loadClientAgencyId?: (clientId: string) => Promise<{ agencyProfileId: string | null; error: string | null }>
+  hasConflictingPolicyNumber?: (
+    clientId: string,
+    policyNumber: string,
+    excludePolicyId: string,
+  ) => Promise<{ conflict: boolean; error: string | null }>
+  updatePolicySetup?: (
+    policyId: string,
+    patch: Record<string, unknown>,
+  ) => Promise<{ error: string | null }>
+  createTransaction?: typeof createTransaction
+}
+
+async function loadClientAgencyId(clientId: string): Promise<{ agencyProfileId: string | null; error: string | null }> {
+  const { data, error } = await supabase
+    .from('clients')
+    .select('id, agency_profile_id')
+    .eq('id', clientId)
+    .is('archived_at', null)
+    .maybeSingle()
+  if (error) return { agencyProfileId: null, error: error.message }
+  if (!data) return { agencyProfileId: null, error: 'Client was not found.' }
+  return { agencyProfileId: String(data.agency_profile_id ?? ''), error: null }
+}
+
+async function hasConflictingPolicyNumber(
+  clientId: string,
+  policyNumber: string,
+  excludePolicyId: string,
+): Promise<{ conflict: boolean; error: string | null }> {
+  const { data, error } = await supabase
+    .from('policies')
+    .select('id, policy_number')
+    .eq('client_id', clientId)
+    .is('archived_at', null)
+    .neq('id', excludePolicyId)
+  if (error) return { conflict: true, error: error.message }
+  const wanted = policyNumber.trim().toLowerCase()
+  const conflict = (data ?? []).some(
+    (row) => String(row.policy_number ?? '').trim().toLowerCase() === wanted,
+  )
+  return { conflict, error: null }
+}
+
+async function updatePolicySetup(
+  policyId: string,
+  patch: Record<string, unknown>,
+): Promise<{ error: string | null }> {
+  const { error } = await supabase.from('policies').update(patch).eq('id', policyId).is('archived_at', null)
+  return { error: error?.message ?? null }
+}
+
+/**
+ * Same Policy File + Renewal transaction. Optional edits (including Policy #) update
+ * current setup only. Does not create a new file or rewrite lineage.
+ */
+export async function renewPolicy(
+  input: RenewPolicyInput,
+  deps?: RenewPolicyDeps,
+): Promise<{ data: { policyId: string; transactionId: string } | null; error: string | null }> {
+  if (!deps?.bypassAuth) {
+    const authz = await rejectUnlessRole(
+      (role: RoleInput) => canManagePolicies(role) && canManageTransactions(role),
+      'You do not have permission to renew a policy.',
+    )
+    if (!authz.ok) return { data: null, error: authz.message }
+  }
+
+  const sourceId = input.sourcePolicyId.trim()
+  if (!sourceId) return { data: null, error: 'Source policy is required.' }
+  const policyNumber = input.policyNumber.trim()
+  if (!policyNumber) return { data: null, error: 'Policy number is required.' }
+  const clientId = input.clientId.trim()
+  if (!clientId) return { data: null, error: 'Client is required.' }
+
+  const loadSource = deps?.loadSource ?? loadPolicySnapshot
+  const source = await loadSource(sourceId)
+  if (source.error || !source.data) {
+    return { data: null, error: source.error || 'Source policy was not found.' }
+  }
+
+  const loadClient = deps?.loadClientAgencyId ?? loadClientAgencyId
+  const clientAgency = await loadClient(clientId)
+  if (clientAgency.error) return { data: null, error: clientAgency.error }
+  const tenantErr = assertRewriteSameAgency(source.data.agencyProfileId, clientAgency.agencyProfileId)
+  if (tenantErr) return { data: null, error: tenantErr }
+  if (deps?.callerAgencyId) {
+    const callerErr = assertRewriteSameAgency(source.data.agencyProfileId, deps.callerAgencyId)
+    if (callerErr) return { data: null, error: callerErr }
+  }
+
+  const splitError = validateProducerSplitPercentage(input.producerSplitPercentage)
+  if (splitError) return { data: null, error: splitError }
+
+  const setup = buildRenewedPolicyCurrentSetup(source.data, { ...input, policyNumber, clientId })
+  if ('rewritten_from_policy_id' in setup || 'rewrittenFromPolicyId' in setup) {
+    return { data: null, error: 'Renewal cannot create rewrite lineage.' }
+  }
+  if (setup.policyId !== sourceId) {
+    return { data: null, error: 'Renewal must keep the existing Policy File.' }
+  }
+
+  const eff = setup.effectiveDate
+  const exp = setup.expirationDate
+  if (!eff) return { data: null, error: 'Effective date is required.' }
+  if (!exp) return { data: null, error: 'Expiration date is required.' }
+  if (exp < eff) return { data: null, error: 'Expiration date must be on or after effective date.' }
+
+  if (!Number.isFinite(input.premiumAmount) || !(input.premiumAmount > 0)) {
+    return { data: null, error: 'Enter the new renewal premium. It is not copied from the original policy.' }
+  }
+
+  const commissionType = setup.commissionType
+  if (commissionType === 'percentage') {
+    if (
+      setup.agencyCommissionPercentage === null ||
+      !Number.isFinite(setup.agencyCommissionPercentage) ||
+      setup.agencyCommissionPercentage < 0
+    ) {
+      return { data: null, error: 'Agency commission % must be zero or greater.' }
+    }
+  } else if (!Number.isFinite(Number(input.agencyCommissionAmount))) {
+    return { data: null, error: 'Enter the new flat agency commission amount. It is not copied from the original policy.' }
+  }
+
+  const dupCheck = deps?.hasConflictingPolicyNumber ?? hasConflictingPolicyNumber
+  const dup = await dupCheck(clientId, policyNumber, sourceId)
+  if (dup.error) return { data: null, error: dup.error }
+  if (dup.conflict) {
+    return { data: null, error: 'A policy with this policy number already exists for this client.' }
+  }
+
+  const patch = renewedSetupToPolicyPatch(setup)
+  if (Object.prototype.hasOwnProperty.call(patch, 'rewritten_from_policy_id')) {
+    return { data: null, error: 'Renewal cannot create rewrite lineage.' }
+  }
+
+  const updateSetup = deps?.updatePolicySetup ?? updatePolicySetup
+  const updated = await updateSetup(sourceId, patch)
+  if (updated.error) return { data: null, error: updated.error }
+
+  const createTxnFn = deps?.createTransaction ?? createTransaction
+  const txn = await createTxnFn({
+    clientId,
+    policyId: sourceId,
+    transactionDate: (input.transactionDate || todayIsoDate()).trim(),
+    transactionType: 'renewal_premium',
+    description: (input.description ?? '').trim() || `Renewal of ${source.data.policyNumber}`,
+    notes: input.notes ?? '',
+    remarks: input.remarks ?? '',
+    producer: setup.producer,
+    csr: setup.csr,
+    carrier: setup.carrier,
+    mga: setup.mga,
+    premiumAmount: input.premiumAmount,
+    commissionType,
+    agencyCommissionPercentage: setup.agencyCommissionPercentage,
+    agencyCommissionAmount: commissionType === 'flat' ? Number(input.agencyCommissionAmount) : null,
+    brokerFee: setup.brokerFee,
+    producerSplitPercentage: setup.producerSplitPercentage,
+    reviewerUserId: input.reviewerUserId ?? null,
+    producerSplitSource: input.producerSplitSource ?? null,
+    policyEffectiveDate: eff,
+    policyExpirationDate: exp,
+  })
+
+  if (txn.error || !txn.data?.id) {
+    await updateSetup(sourceId, sourceSnapshotToPolicyPatch(source.data))
+    return {
+      data: null,
+      error: txn.error?.message || 'Renewal transaction could not be saved. The Policy File was left unchanged.',
+    }
+  }
+
+  if (!deps?.skipActivity) {
+    await recordActivity({
+      action: 'policy_renew',
+      entityType: 'policy',
+      entityId: sourceId,
+      recordReference: policyNumber,
+      clientId,
+      policyId: sourceId,
+      transactionId: txn.data.id,
+      newValue: {
+        policy_number: policyNumber,
+        previous_policy_number: source.data.policyNumber,
+        transaction_id: txn.data.id,
+      },
+    })
+  }
+
+  return { data: { policyId: sourceId, transactionId: txn.data.id }, error: null }
 }
 
 export type RewritePrefill = {

@@ -17,10 +17,14 @@ import { policyTermFinancialTotals, toPolicyPremiumTxn, type PolicyPremiumTxn } 
 import {
   assertNotSelfRewrite,
   assertRewriteSameAgency,
+  buildRenewedPolicyCurrentSetup,
   defaultNextTermDates,
+  renewedSetupToPolicyPatch,
   renewalPrefillFromPolicy,
+  renewPolicy,
   rewritePolicy,
   rewritePrefillFromPolicy,
+  type RenewPolicyInput,
   type RenewRewritePolicySnapshot,
   type RewritePolicyInput,
 } from '../src/lib/policyRenewRewrite.ts'
@@ -83,6 +87,28 @@ function rewriteInput(overrides: Partial<RewritePolicyInput> = {}): RewritePolic
     sourcePolicyId: SOURCE_POLICY_ID,
     clientId: 'client-1',
     policyNumber: 'BHP-GL-2027-RW',
+    policyType: 'General Liability',
+    carrier: 'North Star Mutual',
+    mga: 'Harbor MGA',
+    producer: 'Avery Producer',
+    csr: 'Blake CSR',
+    effectiveDate: '2026-09-01',
+    expirationDate: '2027-09-01',
+    premiumAmount: 9100,
+    commissionType: 'percentage',
+    agencyCommissionPercentage: 12.5,
+    agencyCommissionAmount: null,
+    brokerFee: 50,
+    producerSplitPercentage: 60,
+    ...overrides,
+  }
+}
+
+function renewInput(overrides: Partial<RenewPolicyInput> = {}): RenewPolicyInput {
+  return {
+    sourcePolicyId: SOURCE_POLICY_ID,
+    clientId: 'client-1',
+    policyNumber: 'BHP-GL-2026-001',
     policyType: 'General Liability',
     carrier: 'North Star Mutual',
     mga: 'Harbor MGA',
@@ -305,6 +331,154 @@ console.log('H. Static wiring — schema, surfaces, no new transaction type')
 
   const commission = readFileSync(resolve(root, 'src/lib/commission.ts'), 'utf8')
   assert(!commission.includes('rewrite_premium'), 'does not invent a rewrite transaction type')
+
+  const modal = readFileSync(resolve(root, 'src/components/transactions/AddTransactionModal.tsx'), 'utf8')
+  assert(modal.includes('renewPolicy'), 'Renew modal saves through renewPolicy')
+  assert(modal.includes("mode === 'renew'"), 'Renew modal unlocks carried-forward fields')
+  assert(modal.includes('Policy Type / LOB'), 'Renew modal exposes Policy Type / LOB')
+}
+
+console.log('I. Renewal keeps the same Policy File and updates current setup')
+{
+  const source = samplePolicy()
+  const historical = Object.freeze({
+    id: 'nb-hist',
+    type: 'new_policy_premium',
+    amount: 8000,
+    producer: 'Avery Producer',
+    carrier: 'North Star Mutual',
+    mga: 'Harbor MGA',
+    csr: 'Blake CSR',
+    agencyCommissionPercentage: 12.5,
+  })
+
+  async function runRenew(input: RenewPolicyInput) {
+    const policyPatches: Array<Record<string, unknown>> = []
+    const createdTxns: Array<{ policyId: string; type: string; premiumAmount: number; clientId: string }> = []
+    const result = await renewPolicy(input, {
+      bypassAuth: true,
+      skipActivity: true,
+      callerAgencyId: AGENCY_A,
+      loadSource: async () => ({ data: source, error: null }),
+      loadClientAgencyId: async (clientId) => ({
+        agencyProfileId: clientId.startsWith('client-b') ? AGENCY_B : AGENCY_A,
+        error: null,
+      }),
+      hasConflictingPolicyNumber: async () => ({ conflict: false, error: null }),
+      updatePolicySetup: async (_policyId, patch) => {
+        policyPatches.push({ ...patch })
+        return { error: null }
+      },
+      createTransaction: async (txnInput) => {
+        createdTxns.push({
+          policyId: txnInput.policyId,
+          type: txnInput.transactionType,
+          premiumAmount: txnInput.premiumAmount,
+          clientId: txnInput.clientId,
+        })
+        return { data: { id: 'txn-ren-1', transactionNumber: 'TRX-REN-1' }, error: null }
+      },
+    })
+    return { result, policyPatches, createdTxns }
+  }
+
+  const unchanged = await runRenew(renewInput())
+  assert(unchanged.result.error === null, 'unchanged policy number renewal succeeds')
+  assertEq(unchanged.result.data?.policyId, SOURCE_POLICY_ID, 'unchanged number keeps the same Policy File')
+  assertEq(unchanged.createdTxns[0]?.type, 'renewal_premium', 'unchanged number still creates a Renewal')
+  assertEq(unchanged.policyPatches[0]?.policy_number, 'BHP-GL-2026-001', 'unchanged number is written back as current setup')
+  assert(
+    !Object.prototype.hasOwnProperty.call(unchanged.policyPatches[0] ?? {}, 'rewritten_from_policy_id'),
+    'unchanged-number renew does not set rewrite lineage',
+  )
+
+  const renamed = await runRenew(renewInput({ policyNumber: 'BHP-GL-2027-001' }))
+  assert(renamed.result.error === null, 'changed policy number renewal succeeds')
+  assertEq(renamed.result.data?.policyId, SOURCE_POLICY_ID, 'changed number does not create a new Policy File')
+  assertEq(renamed.createdTxns[0]?.policyId, SOURCE_POLICY_ID, 'renewal txn stays on the original policy id')
+  assertEq(renamed.createdTxns[0]?.type, 'renewal_premium', 'changed number remains a Renewal, not New Business')
+  assertEq(renamed.policyPatches[0]?.policy_number, 'BHP-GL-2027-001', 'Policy File current number becomes the new number')
+  assert(
+    !Object.prototype.hasOwnProperty.call(renamed.policyPatches[0] ?? {}, 'rewritten_from_policy_id'),
+    'changed-number renew does not set rewrite lineage',
+  )
+
+  const carrierMga = await runRenew(
+    renewInput({ carrier: 'Harbor Specialty', mga: 'Coastal MGA' }),
+  )
+  assertEq(carrierMga.policyPatches[0]?.carrier, 'Harbor Specialty', 'changed carrier updates current policy setup')
+  assertEq(carrierMga.policyPatches[0]?.mga, 'Coastal MGA', 'changed MGA updates current policy setup')
+  assertEq(carrierMga.createdTxns[0]?.type, 'renewal_premium', 'carrier/MGA change still creates a Renewal')
+
+  const people = await runRenew(renewInput({ producer: 'Casey Producer', csr: 'Drew CSR' }))
+  assertEq(people.policyPatches[0]?.producer, 'Casey Producer', 'changed producer updates current policy setup')
+  assertEq(people.policyPatches[0]?.csr, 'Drew CSR', 'changed CSR updates current policy setup')
+
+  const commission = await runRenew(
+    renewInput({ agencyCommissionPercentage: 15, brokerFee: 75, producerSplitPercentage: 55 }),
+  )
+  assertEq(commission.policyPatches[0]?.agency_commission_percentage, 15, 'changed commission % updates current setup')
+  assertEq(commission.policyPatches[0]?.broker_fee, 75, 'changed broker fee updates current setup')
+  assertEq(commission.policyPatches[0]?.producer_split_percentage, 55, 'changed split % updates current setup')
+  assertEq(commission.policyPatches[0]?.agency_commission_amount, 0, 'percentage renew does not write old actual commission')
+
+  assertEq(historical.producer, 'Avery Producer', 'historical producer snapshot object is unchanged')
+  assertEq(historical.carrier, 'North Star Mutual', 'historical carrier snapshot object is unchanged')
+  assertEq(historical.amount, 8000, 'historical premium snapshot object is unchanged')
+
+  const setup = buildRenewedPolicyCurrentSetup(source, {
+    ...renewInput({
+      policyNumber: 'BHP-GL-2027-001',
+      carrier: 'Harbor Specialty',
+      producer: 'Casey Producer',
+      agencyCommissionPercentage: 15,
+    }),
+  })
+  assertEq(setup.policyId, SOURCE_POLICY_ID, 'current setup stays on the same policy id')
+  const patch = renewedSetupToPolicyPatch(setup)
+  assertEq(patch.policy_number, 'BHP-GL-2027-001', 'current Policy File patch has the new number')
+  assertEq(patch.carrier, 'Harbor Specialty', 'current Policy File patch has the new carrier')
+  assert(!('rewritten_from_policy_id' in patch), 'current setup patch has no rewrite FK')
+
+  const crossTenant = await renewPolicy(renewInput({ clientId: 'client-b-1' }), {
+    bypassAuth: true,
+    skipActivity: true,
+    callerAgencyId: AGENCY_A,
+    loadSource: async () => ({ data: source, error: null }),
+    loadClientAgencyId: async () => ({ agencyProfileId: AGENCY_B, error: null }),
+    hasConflictingPolicyNumber: async () => ({ conflict: false, error: null }),
+    updatePolicySetup: async () => ({ error: null }),
+    createTransaction: async () => ({ data: { id: 'should-not', transactionNumber: 'x' }, error: null }),
+  })
+  assert(crossTenant.error?.includes('same agency'), 'cannot renew onto a client in another agency')
+}
+
+console.log('J. Prior-term financials stay out of renewed current-term totals after setup edits')
+{
+  const rows = [
+    txn({
+      id: 'nb',
+      type: 'new_policy_premium',
+      amount: 8000,
+      agencyCommissionAmount: 1000,
+      createdAt: '2025-09-01T10:00:00Z',
+      transactionEffectiveDate: '2025-09-01',
+      transactionExpirationDate: '2026-09-01',
+    }),
+    txn({
+      id: 'ren',
+      type: 'renewal_premium',
+      amount: 9100,
+      agencyCommissionAmount: 1365,
+      createdAt: '2026-09-01T10:00:00Z',
+      transactionEffectiveDate: '2026-09-01',
+      transactionExpirationDate: '2027-09-01',
+    }),
+  ]
+  const totals = policyTermFinancialTotals(rows)
+  assertEq(totals.currentPolicyPremium, 9100, 'renewed current premium ignores prior-term NB')
+  assertEq(totals.totalAgencyCommission, 1365, 'renewed current commission ignores prior-term commission')
+  assert(!totals.termTransactionIds.includes('nb'), 'prior-term NB excluded after renewal')
 }
 
 if (failed > 0) {
