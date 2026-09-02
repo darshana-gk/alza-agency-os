@@ -177,6 +177,8 @@ export function formatActivityActionLabel(action: string): string {
       return 'Payment batch created'
     case 'producer_payout_confirm':
       return 'Producer payment confirmed outside ALZA Flow'
+    case 'policy_rewrite':
+      return 'Policy rewritten'
     case 'document_upload':
       return 'Document uploaded'
     case 'document_delete':

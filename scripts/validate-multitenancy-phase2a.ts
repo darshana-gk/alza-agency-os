@@ -235,7 +235,8 @@ console.log('G. No application / Edge / Billing / Support / Integrations edits i
       !f.startsWith('20260901090000_recovery_numbering_sync_and_direct_pay_method') &&
       !f.startsWith('20260901120000_alza_support_platform_login_and_agency_brief') &&
       !f.startsWith('20260901121000_alza_support_user_roles_select_no_recursion') &&
-      !f.startsWith('20260901220000_support_ticket_actor_brief')
+      !f.startsWith('20260901220000_support_ticket_actor_brief') &&
+      !f.startsWith('20260902120000_policy_rewrite_lineage')
   )
   })
   assert(extra.length === 0, `no extra post-RC migrations (${extra.join(', ') || 'none'})`)

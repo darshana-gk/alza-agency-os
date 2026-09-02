@@ -7,10 +7,14 @@ import {
   DollarSign,
   FileText,
   Plus,
+  RefreshCw,
+  Repeat,
   Search as SearchIcon,
   ShieldCheck,
 } from 'lucide-react'
 import { AddPolicyModal } from '../components/policies/AddPolicyModal'
+import { RewritePolicyModal } from '../components/policies/RewritePolicyModal'
+import { AddTransactionModal } from '../components/transactions/AddTransactionModal'
 import { SearchInput } from '../components/ui/SearchInput'
 import { ExportMenu } from '../components/ui/ExportMenu'
 import { SortableTh } from '../components/ui/SortableTh'
@@ -27,6 +31,7 @@ import {
 } from '../lib/tableSort'
 import {
   canManagePolicies,
+  canManageTransactions,
   isProducerBookScoped,
   producerKeysMatch,
   resolveProducerBookName,
@@ -113,6 +118,8 @@ export function PolicyFiles() {
   const { profile } = useAuth()
   const roleInput = roleInputFromProfile(profile)
   const canAdd = canManagePolicies(roleInput)
+  const canAddTxn = canManageTransactions(roleInput)
+  const canRenewRewrite = canAdd && canAddTxn
   const producerLocked = isProducerBookScoped(roleInput)
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
@@ -132,6 +139,8 @@ export function PolicyFiles() {
   const [producerScopeLimitation, setProducerScopeLimitation] = useState<string | null>(null)
   const [actionSuccess, setActionSuccess] = useState<string | null>(null)
   const [addOpen, setAddOpen] = useState(false)
+  const [renewTarget, setRenewTarget] = useState<PolicyRow | null>(null)
+  const [rewriteTarget, setRewriteTarget] = useState<PolicyRow | null>(null)
   const [page, setPage] = useState(1)
   const [policySort, setPolicySort] = useState<
     TableSortState<
@@ -578,13 +587,18 @@ export function PolicyFiles() {
                     {col}
                   </SortableTh>
                 ))}
+                {canAdd ? (
+                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">
+                    Actions
+                  </th>
+                ) : null}
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {loading ? (
-                <tr><td colSpan={10} className="px-4 py-10 text-center text-sm text-slate-500">Loading policies…</td></tr>
+                <tr><td colSpan={canAdd ? 11 : 10} className="px-4 py-10 text-center text-sm text-slate-500">Loading policies…</td></tr>
               ) : paginated.length === 0 ? (
-                <tr><td colSpan={10} className="px-4 py-10 text-center text-sm text-slate-500">No policies found</td></tr>
+                <tr><td colSpan={canAdd ? 11 : 10} className="px-4 py-10 text-center text-sm text-slate-500">No policies found</td></tr>
               ) : (
                 paginated.map((policy) => (
                   <tr key={policy.id} className="hover:bg-slate-50/70">
@@ -620,6 +634,32 @@ export function PolicyFiles() {
                         {statusLabels[policy.status]}
                       </span>
                     </td>
+                    {canAdd ? (
+                      <td className="px-4 py-3">
+                        <div className="flex flex-wrap items-center gap-2">
+                          {canAddTxn ? (
+                            <button
+                              type="button"
+                              onClick={() => setRenewTarget(policy)}
+                              className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                            >
+                              <RefreshCw className="h-3.5 w-3.5" />
+                              Renew
+                            </button>
+                          ) : null}
+                          {canRenewRewrite ? (
+                            <button
+                              type="button"
+                              onClick={() => setRewriteTarget(policy)}
+                              className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                            >
+                              <Repeat className="h-3.5 w-3.5" />
+                              Rewrite
+                            </button>
+                          ) : null}
+                        </div>
+                      </td>
+                    ) : null}
                   </tr>
                 ))
               )}
@@ -650,6 +690,32 @@ export function PolicyFiles() {
         onCreated={async (policyId) => {
           setActionSuccess('Policy created.')
           await loadPolicies()
+          navigate(`/policies/${policyId}`)
+        }}
+      />
+      <AddTransactionModal
+        open={Boolean(renewTarget)}
+        mode="renew"
+        onClose={() => setRenewTarget(null)}
+        lockedClientId={renewTarget?.clientId || undefined}
+        lockedClientLabel={renewTarget?.clientName}
+        lockedPolicyId={renewTarget?.id}
+        lockedPolicyLabel={renewTarget?.policyNumber}
+        onCreated={async () => {
+          const policyId = renewTarget?.id
+          setRenewTarget(null)
+          setActionSuccess('Renewal saved. This renewal is now the current term.')
+          await loadPolicies()
+          if (policyId) navigate(`/policies/${policyId}`)
+        }}
+      />
+      <RewritePolicyModal
+        open={Boolean(rewriteTarget)}
+        sourcePolicyId={rewriteTarget?.id ?? ''}
+        onClose={() => setRewriteTarget(null)}
+        onCreated={(policyId) => {
+          setRewriteTarget(null)
+          setActionSuccess('Rewritten policy created.')
           navigate(`/policies/${policyId}`)
         }}
       />

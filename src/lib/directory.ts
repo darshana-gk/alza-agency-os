@@ -450,6 +450,8 @@ export interface CreatePolicyInput {
    * Add Policy UI does not collect this — defaults to 0. Ledger totals remain on transactions.
    */
   premium?: number | null
+  /** Predecessor policy when this row is created by Rewrite. */
+  rewrittenFromPolicyId?: string | null
 }
 
 export async function createPolicy(input: CreatePolicyInput) {
@@ -545,6 +547,9 @@ export async function createPolicy(input: CreatePolicyInput) {
     producer_commission_amount: 0,
     agency_net_commission: 0,
     override_split: Boolean(input.overrideSplit),
+    ...(input.rewrittenFromPolicyId?.trim()
+      ? { rewritten_from_policy_id: input.rewrittenFromPolicyId.trim() }
+      : {}),
   }
 
   const { data, error } = await supabase.from('policies').insert(payload).select('id').single()

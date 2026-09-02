@@ -30,6 +30,7 @@ import {
   transactionDateSemantics,
   validateTransactionDateInputs,
 } from '../../lib/transactionDateSemantics'
+import { defaultNextTermDates } from '../../lib/policyRenewRewrite'
 
 const inputClassName =
   'h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-900 placeholder:text-slate-400 focus:border-alza-blue-500 focus:outline-none focus:ring-2 focus:ring-alza-blue-500/20'
@@ -46,6 +47,8 @@ export interface AddTransactionModalProps {
   lockedClientLabel?: string
   lockedPolicyId?: string
   lockedPolicyLabel?: string
+  /** Renew Policy: lock type to Renewal and default the next term dates. */
+  mode?: 'create' | 'renew'
 }
 
 interface ClientOption {
@@ -92,6 +95,7 @@ export function AddTransactionModal({
   lockedClientLabel,
   lockedPolicyId,
   lockedPolicyLabel,
+  mode = 'create',
 }: AddTransactionModalProps) {
   const [clients, setClients] = useState<ClientOption[]>([])
   const [policies, setPolicies] = useState<PolicyOption[]>([])
@@ -137,7 +141,7 @@ export function AddTransactionModal({
       transactionExpirationDate: '',
       policyEffectiveDate: '',
       policyExpirationDate: '',
-      transactionType: 'new_policy_premium',
+      transactionType: mode === 'renew' ? 'renewal_premium' : 'new_policy_premium',
       description: '',
       notes: '',
       remarks: '',
@@ -244,7 +248,7 @@ export function AddTransactionModal({
     return () => {
       cancelled = true
     }
-  }, [open, lockedClientId, lockedPolicyId])
+  }, [open, lockedClientId, lockedPolicyId, mode])
 
   const clientPolicies = useMemo(
     () => policies.filter((p) => !form.clientId || p.clientId === form.clientId),
@@ -354,6 +358,10 @@ export function AddTransactionModal({
     })
     setForm((prev) => {
       const usePolicyTerm = defaultsTransactionDatesFromPolicy(prev.transactionType)
+      const isRenewal = prev.transactionType === 'renewal_premium'
+      const nextTerm = isRenewal ? defaultNextTermDates(policy.expirationDate) : null
+      const policyEffectiveDate = nextTerm?.effectiveDate || policy.effectiveDate || ''
+      const policyExpirationDate = nextTerm?.expirationDate || policy.expirationDate || ''
       return {
         ...prev,
         policyId: policy.id,
@@ -362,25 +370,24 @@ export function AddTransactionModal({
         csr: policy.csr,
         carrier: policy.carrier,
         mga: policy.mga,
-        policyEffectiveDate: policy.effectiveDate || '',
-        policyExpirationDate: policy.expirationDate || '',
-        transactionEffectiveDate: usePolicyTerm
-          ? policy.effectiveDate || ''
-          : prev.transactionEffectiveDate,
-        transactionExpirationDate: usePolicyTerm
-          ? policy.expirationDate || ''
-          : prev.transactionExpirationDate,
+        policyEffectiveDate,
+        policyExpirationDate,
+        transactionEffectiveDate: usePolicyTerm ? policyEffectiveDate : prev.transactionEffectiveDate,
+        transactionExpirationDate: usePolicyTerm ? policyExpirationDate : prev.transactionExpirationDate,
         // Do not touch premiumAmount — never copy policies.premium.
         commissionType: policy.commissionType,
         agencyCommissionPercentage:
           policy.agencyCommissionPercentage === null
             ? ''
             : String(policy.agencyCommissionPercentage),
-        agencyCommissionAmount: String(policy.agencyCommissionAmount),
+        // Renew: do not carry the old actual commission amount.
+        agencyCommissionAmount: isRenewal ? '' : String(policy.agencyCommissionAmount),
         brokerFee: String(policy.brokerFee),
         producerSplitPercentage: String(splitToUse),
         producerDefaultSplit: defaultSplit,
         splitTouched: false,
+        description:
+          isRenewal && !prev.description.trim() ? `Renewal of ${policy.number}` : prev.description,
       }
     })
   }
@@ -478,9 +485,13 @@ export function AddTransactionModal({
       <div className="relative z-10 max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-xl border border-slate-200 bg-white p-6 shadow-xl">
         <div className="mb-4 flex items-start justify-between gap-3">
           <div>
-            <h3 className="text-lg font-semibold text-slate-900">Add Transaction</h3>
+            <h3 className="text-lg font-semibold text-slate-900">
+              {mode === 'renew' ? 'Renew Policy' : 'Add Transaction'}
+            </h3>
             <p className="mt-1 text-sm text-slate-500">
-              Creates an unconfirmed transaction. Number is assigned by the database on insert.
+              {mode === 'renew'
+                ? 'Creates a Renewal transaction on this policy file. Enter the new term premium and commission — prior-term amounts are not copied. After save, this renewal is the current term.'
+                : 'Creates an unconfirmed transaction. Number is assigned by the database on insert.'}
             </p>
           </div>
           <button
@@ -505,6 +516,7 @@ export function AddTransactionModal({
               <span className="mb-1.5 block text-xs font-medium text-slate-500">Transaction type</span>
               <select
                 required
+                disabled={mode === 'renew'}
                 value={form.transactionType}
                 onChange={(e) => {
                   const nextType = e.target.value as TransactionType
@@ -526,8 +538,14 @@ export function AddTransactionModal({
                     let nextPolicyEffective = prev.policyEffectiveDate
                     let nextPolicyExpiration = prev.policyExpirationDate
                     if (nextSemantics.snapshotTxnDatesFromPolicyTerm && policy) {
-                      nextPolicyEffective = prev.policyEffectiveDate || policy.effectiveDate || ''
-                      nextPolicyExpiration = prev.policyExpirationDate || policy.expirationDate || ''
+                      if (nextType === 'renewal_premium') {
+                        const nextTerm = defaultNextTermDates(policy.expirationDate)
+                        nextPolicyEffective = nextTerm.effectiveDate || policy.effectiveDate || ''
+                        nextPolicyExpiration = nextTerm.expirationDate || policy.expirationDate || ''
+                      } else {
+                        nextPolicyEffective = prev.policyEffectiveDate || policy.effectiveDate || ''
+                        nextPolicyExpiration = prev.policyExpirationDate || policy.expirationDate || ''
+                      }
                       nextEffective = ''
                       nextExpiration = ''
                     } else if (!nextSemantics.showTxnEffective) {
@@ -544,6 +562,8 @@ export function AddTransactionModal({
                       transactionExpirationDate: nextExpiration,
                       policyEffectiveDate: nextPolicyEffective,
                       policyExpirationDate: nextPolicyExpiration,
+                      agencyCommissionAmount:
+                        nextType === 'renewal_premium' ? '' : prev.agencyCommissionAmount,
                     }
                   })
                 }}

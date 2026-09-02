@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
-import { ArrowLeft, ArrowLeftRight, Building2, FileText, Pencil, Plus, Shield, X } from 'lucide-react'
+import { ArrowLeft, ArrowLeftRight, Building2, FileText, Pencil, Plus, RefreshCw, Repeat, Shield, X } from 'lucide-react'
 import { DirectoryNameSelect } from '../components/directory/DirectoryNameSelect'
 import { AddTransactionModal } from '../components/transactions/AddTransactionModal'
+import { RewritePolicyModal } from '../components/policies/RewritePolicyModal'
 import { useAuth } from '../lib/auth'
 import {
   financialsReturnFromLocation,
@@ -41,6 +42,7 @@ import {
 } from '../lib/commission'
 import { parseProducerSplitPercentage } from '../lib/producerSplitValidation'
 import { supabase } from '../lib/supabase'
+import { loadPolicyRewriteLineage, type PolicyLineageLink } from '../lib/policyRenewRewrite'
 
 type PolicyStatus = PolicyStatusValue
 
@@ -158,6 +160,12 @@ export function PolicyDetails() {
   const [notFound, setNotFound] = useState(false)
   const [editOpen, setEditOpen] = useState(false)
   const [addTxnOpen, setAddTxnOpen] = useState(false)
+  const [renewOpen, setRenewOpen] = useState(false)
+  const [rewriteOpen, setRewriteOpen] = useState(false)
+  const [lineage, setLineage] = useState<{
+    rewrittenFrom: PolicyLineageLink | null
+    rewrittenTo: PolicyLineageLink[]
+  }>({ rewrittenFrom: null, rewrittenTo: [] })
   const [actionSuccess, setActionSuccess] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
@@ -225,6 +233,7 @@ export function PolicyDetails() {
     if (policyError) {
       setPolicy(null)
       setTransactions([])
+      setLineage({ rewrittenFrom: null, rewrittenTo: [] })
       setError(policyError.message)
       setLoading(false)
       return
@@ -233,6 +242,7 @@ export function PolicyDetails() {
     if (!policyRow) {
       setPolicy(null)
       setTransactions([])
+      setLineage({ rewrittenFrom: null, rewrittenTo: [] })
       setNotFound(true)
       setLoading(false)
       return
@@ -296,6 +306,12 @@ export function PolicyDetails() {
     }
 
     setTransactions(txData)
+    const lineageRes = await loadPolicyRewriteLineage(id)
+    if (!lineageRes.error) {
+      setLineage({ rewrittenFrom: lineageRes.rewrittenFrom, rewrittenTo: lineageRes.rewrittenTo })
+    } else {
+      setLineage({ rewrittenFrom: null, rewrittenTo: [] })
+    }
     setLoading(false)
   }, [id, producerLocked, profile?.fullName])
 
@@ -508,6 +524,26 @@ export function PolicyDetails() {
           {canAddTxn && (
             <button
               type="button"
+              onClick={() => setRenewOpen(true)}
+              className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+            >
+              <RefreshCw className="h-4 w-4" />
+              Renew
+            </button>
+          )}
+          {canEdit && canAddTxn && (
+            <button
+              type="button"
+              onClick={() => setRewriteOpen(true)}
+              className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+            >
+              <Repeat className="h-4 w-4" />
+              Rewrite
+            </button>
+          )}
+          {canAddTxn && (
+            <button
+              type="button"
               onClick={() => setAddTxnOpen(true)}
               className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
             >
@@ -545,6 +581,37 @@ export function PolicyDetails() {
             value={formatCurrency(financialTotals.currentPolicyPremium)}
           />
           <InfoField label="Client #" value={policy.clientNumber} />
+          {lineage.rewrittenFrom ? (
+            <div>
+              <p className="text-xs font-medium uppercase tracking-wider text-slate-500">Rewritten from</p>
+              <p className="mt-1 text-sm">
+                <Link
+                  to={`/policies/${lineage.rewrittenFrom.id}`}
+                  className="font-medium text-alza-blue-700 hover:text-alza-blue-800"
+                >
+                  {lineage.rewrittenFrom.policyNumber}
+                </Link>
+              </p>
+            </div>
+          ) : null}
+          {lineage.rewrittenTo.length > 0 ? (
+            <div>
+              <p className="text-xs font-medium uppercase tracking-wider text-slate-500">Rewritten to</p>
+              <p className="mt-1 text-sm">
+                {lineage.rewrittenTo.map((link, i) => (
+                  <span key={link.id}>
+                    {i > 0 ? ', ' : ''}
+                    <Link
+                      to={`/policies/${link.id}`}
+                      className="font-medium text-alza-blue-700 hover:text-alza-blue-800"
+                    >
+                      {link.policyNumber}
+                    </Link>
+                  </span>
+                ))}
+              </p>
+            </div>
+          ) : null}
         </div>
         {policy.notes && (
           <div className="mt-5">
@@ -858,6 +925,30 @@ export function PolicyDetails() {
           setAddTxnOpen(false)
           setActionSuccess('Transaction created. Related list refreshed.')
           await load()
+        }}
+      />
+      <AddTransactionModal
+        open={renewOpen}
+        mode="renew"
+        onClose={() => setRenewOpen(false)}
+        lockedClientId={policy.clientId || undefined}
+        lockedClientLabel={policy.clientName}
+        lockedPolicyId={policy.id}
+        lockedPolicyLabel={policy.policyNumber}
+        onCreated={async () => {
+          setRenewOpen(false)
+          setActionSuccess('Renewal saved. This renewal is now the current term.')
+          await load()
+        }}
+      />
+      <RewritePolicyModal
+        open={rewriteOpen}
+        sourcePolicyId={policy.id}
+        onClose={() => setRewriteOpen(false)}
+        onCreated={(policyId) => {
+          setRewriteOpen(false)
+          setActionSuccess('Rewritten policy created.')
+          navigate(`/policies/${policyId}`)
         }}
       />
     </div>

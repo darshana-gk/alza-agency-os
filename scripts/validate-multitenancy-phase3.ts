@@ -205,7 +205,8 @@ console.log('H. No Phase 4 / product leakage')
       !f.startsWith('20260901090000_recovery_numbering_sync_and_direct_pay_method') &&
       !f.startsWith('20260901120000_alza_support_platform_login_and_agency_brief') &&
       !f.startsWith('20260901121000_alza_support_user_roles_select_no_recursion') &&
-      !f.startsWith('20260901220000_support_ticket_actor_brief')
+      !f.startsWith('20260901220000_support_ticket_actor_brief') &&
+      !f.startsWith('20260902120000_policy_rewrite_lineage')
     )
   })
   assert(extra.length === 0, `no migrations after 3E (${extra.join(', ') || 'none'})`)
