@@ -249,12 +249,27 @@ export async function repairHistoricalTermSnapshots(input: {
 
   const { data: policyRow, error: policyError } = await supabase
     .from('policies')
-    .select('id, client_id, policy_number, effective_date, expiration_date, producer, csr, carrier, mga, premium')
+    .select(
+      'id, client_id, agency_profile_id, policy_number, effective_date, expiration_date, producer, csr, carrier, mga, premium',
+    )
     .eq('id', policyId)
     .is('archived_at', null)
     .maybeSingle()
   if (policyError) return { data: null, error: policyError.message }
   if (!policyRow) return { data: null, error: 'Policy was not found.' }
+
+  if (authz.profileId) {
+    const { data: userRow } = await supabase
+      .from('users')
+      .select('agency_profile_id')
+      .eq('id', authz.profileId)
+      .maybeSingle()
+    const userAgency = String(userRow?.agency_profile_id ?? '').trim()
+    const policyAgency = String(policyRow.agency_profile_id ?? '').trim()
+    if (userAgency && policyAgency && userAgency !== policyAgency) {
+      return { data: null, error: 'Policy term must belong to your agency.' }
+    }
+  }
 
   const termTxnRes = await fetchPolicyTermTxnRows([policyId])
   if (termTxnRes.error) return { data: null, error: termTxnRes.error.message }
@@ -324,6 +339,8 @@ export async function repairHistoricalTermSnapshots(input: {
       .update(patch)
       .eq('id', update.id)
       .eq('policy_id', policyId)
+      .in('id', termIds)
+      .is('archived_at', null)
     if (error) return { data: null, error: error.message }
     updatedIds.push(update.id)
   }

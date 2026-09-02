@@ -441,9 +441,14 @@ console.log('H. Owner/Admin historical term snapshot repair')
 
   const repair = readFileSync(resolve(root, 'src/lib/policyTermRepair.ts'), 'utf8')
   assert(repair.includes("from('policies')"), 'repair loads the Policy File for RLS/tenant scope')
+  assert(repair.includes('agency_profile_id'), 'repair compares caller agency to the Policy File')
   assert(!repair.includes("from('policies').update"), 'repair does not update the live Policy File')
   assert(repair.includes("action: 'policy_term_snapshot_repair'"), 'repair writes Activity History')
   assert(repair.includes('.eq(\'policy_id\', policyId)'), 'transaction updates stay on the selected Policy File')
+  assert(repair.includes('.in(\'id\', termIds)'), 'transaction updates stay on the selected term ids')
+
+  const activity = readFileSync(resolve(root, 'src/lib/activityPresentation.ts'), 'utf8')
+  assert(activity.includes("case 'policy_term_snapshot_repair'"), 'Activity History labels the term repair action')
 }
 
 if (failed > 0) {
