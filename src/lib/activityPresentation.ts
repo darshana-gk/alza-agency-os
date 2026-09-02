@@ -46,6 +46,12 @@ const FIELD_LABELS: Record<string, string> = {
   paymentMethod: 'Payment Method',
   paymentReference: 'Payment Reference',
   paymentChannel: 'Payment Channel',
+  policyNumber: 'Policy Number',
+  policy_number: 'Policy Number',
+  policyEffectiveDate: 'Policy Effective Date',
+  policy_effective_date: 'Policy Effective Date',
+  policyExpirationDate: 'Policy Expiration Date',
+  policy_expiration_date: 'Policy Expiration Date',
   netPayment: 'Net Amount Paid',
   grossCommission: 'Gross Producer Commission',
   recoveryApplied: 'Recovery / Chargeback Applied',
@@ -63,6 +69,7 @@ const SKIP_KEYS = new Set([
   'voided',
   'deleted',
   'resubmit',
+  'updated_transaction_ids',
   'transactionIds',
   'clientId',
   'policyId',
@@ -181,6 +188,8 @@ export function formatActivityActionLabel(action: string): string {
       return 'Policy renewed'
     case 'policy_rewrite':
       return 'Policy rewritten'
+    case 'policy_term_snapshot_repair':
+      return 'Historical term details repaired'
     case 'document_upload':
       return 'Document uploaded'
     case 'document_delete':

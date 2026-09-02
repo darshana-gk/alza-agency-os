@@ -13,6 +13,7 @@ import {
   X,
 } from 'lucide-react'
 import { AddPolicyModal } from '../components/policies/AddPolicyModal'
+import { EditTermDetailsModal } from '../components/policies/EditTermDetailsModal'
 import { PolicyTermActionsMenu } from '../components/policies/PolicyTermActionsMenu'
 import { AddTransactionModal } from '../components/transactions/AddTransactionModal'
 import { DirectoryNameSelect } from '../components/directory/DirectoryNameSelect'
@@ -43,6 +44,7 @@ import {
   canManageClients,
   canManagePolicies,
   canManageTransactions,
+  canRepairHistoricalPolicyTerm,
   isProducerBookScoped,
   producerKeysMatch,
   roleInputFromProfile,
@@ -287,6 +289,7 @@ export function ClientDetails() {
   const canEdit = canManageClients(roleInput)
   const canAddPolicy = canManagePolicies(roleInput)
   const canAddTxn = canManageTransactions(roleInput)
+  const canRepairTerm = canRepairHistoricalPolicyTerm(roleInput)
   const producerLocked = isProducerBookScoped(roleInput)
   const [client, setClient] = useState<ClientDetail | null>(null)
   const [loading, setLoading] = useState(true)
@@ -294,6 +297,7 @@ export function ClientDetails() {
   const [notFound, setNotFound] = useState(false)
   const [addPolicyOpen, setAddPolicyOpen] = useState(false)
   const [txnTermTarget, setTxnTermTarget] = useState<ClientPolicy | null>(null)
+  const [editTermTarget, setEditTermTarget] = useState<ClientPolicy | null>(null)
   const [editOpen, setEditOpen] = useState(false)
   const [saving, setSaving] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
@@ -864,12 +868,14 @@ export function ClientDetails() {
                             policyNumber={policy.policyNumber}
                             canView
                             canAddTransaction={canAddTxn}
+                            canEditTermDetails={canRepairTerm && !policy.isCurrent}
                             onView={() =>
                               navigate(policyTermPath(policy.id, policy.termId), {
                                 state: withFinancialsReturn(financialsReturnTo),
                               })
                             }
                             onAddTransaction={() => setTxnTermTarget(policy)}
+                            onEditTermDetails={() => setEditTermTarget(policy)}
                           />
                         </td>
                       </tr>
@@ -906,6 +912,24 @@ export function ClientDetails() {
         onCreated={async () => {
           setTxnTermTarget(null)
           setActionSuccess('Transaction created.')
+          await loadClient()
+        }}
+      />
+      <EditTermDetailsModal
+        open={Boolean(editTermTarget)}
+        onClose={() => setEditTermTarget(null)}
+        policyId={editTermTarget?.id ?? ''}
+        termId={editTermTarget?.termId ?? ''}
+        initialPolicyNumber={editTermTarget?.policyNumber}
+        initialEffectiveDate={editTermTarget?.effectiveDate}
+        initialExpirationDate={editTermTarget?.expirationDate}
+        onSaved={async (updatedCount) => {
+          setEditTermTarget(null)
+          setActionSuccess(
+            updatedCount > 0
+              ? `Term details saved. Updated ${updatedCount} transaction snapshot${updatedCount === 1 ? '' : 's'} on this term only.`
+              : 'Term details already matched these snapshots. Nothing was overwritten.',
+          )
           await loadClient()
         }}
       />

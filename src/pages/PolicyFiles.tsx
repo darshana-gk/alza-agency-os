@@ -11,6 +11,7 @@ import {
   ShieldCheck,
 } from 'lucide-react'
 import { AddPolicyModal } from '../components/policies/AddPolicyModal'
+import { EditTermDetailsModal } from '../components/policies/EditTermDetailsModal'
 import { PolicyTermActionsMenu } from '../components/policies/PolicyTermActionsMenu'
 import { RewritePolicyModal } from '../components/policies/RewritePolicyModal'
 import { AddTransactionModal } from '../components/transactions/AddTransactionModal'
@@ -31,6 +32,7 @@ import {
 import {
   canManagePolicies,
   canManageTransactions,
+  canRepairHistoricalPolicyTerm,
   isProducerBookScoped,
   producerKeysMatch,
   resolveProducerBookName,
@@ -123,6 +125,7 @@ export function PolicyFiles() {
   const roleInput = roleInputFromProfile(profile)
   const canAdd = canManagePolicies(roleInput)
   const canAddTxn = canManageTransactions(roleInput)
+  const canRepairTerm = canRepairHistoricalPolicyTerm(roleInput)
   const canRenewRewrite = canAdd && canAddTxn
   const producerLocked = isProducerBookScoped(roleInput)
   const navigate = useNavigate()
@@ -146,6 +149,7 @@ export function PolicyFiles() {
   const [renewTarget, setRenewTarget] = useState<PolicyRow | null>(null)
   const [rewriteTarget, setRewriteTarget] = useState<PolicyRow | null>(null)
   const [txnTermTarget, setTxnTermTarget] = useState<PolicyRow | null>(null)
+  const [editTermTarget, setEditTermTarget] = useState<PolicyRow | null>(null)
   const [page, setPage] = useState(1)
   const [policySort, setPolicySort] = useState<
     TableSortState<
@@ -691,10 +695,12 @@ export function PolicyFiles() {
                         policyNumber={policy.policyNumber}
                         canView
                         canAddTransaction={canAddTxn}
+                        canEditTermDetails={canRepairTerm && !policy.isCurrent}
                         canRenew={canAddTxn && policy.isCurrent}
                         canRewrite={canRenewRewrite && policy.isCurrent}
                         onView={() => navigate(policyTermPath(policy.id, policy.termId))}
                         onAddTransaction={() => setTxnTermTarget(policy)}
+                        onEditTermDetails={() => setEditTermTarget(policy)}
                         onRenew={() => setRenewTarget(policy)}
                         onRewrite={() => setRewriteTarget(policy)}
                       />
@@ -743,6 +749,24 @@ export function PolicyFiles() {
         onCreated={async () => {
           setTxnTermTarget(null)
           setActionSuccess('Transaction created.')
+          await loadPolicies()
+        }}
+      />
+      <EditTermDetailsModal
+        open={Boolean(editTermTarget)}
+        onClose={() => setEditTermTarget(null)}
+        policyId={editTermTarget?.id ?? ''}
+        termId={editTermTarget?.termId ?? ''}
+        initialPolicyNumber={editTermTarget?.policyNumber}
+        initialEffectiveDate={editTermTarget?.effectiveDate}
+        initialExpirationDate={editTermTarget?.expirationDate}
+        onSaved={async (updatedCount) => {
+          setEditTermTarget(null)
+          setActionSuccess(
+            updatedCount > 0
+              ? `Term details saved. Updated ${updatedCount} transaction snapshot${updatedCount === 1 ? '' : 's'} on this term only.`
+              : 'Term details already matched these snapshots. Nothing was overwritten.',
+          )
           await loadPolicies()
         }}
       />

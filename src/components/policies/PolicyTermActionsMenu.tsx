@@ -1,25 +1,29 @@
 import { useId, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { ChevronDown, FileText, Plus, RefreshCw, Repeat } from 'lucide-react'
+import { ChevronDown, FileText, Pencil, Plus, RefreshCw, Repeat } from 'lucide-react'
 
 export function PolicyTermActionsMenu({
   policyNumber,
   canView = true,
   canAddTransaction = false,
+  canEditTermDetails = false,
   canRenew = false,
   canRewrite = false,
   onView,
   onAddTransaction,
+  onEditTermDetails,
   onRenew,
   onRewrite,
 }: {
   policyNumber: string
   canView?: boolean
   canAddTransaction?: boolean
+  canEditTermDetails?: boolean
   canRenew?: boolean
   canRewrite?: boolean
   onView?: () => void
   onAddTransaction?: () => void
+  onEditTermDetails?: () => void
   onRenew?: () => void
   onRewrite?: () => void
 }) {
@@ -35,6 +39,9 @@ export function PolicyTermActionsMenu({
       : []),
     ...(canAddTransaction && onAddTransaction
       ? [{ id: 'add' as const, label: 'Add Transaction', icon: Plus, onSelect: onAddTransaction }]
+      : []),
+    ...(canEditTermDetails && onEditTermDetails
+      ? [{ id: 'edit-term' as const, label: 'Edit Term Details', icon: Pencil, onSelect: onEditTermDetails }]
       : []),
     ...(canRenew && onRenew
       ? [{ id: 'renew' as const, label: 'Renew Policy', icon: RefreshCw, onSelect: onRenew }]

@@ -4,6 +4,7 @@ import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'reac
 import { ArrowLeft, ArrowLeftRight, Building2, FileText, Pencil, Plus, RefreshCw, Repeat, Shield, X } from 'lucide-react'
 import { DirectoryNameSelect } from '../components/directory/DirectoryNameSelect'
 import { AddTransactionModal } from '../components/transactions/AddTransactionModal'
+import { EditTermDetailsModal } from '../components/policies/EditTermDetailsModal'
 import { RewritePolicyModal } from '../components/policies/RewritePolicyModal'
 import { useAuth } from '../lib/auth'
 import {
@@ -19,6 +20,7 @@ import {
 import {
   canManagePolicies,
   canManageTransactions,
+  canRepairHistoricalPolicyTerm,
   isProducerBookScoped,
   producerKeysMatch,
   roleInputFromProfile,
@@ -282,6 +284,7 @@ export function PolicyDetails() {
   const roleInput = roleInputFromProfile(profile)
   const canEdit = canManagePolicies(roleInput)
   const canAddTxn = canManageTransactions(roleInput)
+  const canRepairTerm = canRepairHistoricalPolicyTerm(roleInput)
   const producerLocked = isProducerBookScoped(roleInput)
   const [policy, setPolicy] = useState<PolicyDetail | null>(null)
   const [transactions, setTransactions] = useState<CommissionTransaction[]>([])
@@ -292,6 +295,7 @@ export function PolicyDetails() {
   const [addTxnOpen, setAddTxnOpen] = useState(false)
   const [renewOpen, setRenewOpen] = useState(false)
   const [rewriteOpen, setRewriteOpen] = useState(false)
+  const [editTermOpen, setEditTermOpen] = useState(false)
   const [lineage, setLineage] = useState<{
     rewrittenFrom: PolicyLineageLink | null
     rewrittenTo: PolicyLineageLink[]
@@ -716,6 +720,16 @@ export function PolicyDetails() {
             <button type="button" onClick={openEdit} className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50">
               <Pencil className="h-4 w-4" />
               Edit Policy
+            </button>
+          )}
+          {canRepairTerm && !isCurrentTerm && selectedTerm && (
+            <button
+              type="button"
+              onClick={() => setEditTermOpen(true)}
+              className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+            >
+              <Pencil className="h-4 w-4" />
+              Edit Term Details
             </button>
           )}
           {canAddTxn && isCurrentTerm && (
@@ -1158,6 +1172,24 @@ export function PolicyDetails() {
         </div>
       )}
 
+      <EditTermDetailsModal
+        open={editTermOpen && Boolean(selectedTerm)}
+        onClose={() => setEditTermOpen(false)}
+        policyId={policy.id}
+        termId={selectedTerm?.termId ?? ''}
+        initialPolicyNumber={selectedTerm?.policyNumber}
+        initialEffectiveDate={selectedTerm?.effectiveDate}
+        initialExpirationDate={selectedTerm?.expirationDate}
+        onSaved={async (updatedCount) => {
+          setEditTermOpen(false)
+          setActionSuccess(
+            updatedCount > 0
+              ? `Term details saved. Updated ${updatedCount} transaction snapshot${updatedCount === 1 ? '' : 's'} on this term only.`
+              : 'Term details already matched these snapshots. Nothing was overwritten.',
+          )
+          await load()
+        }}
+      />
       <AddTransactionModal
         open={addTxnOpen}
         onClose={() => setAddTxnOpen(false)}

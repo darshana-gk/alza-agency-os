@@ -24,7 +24,8 @@ import {
 } from '../src/lib/policyPremium.ts'
 import { assertRewriteSameAgency } from '../src/lib/policyRenewRewrite.ts'
 import { transactionTypesForPolicyTerm } from '../src/lib/commission.ts'
-import { canManageTransactions } from '../src/lib/permissions.ts'
+import { canManageTransactions, canRepairHistoricalPolicyTerm } from '../src/lib/permissions.ts'
+import { planHistoricalTermSnapshotRepair } from '../src/lib/policyTermRepair.ts'
 
 let passed = 0
 let failed = 0
@@ -354,6 +355,95 @@ console.log('G. Expired-term Add Transaction + historical identity')
   assert(canManageTransactions('csr'), 'csr may add transactions')
   assert(!canManageTransactions('viewer'), 'viewer cannot add transactions')
   assert(!canManageTransactions('producer'), 'producer cannot add transactions')
+}
+
+console.log('H. Owner/Admin historical term snapshot repair')
+{
+  const termIds = ['nb', 'endo']
+  const missing = [
+    { id: 'nb', policyId: 'pol-1', transactionNumber: 'TXN-1', policyNumber: null, policyEffectiveDate: '2026-09-01', policyExpirationDate: '2027-09-01' },
+    { id: 'endo', policyId: 'pol-1', transactionNumber: 'TXN-2', policyNumber: null, policyEffectiveDate: null, policyExpirationDate: null },
+    { id: 'ren', policyId: 'pol-1', transactionNumber: 'TXN-3', policyNumber: 'BHP-GL-2027-002', policyEffectiveDate: '2027-09-01', policyExpirationDate: '2028-09-01' },
+  ]
+  const fill = planHistoricalTermSnapshotRepair({
+    policyId: 'pol-1',
+    termId: 'nb',
+    isCurrent: false,
+    termTransactionIds: termIds,
+    rows: missing,
+    policyNumber: 'BHP-GL-2026-001',
+    policyEffectiveDate: '2026-09-01',
+    policyExpirationDate: '2027-09-01',
+  })
+  assert(!fill.error, 'missing snapshots can be repaired')
+  assertEq(fill.updates.map((u) => u.id).join(','), 'nb,endo', 'repair updates only the selected term')
+  assert(!fill.updates.some((u) => u.id === 'ren'), 'current-term renewal row is not in the selected term update set')
+  assertEq(fill.updates[0]?.policyNumber, 'BHP-GL-2026-001', 'establishing txn missing number is filled')
+  assertEq(fill.updates[1]?.policyNumber, 'BHP-GL-2026-001', 'endorsement missing number is filled')
+  assertEq(fill.updates[0]?.policyEffectiveDate, undefined, 'already-valid term effective date is not overwritten')
+  assertEq(fill.updates[1]?.policyEffectiveDate, '2026-09-01', 'missing endorsement term dates are filled')
+
+  const conflict = planHistoricalTermSnapshotRepair({
+    policyId: 'pol-1',
+    termId: 'nb',
+    isCurrent: false,
+    termTransactionIds: termIds,
+    rows: [
+      { id: 'nb', policyId: 'pol-1', policyNumber: 'BHP-GL-2026-001' },
+      { id: 'endo', policyId: 'pol-1', policyNumber: null },
+    ],
+    policyNumber: 'BHP-GL-2027-002',
+  })
+  assert(Boolean(conflict.error), 'conflicting requested number vs valid snapshot stops save')
+  assertEq(conflict.updates.length, 0, 'conflict does not patch any rows')
+
+  const mixed = planHistoricalTermSnapshotRepair({
+    policyId: 'pol-1',
+    termId: 'nb',
+    isCurrent: false,
+    termTransactionIds: termIds,
+    rows: [
+      { id: 'nb', policyId: 'pol-1', policyNumber: 'BHP-GL-2026-001' },
+      { id: 'endo', policyId: 'pol-1', policyNumber: 'OTHER' },
+    ],
+    policyNumber: 'BHP-GL-2026-001',
+  })
+  assert(Boolean(mixed.error), 'two different existing numbers stop save')
+
+  const currentBlocked = planHistoricalTermSnapshotRepair({
+    policyId: 'pol-1',
+    termId: 'ren',
+    isCurrent: true,
+    termTransactionIds: ['ren'],
+    rows: [{ id: 'ren', policyId: 'pol-1', policyNumber: null }],
+    policyNumber: 'BHP-GL-2026-001',
+  })
+  assert(Boolean(currentBlocked.error), 'current term cannot be repaired through Edit Term Details')
+
+  const otherPolicy = planHistoricalTermSnapshotRepair({
+    policyId: 'pol-1',
+    termId: 'nb',
+    isCurrent: false,
+    termTransactionIds: ['nb'],
+    rows: [{ id: 'nb', policyId: 'pol-2', policyNumber: null }],
+    policyNumber: 'BHP-GL-2026-001',
+  })
+  assert(Boolean(otherPolicy.error), 'rows from another Policy File are rejected')
+
+  assert(canRepairHistoricalPolicyTerm('owner'), 'owner may repair historical term details')
+  assert(canRepairHistoricalPolicyTerm('admin'), 'admin may repair historical term details')
+  assert(!canRepairHistoricalPolicyTerm('csr'), 'csr cannot repair historical term details')
+  assert(!canRepairHistoricalPolicyTerm('viewer'), 'viewer cannot repair historical term details')
+
+  const details = readFileSync(resolve(root, 'src/pages/PolicyDetails.tsx'), 'utf8')
+  assert(details.includes('Edit Term Details'), 'Policy Details exposes Edit Term Details')
+  assert(details.includes('canRepairTerm && !isCurrentTerm'), 'Edit Term Details is historical-only')
+
+  const repair = readFileSync(resolve(root, 'src/lib/policyTermRepair.ts'), 'utf8')
+  assert(repair.includes("from('policies')"), 'repair loads the Policy File for RLS/tenant scope')
+  assert(!repair.includes("from('policies').update"), 'repair does not update the live Policy File')
+  assert(repair.includes("action: 'policy_term_snapshot_repair'"), 'repair writes Activity History')
+  assert(repair.includes('.eq(\'policy_id\', policyId)'), 'transaction updates stay on the selected Policy File')
 }
 
 if (failed > 0) {

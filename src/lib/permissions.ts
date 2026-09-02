@@ -272,6 +272,11 @@ export function isAdminDirectoryRole(role: RoleInput): boolean {
   return roles.includes('owner') || roles.includes('admin')
 }
 
+/** Repair missing/legacy snapshots on a prior policy term. Owner/Admin only (not CSR). */
+export function canRepairHistoricalPolicyTerm(role: RoleInput): boolean {
+  return isAdminDirectoryRole(role)
+}
+
 /**
  * Owner | Admin | CSR — operational client/policy/transaction mutators.
  * Does NOT imply producer-payment authority.
