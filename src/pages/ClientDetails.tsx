@@ -28,7 +28,13 @@ import {
   isActiveFinancialTransaction,
 } from '../lib/commission'
 import { updateClient } from '../lib/directory'
-import { resolveCurrentPolicyPremium, sumClientCurrentPremium } from '../lib/policyPremium'
+import {
+  groupPolicyTermsByLineOfBusiness,
+  listPolicyFileTerms,
+  policyTermPath,
+  sumClientCurrentPremium,
+  toPolicyTermTxn,
+} from '../lib/policyPremium'
 import {
   canManageClients,
   canManagePolicies,
@@ -43,17 +49,22 @@ type PolicyStatus = 'active' | 'pending' | 'expired' | 'cancelled' | 'renewal_du
 
 interface ClientPolicy {
   id: string
+  termId: string
+  rowKey: string
+  isCurrent: boolean
   policyNumber: string
   policyType: string
   carrier: string
   mga: string
+  producer: string
+  csr: string
   effectiveDate: string
   expirationDate: string
   /** Original policies.premium (opening / stored reference). */
   writtenPremium: number
   status: PolicyStatus
   transactionCount: number
-  /** Current Policy Premium = current-term live premium. */
+  /** Term premium for this term only. */
   totalPremium: number
   latestTransactionDate: string | null
 }
@@ -117,6 +128,8 @@ interface PolicyRow {
   policy_type: string | null
   carrier: string | null
   mga: string | null
+  producer: string | null
+  csr: string | null
   effective_date: string | null
   expiration_date: string | null
   premium: number | string | null
@@ -216,10 +229,15 @@ function InfoField({ label, value }: { label: string; value: string }) {
 function mapPolicy(row: PolicyRow): ClientPolicy {
   return {
     id: row.id,
+    termId: 'current',
+    rowKey: `${row.id}:current`,
+    isCurrent: true,
     policyNumber: display(row.policy_number),
     policyType: display(row.policy_type),
     carrier: display(row.carrier),
     mga: display(row.mga),
+    producer: display(row.producer),
+    csr: display(row.csr),
     effectiveDate: row.effective_date?.trim() || '',
     expirationDate: row.expiration_date?.trim() || '',
     writtenPremium: toNumber(row.premium),
@@ -328,6 +346,8 @@ export function ClientDetails() {
         policy_type,
         carrier,
         mga,
+        producer,
+        csr,
         effective_date,
         expiration_date,
         premium,
@@ -363,25 +383,76 @@ export function ClientDetails() {
       return
     }
 
-    const policies = policiesBase.map((policy) => {
-      const summary = summaryRes.data[policy.id]
-      return {
-        ...policy,
-        transactionCount: summary?.transactionCount ?? 0,
-        totalPremium: resolveCurrentPolicyPremium({
-          policyPremium: policy.writtenPremium,
-          transactionPremiumSum: summary?.totalPremium ?? 0,
-          liveTransactionCount: summary?.transactionCount ?? 0,
-        }),
-        latestTransactionDate: summary?.latestTransactionDate ?? null,
-      }
-    })
-
     const clientTxns = txRes.data.filter((tx) => tx.clientId === id && !tx.archived)
+    const policies = policiesBase.flatMap((policy) => {
+      const terms = listPolicyFileTerms(
+        clientTxns
+          .filter((tx) => tx.policyId === policy.id)
+          .map((tx) =>
+            toPolicyTermTxn({
+              id: tx.id,
+              type: tx.type,
+              amount: tx.amount,
+              archived: tx.archived,
+              voidedAt: tx.voidedAt,
+              transactionDate: tx.transactionDate,
+              createdAt: tx.createdAt,
+              transactionEffectiveDate: tx.transactionEffectiveDate,
+              transactionExpirationDate: tx.transactionExpirationDate,
+              brokerFee: tx.brokerFee,
+              agencyCommissionAmount: tx.agencyCommissionAmount,
+              producerCommissionAmount: tx.producerCommissionAmount,
+              agencyNetCommission: tx.agencyNetCommission,
+              policyNumber: tx.policyNumber,
+              policyEffectiveDate: tx.policyEffectiveDate,
+              policyExpirationDate: tx.policyExpirationDate,
+              producer: tx.producer,
+              csr: tx.csr,
+              carrier: tx.carrier,
+              mga: tx.mga,
+            }),
+          ),
+        {
+          policyNumber: policy.policyNumber,
+          effectiveDate: policy.effectiveDate,
+          expirationDate: policy.expirationDate,
+          producer: policy.producer,
+          csr: policy.csr,
+          carrier: policy.carrier,
+          mga: policy.mga,
+          premium: policy.writtenPremium,
+        },
+        {
+          policyEffectiveDate: policy.effectiveDate,
+          policyExpirationDate: policy.expirationDate,
+        },
+      )
+      return terms.map((term) => ({
+        ...policy,
+        termId: term.termId,
+        rowKey: `${policy.id}:${term.termId}`,
+        isCurrent: term.isCurrent,
+        policyNumber: term.policyNumber,
+        carrier: term.carrier,
+        mga: term.mga,
+        producer: term.producer,
+        csr: term.csr,
+        effectiveDate: term.effectiveDate,
+        expirationDate: term.expirationDate,
+        status: term.isCurrent
+          ? policy.status
+          : policy.status === 'cancelled'
+            ? 'cancelled'
+            : 'expired',
+        transactionCount: term.transactionIds.length,
+        totalPremium: term.displayedPremium,
+        latestTransactionDate: summaryRes.data[policy.id]?.latestTransactionDate ?? null,
+      }))
+    })
     const liveClientTxns = clientTxns.filter(isActiveFinancialTransaction)
     // Client Total Premium = SUM of per-policy current-term premiums (not Dashboard book volume).
     const totalPremium = sumClientCurrentPremium(
-      policies.map((p) => ({
+      policiesBase.map((p) => ({
         policyPremium: p.writtenPremium,
         transactionPremiumSum: summaryRes.data[p.id]?.totalPremium ?? 0,
         liveTransactionCount: summaryRes.data[p.id]?.transactionCount ?? 0,
@@ -692,84 +763,80 @@ export function ClientDetails() {
           </div>
         )}
         <div className="overflow-x-auto">
-          <table className="min-w-full">
-            <thead>
-              <tr className="border-b border-slate-200 bg-slate-50/80">
-                {[
-                  'Policy Number',
-                  'Policy Type',
-                  'Carrier / MGA',
-                  'Effective Date',
-                  'Expiration Date',
-                  'Current Policy Premium',
-                  'Status',
-                  'Transactions',
-                ].map((col) => (
-                  <th
-                    key={col}
-                    className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500"
-                  >
-                    {col}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {client.policies.length === 0 ? (
-                <tr>
-                  <td colSpan={8} className="px-4 py-10 text-center text-sm text-slate-500">
-                    No policies found for this client
-                  </td>
-                </tr>
-              ) : (
-                client.policies.map((policy) => (
-                  <tr key={policy.id} className="hover:bg-alza-blue-50/40">
-                    <td className="whitespace-nowrap px-4 py-4 text-sm font-medium">
-                      <Link
-                        to={`/policies/${policy.id}`}
-                        state={withFinancialsReturn(financialsReturnTo)}
-                        className="font-semibold text-alza-blue-700 underline-offset-2 hover:underline"
-                      >
-                        {policy.policyNumber}
-                      </Link>
-                    </td>
-                    <td className="px-4 py-4 text-sm text-slate-700">{policy.policyType}</td>
-                    <td className="px-4 py-4 text-sm text-slate-700">
-                      <p>{policy.carrier}</p>
-                      <p className="text-xs text-slate-500">{policy.mga}</p>
-                    </td>
-                    <td className="whitespace-nowrap px-4 py-4 text-sm text-slate-700">
-                      {formatDate(policy.effectiveDate)}
-                    </td>
-                    <td className="whitespace-nowrap px-4 py-4 text-sm text-slate-700">
-                      {formatDate(policy.expirationDate)}
-                    </td>
-                    <td className="whitespace-nowrap px-4 py-4 text-sm font-semibold text-slate-900">
-                      {formatCurrency(policy.totalPremium)}
-                    </td>
-                    <td className="whitespace-nowrap px-4 py-4">
-                      <span
-                        className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ring-inset ${policyStatusStyles[policy.status]}`}
-                      >
-                        {policyStatusLabels[policy.status]}
-                      </span>
-                    </td>
-                    <td className="whitespace-nowrap px-4 py-4 text-sm text-slate-700">
-                      <p className="font-semibold tabular-nums text-slate-900">{policy.transactionCount}</p>
-                      {policy.transactionCount > 0 && (
-                        <p className="text-xs text-slate-500">
-                          Vol {formatCurrency(policy.totalPremium)}
-                          {policy.latestTransactionDate
-                            ? ` · ${formatDate(policy.latestTransactionDate)}`
-                            : ''}
-                        </p>
-                      )}
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
+          {client.policies.length === 0 ? (
+            <p className="px-6 py-10 text-center text-sm text-slate-500">No policies found for this client</p>
+          ) : (
+            groupPolicyTermsByLineOfBusiness(client.policies).map((group) => (
+              <div key={group.lineOfBusiness} className="border-b border-slate-200 last:border-b-0">
+                <div className="border-b border-slate-200 bg-slate-50/80 px-6 py-2.5">
+                  <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-600">
+                    {group.lineOfBusiness}
+                  </h3>
+                </div>
+                <table className="min-w-full">
+                  <thead>
+                    <tr className="border-b border-slate-200 bg-slate-50/50">
+                      {[
+                        'Policy Number',
+                        'Term',
+                        'Carrier / MGA',
+                        'Producer',
+                        'CSR',
+                        'Current Policy Premium',
+                        'Status',
+                        'Transactions',
+                      ].map((col) => (
+                        <th
+                          key={col}
+                          className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500"
+                        >
+                          {col}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {group.terms.map((policy) => (
+                      <tr key={policy.rowKey} className="hover:bg-alza-blue-50/40">
+                        <td className="whitespace-nowrap px-4 py-4 text-sm font-medium">
+                          <Link
+                            to={policyTermPath(policy.id, policy.termId)}
+                            state={withFinancialsReturn(financialsReturnTo)}
+                            className="font-semibold text-alza-blue-700 underline-offset-2 hover:underline"
+                          >
+                            {policy.policyNumber}
+                          </Link>
+                        </td>
+                        <td className="whitespace-nowrap px-4 py-4 text-sm text-slate-700">
+                          {formatDate(policy.effectiveDate)} – {formatDate(policy.expirationDate)}
+                        </td>
+                        <td className="px-4 py-4 text-sm text-slate-700">
+                          <p>{policy.carrier}</p>
+                          <p className="text-xs text-slate-500">{policy.mga}</p>
+                        </td>
+                        <td className="whitespace-nowrap px-4 py-4 text-sm text-slate-700">{policy.producer}</td>
+                        <td className="whitespace-nowrap px-4 py-4 text-sm text-slate-700">{policy.csr}</td>
+                        <td className="whitespace-nowrap px-4 py-4 text-sm font-semibold text-slate-900">
+                          {formatCurrency(policy.totalPremium)}
+                        </td>
+                        <td className="whitespace-nowrap px-4 py-4">
+                          <span
+                            className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ring-inset ${policyStatusStyles[policy.status]}`}
+                          >
+                            {policyStatusLabels[policy.status]}
+                          </span>
+                        </td>
+                        <td className="whitespace-nowrap px-4 py-4 text-sm text-slate-700">
+                          <p className="font-semibold tabular-nums text-slate-900">{policy.transactionCount}</p>
+                          <p className="text-xs text-slate-500">This term only</p>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ))
+          )}
         </div>
       </div>
 

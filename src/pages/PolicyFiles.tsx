@@ -21,9 +21,9 @@ import { SearchInput } from '../components/ui/SearchInput'
 import { ExportMenu } from '../components/ui/ExportMenu'
 import { SortableTh } from '../components/ui/SortableTh'
 import { useAuth } from '../lib/auth'
-import { fetchPolicyTransactionSummaries } from '../lib/commission'
+import { fetchPolicyTermTxnRows } from '../lib/commission'
 import { policyExportColumns } from '../lib/exportDefinitions'
-import { resolveCurrentPolicyPremium } from '../lib/policyPremium'
+import { listPolicyFileTerms, policyTermPath } from '../lib/policyPremium'
 import { downloadTableExport } from '../lib/tableExport'
 import {
   CREATED_AT_DESC,
@@ -45,6 +45,9 @@ type PolicyStatus = 'active' | 'pending' | 'expired' | 'cancelled' | 'renewal_du
 
 interface PolicyRow {
   id: string
+  termId: string
+  rowKey: string
+  isCurrent: boolean
   clientName: string
   clientId: string
   policyNumber: string
@@ -55,13 +58,14 @@ interface PolicyRow {
   expirationDate: string
   producer: string
   csr: string
-  /** On-screen Current Policy Premium = imported/reference when no live txns, else current term. */
+  /** On-screen premium for THIS term only. */
   premium: number
   /** Raw policies.premium (opening / stored reference). */
   filePremium: number
   agencyCommissionPercentage: number | null
   status: PolicyStatus
   createdAt: string
+  transactionCount: number
 }
 
 const PAGE_SIZE = 10
@@ -199,6 +203,9 @@ export function PolicyFiles() {
       const client = Array.isArray(row.clients) ? row.clients[0] : row.clients
       return {
         id: String(row.id),
+        termId: 'current',
+        rowKey: `${row.id}:current`,
+        isCurrent: true,
         clientId: String(row.client_id ?? ''),
         clientName: String(client?.business_name ?? '—'),
         policyNumber: String(row.policy_number ?? '—'),
@@ -209,7 +216,6 @@ export function PolicyFiles() {
         expirationDate: String(row.expiration_date ?? ''),
         producer: String(row.producer ?? '—'),
         csr: String(row.csr ?? '—'),
-        // filePremium = policies.premium; on-screen premium resolved after txn summaries load.
         premium: 0,
         filePremium: (() => {
           if (row.premium == null || row.premium === '') return 0
@@ -223,25 +229,50 @@ export function PolicyFiles() {
         })(),
         status: normalizeStatus(row.status as string | null),
         createdAt: String(row.created_at ?? ''),
+        transactionCount: 0,
       }
     })
 
-    const summaryRes = await fetchPolicyTransactionSummaries(mappedBase.map((p) => p.id))
-    if (summaryRes.error) {
+    const termTxnRes = await fetchPolicyTermTxnRows(mappedBase.map((p) => p.id))
+    if (termTxnRes.error) {
       setPolicies([])
-      setFetchError(summaryRes.error.message)
+      setFetchError(termTxnRes.error.message)
       setLoading(false)
       return
     }
 
-    const mapped = mappedBase.map((policy) => ({
-      ...policy,
-      premium: resolveCurrentPolicyPremium({
-        policyPremium: policy.filePremium,
-        transactionPremiumSum: summaryRes.data[policy.id]?.totalPremium ?? 0,
-        liveTransactionCount: summaryRes.data[policy.id]?.transactionCount ?? 0,
-      }),
-    }))
+    const mapped = mappedBase.flatMap((policy) => {
+      const terms = listPolicyFileTerms(termTxnRes.data[policy.id] ?? [], {
+        policyNumber: policy.policyNumber,
+        effectiveDate: policy.effectiveDate,
+        expirationDate: policy.expirationDate,
+        producer: policy.producer,
+        csr: policy.csr,
+        carrier: policy.carrier,
+        mga: policy.mga,
+        premium: policy.filePremium,
+      })
+      return terms.map((term) => ({
+        ...policy,
+        termId: term.termId,
+        rowKey: `${policy.id}:${term.termId}`,
+        isCurrent: term.isCurrent,
+        policyNumber: term.policyNumber,
+        carrier: term.carrier,
+        mga: term.mga,
+        producer: term.producer,
+        csr: term.csr,
+        effectiveDate: term.effectiveDate,
+        expirationDate: term.expirationDate,
+        premium: term.displayedPremium,
+        status: term.isCurrent
+          ? policy.status
+          : policy.status === 'cancelled'
+            ? 'cancelled'
+            : 'expired',
+        transactionCount: term.transactionIds.length,
+      }))
+    })
 
     if (isProducerBookScoped(roleInput)) {
       const names = [...new Set(mapped.map((p) => p.producer).filter((p) => p && p !== '—'))]
@@ -331,15 +362,16 @@ export function PolicyFiles() {
   ])
 
   const summary = useMemo(() => {
-    const active = policies.filter((p) => p.status === 'active').length
-    const renewalsDue = policies.filter(
+    const currentTerms = policies.filter((p) => p.isCurrent)
+    const active = currentTerms.filter((p) => p.status === 'active').length
+    const renewalsDue = currentTerms.filter(
       (p) => p.status === 'renewal_due' || (p.status === 'active' && isRenewalDueWithin90Days(p.expirationDate)),
     ).length
     return {
       total: policies.length,
       active,
       renewalsDue,
-      totalPremium: policies.reduce((sum, p) => sum + p.premium, 0),
+      totalPremium: currentTerms.reduce((sum, p) => sum + p.premium, 0),
     }
   }, [policies])
 
@@ -475,8 +507,8 @@ export function PolicyFiles() {
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <Kpi label="Total Policies" value={String(summary.total)} icon={FileText} tone="blue" />
-        <Kpi label="Active Policies" value={String(summary.active)} icon={ShieldCheck} tone="emerald" />
+        <Kpi label="Policy Terms" value={String(summary.total)} icon={FileText} tone="blue" />
+        <Kpi label="Active Current Terms" value={String(summary.active)} icon={ShieldCheck} tone="emerald" />
         <Kpi label="Renewals Due in 90 Days" value={String(summary.renewalsDue)} icon={CalendarClock} tone="amber" />
         <Kpi label="Current Policy Premium" value={formatCurrency(summary.totalPremium)} icon={DollarSign} tone="teal" />
       </div>
@@ -589,6 +621,9 @@ export function PolicyFiles() {
                     {col}
                   </SortableTh>
                 ))}
+                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">
+                  Transactions
+                </th>
                 {canAdd ? (
                   <th className="w-px px-2 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">
                     Actions
@@ -598,12 +633,12 @@ export function PolicyFiles() {
             </thead>
             <tbody className="divide-y divide-slate-100">
               {loading ? (
-                <tr><td colSpan={canAdd ? 11 : 10} className="px-4 py-10 text-center text-sm text-slate-500">Loading policies…</td></tr>
+                <tr><td colSpan={canAdd ? 12 : 11} className="px-4 py-10 text-center text-sm text-slate-500">Loading policies…</td></tr>
               ) : paginated.length === 0 ? (
-                <tr><td colSpan={canAdd ? 11 : 10} className="px-4 py-10 text-center text-sm text-slate-500">No policies found</td></tr>
+                <tr><td colSpan={canAdd ? 12 : 11} className="px-4 py-10 text-center text-sm text-slate-500">No policies found</td></tr>
               ) : (
                 paginated.map((policy) => (
-                  <tr key={policy.id} className="hover:bg-slate-50/70">
+                  <tr key={policy.rowKey} className="hover:bg-slate-50/70">
                     <td className="px-4 py-3 text-sm">
                       {policy.clientId ? (
                         <Link
@@ -617,7 +652,7 @@ export function PolicyFiles() {
                       )}
                     </td>
                     <td className="px-4 py-3 text-sm">
-                      <Link to={`/policies/${policy.id}`} className="font-medium text-alza-blue-700 hover:text-alza-blue-800">
+                      <Link to={policyTermPath(policy.id, policy.termId)} className="font-medium text-alza-blue-700 hover:text-alza-blue-800">
                         {policy.policyNumber}
                       </Link>
                     </td>
@@ -636,15 +671,20 @@ export function PolicyFiles() {
                         {statusLabels[policy.status]}
                       </span>
                     </td>
+                    <td className="px-4 py-3 text-sm tabular-nums text-slate-700">{policy.transactionCount}</td>
                     {canAdd ? (
                       <td className="w-px px-2 py-3">
-                        <PolicyRowActionsMenu
-                          policyNumber={policy.policyNumber}
-                          canRenew={canAddTxn}
-                          canRewrite={canRenewRewrite}
-                          onRenew={() => setRenewTarget(policy)}
-                          onRewrite={() => setRewriteTarget(policy)}
-                        />
+                        {policy.isCurrent ? (
+                          <PolicyRowActionsMenu
+                            policyNumber={policy.policyNumber}
+                            canRenew={canAddTxn}
+                            canRewrite={canRenewRewrite}
+                            onRenew={() => setRenewTarget(policy)}
+                            onRewrite={() => setRewriteTarget(policy)}
+                          />
+                        ) : (
+                          <span className="px-2 text-xs text-slate-400">Prior term</span>
+                        )}
                       </td>
                     ) : null}
                   </tr>
@@ -691,7 +731,7 @@ export function PolicyFiles() {
         onCreated={async () => {
           const policyId = renewTarget?.id
           setRenewTarget(null)
-          setActionSuccess('Renewal saved. This renewal is now the current term.')
+          setActionSuccess('Renewal saved. The new term is now a separate policy-term entry.')
           await loadPolicies()
           if (policyId) navigate(`/policies/${policyId}`)
         }}

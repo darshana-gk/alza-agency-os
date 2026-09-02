@@ -40,6 +40,50 @@ export type PolicyPremiumTxn = {
   agencyNetCommission?: number
 }
 
+/** Transaction fields used to present a policy term without a new DB table. */
+export type PolicyTermTxn = PolicyPremiumTxn & {
+  policyNumber?: string | null
+  policyEffectiveDate?: string | null
+  policyExpirationDate?: string | null
+  producer?: string | null
+  csr?: string | null
+  carrier?: string | null
+  mga?: string | null
+}
+
+/** Synthetic term id when a Policy File has no establishing New Business / Renewal yet. */
+export const FILE_CURRENT_TERM_ID = 'current'
+
+export type PolicyFileIdentity = {
+  policyNumber?: string | null
+  effectiveDate?: string | null
+  expirationDate?: string | null
+  producer?: string | null
+  csr?: string | null
+  carrier?: string | null
+  mga?: string | null
+  premium?: number | null
+}
+
+export type PolicyFileTerm = {
+  termId: string
+  isCurrent: boolean
+  establishingTransactionId: string | null
+  priorTermId: string | null
+  nextTermId: string | null
+  policyNumber: string
+  effectiveDate: string
+  expirationDate: string
+  producer: string
+  csr: string
+  carrier: string
+  mga: string
+  transactionIds: string[]
+  liveTransactionCount: number
+  displayedPremium: number
+  totals: PolicyTermFinancialTotals
+}
+
 export type PolicyTermOptions = {
   policyEffectiveDate?: string | null
   policyExpirationDate?: string | null
@@ -88,6 +132,10 @@ export function isTermEstablishingType(type: string | null | undefined): boolean
   const t = String(type ?? '').trim()
   if (!t) return true
   return (TERM_ESTABLISHING_TYPES as readonly string[]).includes(t)
+}
+
+export function isPolicyTermEstablishingType(type: string | null | undefined): boolean {
+  return (TERM_ESTABLISHING_TYPES as readonly string[]).includes(String(type ?? '').trim())
 }
 
 export function isTermAdjustingType(type: string | null | undefined): boolean {
@@ -201,27 +249,12 @@ export function groupRelatedPolicyTransactions<T extends PolicyPremiumTxn>(
   return { currentTerm, priorTerms }
 }
 
-export function currentPolicyPremiumFromTransactions(
-  transactions: PolicyPremiumTxn[],
-  options?: PolicyTermOptions,
-): number {
-  return roundPolicyPremiumMoney(
-    selectCurrentTermTransactions(transactions, options).reduce(
-      (sum, tx) => sum + toFiniteMoney(tx.amount),
-      0,
-    ),
-  )
+function dash(value: string | null | undefined): string {
+  const trimmed = String(value ?? '').trim()
+  return trimmed || '—'
 }
 
-/**
- * Policy Details Financial Totals — same current-term set as Current Policy Premium.
- * Pool = SUM(agency commission) + SUM(broker fee) on that set.
- */
-export function policyTermFinancialTotals(
-  transactions: PolicyPremiumTxn[],
-  options?: PolicyTermOptions,
-): PolicyTermFinancialTotals {
-  const term = selectCurrentTermTransactions(transactions, options)
+function totalsFromTermSet(term: PolicyPremiumTxn[]): PolicyTermFinancialTotals {
   const currentPolicyPremium = roundPolicyPremiumMoney(
     term.reduce((sum, tx) => sum + toFiniteMoney(tx.amount), 0),
   )
@@ -246,6 +279,216 @@ export function policyTermFinancialTotals(
     totalAgencyNet,
     termTransactionIds: term.map((tx) => String(tx.id ?? '')).filter(Boolean),
   }
+}
+
+/**
+ * Live transactions that belong to one establishing New Business / Renewal term.
+ * Same membership rules as current-term totals; does not change that formula.
+ */
+export function selectTermTransactions<T extends PolicyPremiumTxn>(
+  transactions: T[],
+  establishing: T,
+  options?: PolicyTermOptions,
+): T[] {
+  const live = transactions.filter(isLiveTxn)
+  const termStart =
+    isoDate(establishing.transactionEffectiveDate) || isoDate(options?.policyEffectiveDate)
+  const termEnd =
+    isoDate(establishing.transactionExpirationDate) || isoDate(options?.policyExpirationDate)
+  const establishingId = String(establishing.id ?? '')
+  const head = live.find((tx) => String(tx.id ?? '') === establishingId)
+  const adjustments = live
+    .filter((tx) => isTermAdjustingType(tx.type))
+    .filter((tx) => adjustmentBelongsToTerm(tx, establishing, termStart, termEnd))
+  return head ? [head, ...adjustments] : adjustments
+}
+
+function termDisplayIds<T extends PolicyTermTxn>(
+  transactions: T[],
+  establishing: T,
+  liveIds: Set<string>,
+  options?: PolicyTermOptions,
+): string[] {
+  const termStart =
+    isoDate(establishing.transactionEffectiveDate) || isoDate(options?.policyEffectiveDate)
+  const termEnd =
+    isoDate(establishing.transactionExpirationDate) || isoDate(options?.policyExpirationDate)
+  const ids: string[] = []
+  for (const tx of transactions) {
+    if (tx.archived) continue
+    const id = String(tx.id ?? '')
+    if (!id) continue
+    if (liveIds.has(id)) {
+      ids.push(id)
+      continue
+    }
+    if (!tx.voidedAt) continue
+    if (id === String(establishing.id ?? '')) {
+      ids.push(id)
+      continue
+    }
+    if (
+      isTermAdjustingType(tx.type) &&
+      adjustmentBelongsToTerm(tx, establishing, termStart, termEnd)
+    ) {
+      ids.push(id)
+    }
+  }
+  return ids
+}
+
+export function policyTermPath(policyId: string, termId?: string | null): string {
+  const id = String(policyId ?? '').trim()
+  const term = String(termId ?? '').trim()
+  if (!id) return '/policy-files'
+  if (!term || term === FILE_CURRENT_TERM_ID) return `/policies/${id}`
+  return `/policies/${id}?term=${encodeURIComponent(term)}`
+}
+
+/**
+ * Present each establishing New Business / Renewal as its own policy-term entry.
+ * Does not create policy rows or mutate snapshots. Oldest term first.
+ */
+export function listPolicyFileTerms(
+  transactions: PolicyTermTxn[],
+  file: PolicyFileIdentity,
+  options?: PolicyTermOptions,
+): PolicyFileTerm[] {
+  const establishing = transactions
+    .filter((tx) => !tx.archived && isPolicyTermEstablishingType(tx.type) && !tx.voidedAt)
+    .sort((a, b) => compareEstablishing(b, a))
+
+  if (establishing.length === 0) {
+    const displayTxns = transactions.filter((tx) => !tx.archived)
+    const live = displayTxns.filter(isLiveTxn)
+    const totals = policyTermFinancialTotals(transactions, options)
+    return [
+      {
+        termId: FILE_CURRENT_TERM_ID,
+        isCurrent: true,
+        establishingTransactionId: null,
+        priorTermId: null,
+        nextTermId: null,
+        policyNumber: dash(file.policyNumber),
+        effectiveDate: isoDate(file.effectiveDate),
+        expirationDate: isoDate(file.expirationDate),
+        producer: dash(file.producer),
+        csr: dash(file.csr),
+        carrier: dash(file.carrier),
+        mga: dash(file.mga),
+        transactionIds: displayTxns.map((tx) => String(tx.id ?? '')).filter(Boolean),
+        liveTransactionCount: live.length,
+        displayedPremium: resolveCurrentPolicyPremium({
+          policyPremium: file.premium,
+          transactionPremiumSum: totals.currentPolicyPremium,
+          liveTransactionCount: live.length,
+        }),
+        totals,
+      },
+    ]
+  }
+
+  const fileDates = {
+    policyEffectiveDate: options?.policyEffectiveDate ?? file.effectiveDate,
+    policyExpirationDate: options?.policyExpirationDate ?? file.expirationDate,
+  }
+  const currentId = String(establishing[establishing.length - 1]?.id ?? '')
+
+  return establishing.map((head, index) => {
+    const liveTerm = selectTermTransactions(transactions, head, fileDates)
+    const liveIds = new Set(liveTerm.map((tx) => String(tx.id ?? '')).filter(Boolean))
+    const totals = totalsFromTermSet(liveTerm)
+    const dates = resolveDisplayedPolicyTerm({
+      snapshotEffectiveDate: head.policyEffectiveDate || head.transactionEffectiveDate,
+      snapshotExpirationDate: head.policyExpirationDate || head.transactionExpirationDate,
+      currentEffectiveDate: index === establishing.length - 1 ? file.effectiveDate : null,
+      currentExpirationDate: index === establishing.length - 1 ? file.expirationDate : null,
+    })
+    const isCurrent = String(head.id ?? '') === currentId
+    return {
+      termId: String(head.id ?? ''),
+      isCurrent,
+      establishingTransactionId: String(head.id ?? '') || null,
+      priorTermId: index > 0 ? String(establishing[index - 1]?.id ?? '') : null,
+      nextTermId:
+        index < establishing.length - 1 ? String(establishing[index + 1]?.id ?? '') : null,
+      policyNumber: resolveDisplayedPolicyNumber({
+        snapshotPolicyNumber: head.policyNumber,
+        currentPolicyNumber: isCurrent ? file.policyNumber : null,
+      }),
+      effectiveDate: dates.effectiveDate,
+      expirationDate: dates.expirationDate,
+      producer: dash(head.producer || (isCurrent ? file.producer : null)),
+      csr: dash(head.csr || (isCurrent ? file.csr : null)),
+      carrier: dash(head.carrier || (isCurrent ? file.carrier : null)),
+      mga: dash(head.mga || (isCurrent ? file.mga : null)),
+      transactionIds: termDisplayIds(transactions, head, liveIds, fileDates),
+      liveTransactionCount: liveTerm.length,
+      displayedPremium: isCurrent
+        ? resolveCurrentPolicyPremium({
+            policyPremium: file.premium,
+            transactionPremiumSum: totals.currentPolicyPremium,
+            liveTransactionCount: liveTerm.length,
+          })
+        : totals.currentPolicyPremium,
+      totals,
+    }
+  })
+}
+
+export function resolvePolicyFileTerm(
+  terms: PolicyFileTerm[],
+  termId?: string | null,
+): PolicyFileTerm | null {
+  if (terms.length === 0) return null
+  const wanted = String(termId ?? '').trim()
+  if (wanted) {
+    const match = terms.find((term) => term.termId === wanted)
+    if (match) return match
+  }
+  return terms.find((term) => term.isCurrent) ?? terms[terms.length - 1] ?? null
+}
+
+export function groupPolicyTermsByLineOfBusiness<
+  T extends { policyType: string },
+>(terms: T[]): Array<{ lineOfBusiness: string; terms: T[] }> {
+  const groups: Array<{ lineOfBusiness: string; terms: T[] }> = []
+  const indexByKey = new Map<string, number>()
+  for (const term of terms) {
+    const label = String(term.policyType ?? '').trim() || '—'
+    const key = label.toLowerCase()
+    const existing = indexByKey.get(key)
+    if (existing === undefined) {
+      indexByKey.set(key, groups.length)
+      groups.push({ lineOfBusiness: label, terms: [term] })
+    } else {
+      groups[existing].terms.push(term)
+    }
+  }
+  return groups
+}
+
+export function currentPolicyPremiumFromTransactions(
+  transactions: PolicyPremiumTxn[],
+  options?: PolicyTermOptions,
+): number {
+  return roundPolicyPremiumMoney(
+    selectCurrentTermTransactions(transactions, options).reduce(
+      (sum, tx) => sum + toFiniteMoney(tx.amount),
+      0,
+    ),
+  )
+}
+
+/**
+ * Policy Details Financial Totals — same current-term set as Current Policy Premium.
+ * Pool = SUM(agency commission) + SUM(broker fee) on that set.
+ */
+export function policyTermFinancialTotals(
+  transactions: PolicyPremiumTxn[],
+  options?: PolicyTermOptions,
+): PolicyTermFinancialTotals {
+  return totalsFromTermSet(selectCurrentTermTransactions(transactions, options))
 }
 
 export function toPolicyPremiumTxn(input: {
@@ -295,6 +538,30 @@ export function toPolicyPremiumTxn(input: {
       input.producerCommissionAmount ?? input.producer_commission_amount,
     ),
     agencyNetCommission: toFiniteMoney(input.agencyNetCommission ?? input.agency_net_commission),
+  }
+}
+
+export function toPolicyTermTxn(input: Parameters<typeof toPolicyPremiumTxn>[0] & {
+  policyNumber?: string | null
+  policy_number?: string | null
+  policyEffectiveDate?: string | null
+  policy_effective_date?: string | null
+  policyExpirationDate?: string | null
+  policy_expiration_date?: string | null
+  producer?: string | null
+  csr?: string | null
+  carrier?: string | null
+  mga?: string | null
+}): PolicyTermTxn {
+  return {
+    ...toPolicyPremiumTxn(input),
+    policyNumber: input.policyNumber ?? input.policy_number ?? null,
+    policyEffectiveDate: input.policyEffectiveDate ?? input.policy_effective_date ?? null,
+    policyExpirationDate: input.policyExpirationDate ?? input.policy_expiration_date ?? null,
+    producer: input.producer ?? null,
+    csr: input.csr ?? null,
+    carrier: input.carrier ?? null,
+    mga: input.mga ?? null,
   }
 }
 

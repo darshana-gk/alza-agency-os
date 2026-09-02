@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
-import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
+import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { ArrowLeft, ArrowLeftRight, Building2, FileText, Pencil, Plus, RefreshCw, Repeat, Shield, X } from 'lucide-react'
 import { DirectoryNameSelect } from '../components/directory/DirectoryNameSelect'
 import { AddTransactionModal } from '../components/transactions/AddTransactionModal'
@@ -23,7 +23,14 @@ import {
   producerKeysMatch,
   roleInputFromProfile,
 } from '../lib/permissions'
-import { groupRelatedPolicyTransactions, policyTermFinancialTotals, resolveCurrentPolicyPremium, toPolicyPremiumTxn } from '../lib/policyPremium'
+import {
+  listPolicyFileTerms,
+  policyTermFinancialTotals,
+  policyTermPath,
+  resolveCurrentPolicyPremium,
+  resolvePolicyFileTerm,
+  toPolicyTermTxn,
+} from '../lib/policyPremium'
 import {
   fetchCommissionTransactionsByPolicy,
   formatCommissionTypeLabel,
@@ -32,7 +39,6 @@ import {
   formatLabel,
   formatPercent,
   formatTypeLabel,
-  isActiveFinancialTransaction,
   normalizeCommissionType,
   paymentStatusStyles,
   reviewStatusStyles,
@@ -252,6 +258,8 @@ export function PolicyDetails() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const location = useLocation()
+  const [searchParams] = useSearchParams()
+  const termParam = searchParams.get('term')
   const financialsReturnTo = financialsReturnFromLocation(location)
   const { profile } = useAuth()
   const roleInput = roleInputFromProfile(profile)
@@ -432,47 +440,90 @@ export function PolicyDetails() {
     return `/transactions?${params.toString()}`
   }, [policy])
 
-  const termTotals = useMemo(() => {
-    return policyTermFinancialTotals(
-      transactions.map((tx) => toPolicyPremiumTxn(tx)),
+  const termViews = useMemo(() => {
+    if (!policy) return []
+    return listPolicyFileTerms(
+      transactions.map((tx) =>
+        toPolicyTermTxn({
+          id: tx.id,
+          type: tx.type,
+          amount: tx.amount,
+          archived: tx.archived,
+          voidedAt: tx.voidedAt,
+          transactionDate: tx.transactionDate,
+          createdAt: tx.createdAt,
+          transactionEffectiveDate: tx.transactionEffectiveDate,
+          transactionExpirationDate: tx.transactionExpirationDate,
+          brokerFee: tx.brokerFee,
+          agencyCommissionAmount: tx.agencyCommissionAmount,
+          producerCommissionAmount: tx.producerCommissionAmount,
+          agencyNetCommission: tx.agencyNetCommission,
+          policyNumber: tx.policyNumber,
+          policyEffectiveDate: tx.policyEffectiveDate,
+          policyExpirationDate: tx.policyExpirationDate,
+          producer: tx.producer,
+          csr: tx.csr,
+          carrier: tx.carrier,
+          mga: tx.mga,
+        }),
+      ),
       {
-        policyEffectiveDate: policy?.effectiveDate,
-        policyExpirationDate: policy?.expirationDate,
+        policyNumber: policy.policyNumber,
+        effectiveDate: policy.effectiveDate,
+        expirationDate: policy.expirationDate,
+        producer: policy.producer,
+        csr: policy.csr,
+        carrier: policy.carrier,
+        mga: policy.mga,
+        premium: policy.premium,
+      },
+      {
+        policyEffectiveDate: policy.effectiveDate,
+        policyExpirationDate: policy.expirationDate,
       },
     )
-  }, [transactions, policy?.effectiveDate, policy?.expirationDate])
+  }, [policy, transactions])
 
-  const relatedGroups = useMemo(() => {
-    return groupRelatedPolicyTransactions(
-      transactions.map((tx) => toPolicyPremiumTxn(tx)),
-      {
-        policyEffectiveDate: policy?.effectiveDate,
-        policyExpirationDate: policy?.expirationDate,
-      },
-    )
-  }, [transactions, policy?.effectiveDate, policy?.expirationDate])
+  const selectedTerm = useMemo(
+    () => resolvePolicyFileTerm(termViews, termParam),
+    [termViews, termParam],
+  )
+  const isCurrentTerm = selectedTerm?.isCurrent !== false
+
+  const termTotals = useMemo(() => {
+    return selectedTerm?.totals ?? policyTermFinancialTotals([])
+  }, [selectedTerm])
 
   const relatedById = useMemo(() => new Map(transactions.map((tx) => [tx.id, tx])), [transactions])
-  const currentTermTxns = relatedGroups.currentTerm
-    .map((row) => relatedById.get(String(row.id ?? '')))
-    .filter((tx): tx is CommissionTransaction => Boolean(tx))
-  const priorTermTxns = relatedGroups.priorTerms
-    .map((row) => relatedById.get(String(row.id ?? '')))
+  const termTransactions = (selectedTerm?.transactionIds ?? [])
+    .map((txnId) => relatedById.get(txnId))
     .filter((tx): tx is CommissionTransaction => Boolean(tx))
 
-  const liveTransactionCount = useMemo(
-    () => transactions.filter((tx) => isActiveFinancialTransaction(tx)).length,
-    [transactions],
-  )
+  const liveTransactionCount = selectedTerm?.liveTransactionCount ?? 0
 
   const financialTotals = useMemo(() => {
-    const currentPolicyPremium = resolveCurrentPolicyPremium({
-      policyPremium: policy?.premium,
-      transactionPremiumSum: termTotals.currentPolicyPremium,
-      liveTransactionCount,
-    })
+    const currentPolicyPremium = isCurrentTerm
+      ? resolveCurrentPolicyPremium({
+          policyPremium: policy?.premium,
+          transactionPremiumSum: termTotals.currentPolicyPremium,
+          liveTransactionCount,
+        })
+      : termTotals.currentPolicyPremium
     return { ...termTotals, currentPolicyPremium }
-  }, [termTotals, policy?.premium, liveTransactionCount])
+  }, [termTotals, policy?.premium, liveTransactionCount, isCurrentTerm])
+
+  const displayedPolicyNumber = selectedTerm?.policyNumber || policy?.policyNumber || '—'
+  const displayedEffectiveDate = selectedTerm?.effectiveDate || policy?.effectiveDate || ''
+  const displayedExpirationDate = selectedTerm?.expirationDate || policy?.expirationDate || ''
+  const displayedCarrier = selectedTerm?.carrier || policy?.carrier || '—'
+  const displayedMga = selectedTerm?.mga || policy?.mga || '—'
+  const displayedProducer = selectedTerm?.producer || policy?.producer || '—'
+  const displayedCsr = selectedTerm?.csr || policy?.csr || '—'
+  const displayedStatus: PolicyStatus = !isCurrentTerm
+    ? policy?.status === 'cancelled'
+      ? 'cancelled'
+      : 'expired'
+    : policy?.status ?? 'pending'
 
   function openEdit() {
     if (!policy || !canEdit) return
@@ -606,7 +657,7 @@ export function PolicyDetails() {
           <ArrowLeft className="h-4 w-4" />
           Back to Policy Files
         </Link>
-        {canAddTxn && (
+        {canAddTxn && isCurrentTerm && (
           <button
             type="button"
             onClick={() => setAddTxnOpen(true)}
@@ -628,23 +679,26 @@ export function PolicyDetails() {
 
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">{policy.policyNumber}</h1>
+          <h1 className="text-2xl font-bold text-slate-900">{displayedPolicyNumber}</h1>
           <p className="text-sm text-slate-500">
             {policy.policyType} · {policy.clientName}
             {policy.clientNumber !== '—' ? ` · ${policy.clientNumber}` : ''}
+            {displayedEffectiveDate || displayedExpirationDate
+              ? ` · ${formatPolicyTermRange(displayedEffectiveDate, displayedExpirationDate)}`
+              : ''}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <span className={`inline-flex w-fit items-center rounded-full px-3 py-1 text-sm font-medium ring-1 ring-inset ${policyStatusStyles[policy.status]}`}>
-            {policyStatusLabels[policy.status]}
+          <span className={`inline-flex w-fit items-center rounded-full px-3 py-1 text-sm font-medium ring-1 ring-inset ${policyStatusStyles[displayedStatus]}`}>
+            {policyStatusLabels[displayedStatus]}
           </span>
-          {canEdit && (
+          {canEdit && isCurrentTerm && (
             <button type="button" onClick={openEdit} className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50">
               <Pencil className="h-4 w-4" />
               Edit Policy
             </button>
           )}
-          {canAddTxn && (
+          {canAddTxn && isCurrentTerm && (
             <button
               type="button"
               onClick={() => setRenewOpen(true)}
@@ -654,7 +708,7 @@ export function PolicyDetails() {
               Renew
             </button>
           )}
-          {canEdit && canAddTxn && (
+          {canEdit && canAddTxn && isCurrentTerm && (
             <button
               type="button"
               onClick={() => setRewriteOpen(true)}
@@ -664,7 +718,7 @@ export function PolicyDetails() {
               Rewrite
             </button>
           )}
-          {canAddTxn && (
+          {canAddTxn && isCurrentTerm && (
             <button
               type="button"
               onClick={() => setAddTxnOpen(true)}
@@ -681,6 +735,45 @@ export function PolicyDetails() {
         </div>
       </div>
 
+      {!isCurrentTerm && selectedTerm ? (
+        <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
+          Viewing a prior term ({selectedTerm.policyNumber}
+          {displayedEffectiveDate || displayedExpirationDate
+            ? `, ${formatPolicyTermRange(displayedEffectiveDate, displayedExpirationDate)}`
+            : ''}
+          ). This page shows only that term’s transactions.
+          {termViews.find((term) => term.isCurrent) ? (
+            <>
+              {' '}
+              <Link
+                to={policyTermPath(policy.id, termViews.find((term) => term.isCurrent)?.termId)}
+                className="font-medium text-alza-blue-700 hover:text-alza-blue-800"
+              >
+                Open current term ({termViews.find((term) => term.isCurrent)?.policyNumber})
+              </Link>
+            </>
+          ) : null}
+        </div>
+      ) : null}
+
+      {termViews.length > 1 ? (
+        <div className="flex flex-wrap gap-2">
+          {termViews.map((term) => (
+            <Link
+              key={term.termId}
+              to={policyTermPath(policy.id, term.termId)}
+              className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-medium ring-1 ring-inset ${
+                selectedTerm?.termId === term.termId
+                  ? 'bg-alza-blue-50 text-alza-blue-800 ring-alza-blue-600/20'
+                  : 'bg-white text-slate-600 ring-slate-200 hover:text-alza-blue-700'
+              }`}
+            >
+              {formatPolicyTermRange(term.effectiveDate, term.expirationDate)} · {term.policyNumber}
+            </Link>
+          ))}
+        </div>
+      ) : null}
+
       <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
         <div className="mb-5 flex items-center gap-3">
           <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-alza-blue-50">
@@ -689,21 +782,48 @@ export function PolicyDetails() {
           <h2 className="text-lg font-semibold text-slate-900">Policy Information</h2>
         </div>
         <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
-          <InfoField label="Policy Number" value={policy.policyNumber} />
+          <InfoField label="Policy Number" value={displayedPolicyNumber} />
           <InfoField label="Client" value={policy.clientName} />
           <InfoField label="Policy Type" value={policy.policyType} />
-          <InfoField label="Carrier" value={policy.carrier} />
-          <InfoField label="MGA" value={policy.mga} />
-          <InfoField label="Effective Date" value={formatDateSafe(policy.effectiveDate)} />
-          <InfoField label="Expiration Date" value={formatDateSafe(policy.expirationDate)} />
-          <InfoField label="Status" value={policyStatusLabels[policy.status]} />
-          <InfoField label="Producer" value={policy.producer} />
-          <InfoField label="CSR" value={policy.csr} />
+          <InfoField label="Carrier" value={displayedCarrier} />
+          <InfoField label="MGA" value={displayedMga} />
+          <InfoField label="Effective Date" value={formatDateSafe(displayedEffectiveDate)} />
+          <InfoField label="Expiration Date" value={formatDateSafe(displayedExpirationDate)} />
+          <InfoField label="Status" value={policyStatusLabels[displayedStatus]} />
+          <InfoField label="Producer" value={displayedProducer} />
+          <InfoField label="CSR" value={displayedCsr} />
           <InfoField
             label="Current Policy Premium"
             value={formatCurrency(financialTotals.currentPolicyPremium)}
           />
+          <InfoField label="Transactions this term" value={String(selectedTerm?.transactionIds.length ?? 0)} />
           <InfoField label="Client #" value={policy.clientNumber} />
+          {selectedTerm?.priorTermId ? (
+            <div>
+              <p className="text-xs font-medium uppercase tracking-wider text-slate-500">Prior term</p>
+              <p className="mt-1 text-sm">
+                <Link
+                  to={policyTermPath(policy.id, selectedTerm.priorTermId)}
+                  className="font-medium text-alza-blue-700 hover:text-alza-blue-800"
+                >
+                  {termViews.find((term) => term.termId === selectedTerm.priorTermId)?.policyNumber || 'Open prior term'}
+                </Link>
+              </p>
+            </div>
+          ) : null}
+          {selectedTerm?.nextTermId ? (
+            <div>
+              <p className="text-xs font-medium uppercase tracking-wider text-slate-500">Renewed to</p>
+              <p className="mt-1 text-sm">
+                <Link
+                  to={policyTermPath(policy.id, selectedTerm.nextTermId)}
+                  className="font-medium text-alza-blue-700 hover:text-alza-blue-800"
+                >
+                  {termViews.find((term) => term.termId === selectedTerm.nextTermId)?.policyNumber || 'Open next term'}
+                </Link>
+              </p>
+            </div>
+          ) : null}
           {lineage.rewrittenFrom ? (
             <div>
               <p className="text-xs font-medium uppercase tracking-wider text-slate-500">Rewritten from</p>
@@ -759,13 +879,9 @@ export function PolicyDetails() {
       <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
         <h2 className="mb-1 text-lg font-semibold text-slate-900">Financial Totals</h2>
         <p className="mb-5 text-xs text-slate-500">
-          Current Policy Premium is the current term once live transactions exist: latest New
-          Business or Renewal plus signed endorsements, audits, and cancellations in that term.
-          Before any live transaction, the imported/reference premium on the policy is shown.
-          Prior terms and voided or archived transactions are excluded. Commission totals use the
-          same current-term set and the persisted snapshots: producer commission = (agency
-          commission + broker fee) × split % at save. Imported reference premium is never added
-          onto live transaction totals.
+          Totals on this page use only transactions that belong to the selected policy term.
+          Voided and archived transactions are excluded from money totals. Imported reference
+          premium is shown only when this is the current term and it has no live transactions.
         </p>
         <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
           <InfoField
@@ -794,6 +910,7 @@ export function PolicyDetails() {
 
       <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
         <h2 className="mb-5 text-lg font-semibold text-slate-900">Commission Setup</h2>
+        {isCurrentTerm ? (
         <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
           <InfoField label="Commission Basis" value={formatCommissionTypeLabel(policy.commissionType)} />
           {policy.commissionType === 'percentage' ? (
@@ -809,6 +926,11 @@ export function PolicyDetails() {
           <InfoField label="Producer Split %" value={formatPercent(policy.producerSplitPercentage)} />
           <InfoField label="Override split" value={policy.overrideSplit ? 'Yes' : 'No'} />
         </div>
+        ) : (
+          <p className="text-sm text-slate-600">
+            Commission setup for new transactions lives on the current term.
+          </p>
+        )}
       </div>
 
       <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
@@ -820,11 +942,11 @@ export function PolicyDetails() {
               </div>
               <div>
                 <h2 className="text-lg font-semibold text-slate-900">Related Transactions</h2>
-                <p className="text-xs text-slate-500">Live from transactions.policy_id = {policy.id.slice(0, 8)}…</p>
+                <p className="text-xs text-slate-500">This term only · {displayedPolicyNumber}</p>
               </div>
             </div>
             <div className="flex flex-wrap items-center gap-3">
-              {canAddTxn && (
+              {canAddTxn && isCurrentTerm && (
                 <button
                   type="button"
                   onClick={() => setAddTxnOpen(true)}
@@ -846,25 +968,16 @@ export function PolicyDetails() {
           </div>
         )}
         <div className="overflow-x-auto">
-          {transactions.length === 0 ? (
-            <p className="px-6 py-10 text-center text-sm text-slate-500">No transactions recorded for this policy.</p>
+          {termTransactions.length === 0 ? (
+            <p className="px-6 py-10 text-center text-sm text-slate-500">No transactions recorded for this term.</p>
           ) : (
-            <div className="divide-y divide-slate-200">
-              <RelatedTermSection
-                title="Current Term"
-                rows={currentTermTxns}
-                emptyLabel="No current-term transactions."
-                policyId={policy.id}
-                financialsReturnTo={financialsReturnTo}
-              />
-              <RelatedTermSection
-                title="Prior Terms"
-                rows={priorTermTxns}
-                emptyLabel="No prior-term transactions."
-                policyId={policy.id}
-                financialsReturnTo={financialsReturnTo}
-              />
-            </div>
+            <RelatedTermSection
+              title="This term"
+              rows={termTransactions}
+              emptyLabel="No transactions recorded for this term."
+              policyId={policy.id}
+              financialsReturnTo={financialsReturnTo}
+            />
           )}
         </div>
       </div>
@@ -1021,8 +1134,9 @@ export function PolicyDetails() {
         lockedPolicyLabel={policy.policyNumber}
         onCreated={async () => {
           setRenewOpen(false)
-          setActionSuccess('Renewal saved. This renewal is now the current term.')
+          setActionSuccess('Renewal saved. The new term is now the current policy-term entry.')
           await load()
+          navigate(`/policies/${policy.id}`)
         }}
       />
       <RewritePolicyModal

@@ -23,6 +23,7 @@ import {
   resolveDisplayedPolicyNumber,
   resolveDisplayedPolicyTerm,
   toPolicyPremiumTxn,
+  toPolicyTermTxn,
 } from './policyPremium'
 import {
   isoDateOnly,
@@ -1445,6 +1446,52 @@ export async function fetchPolicyTransactionSummaries(policyIds: string[]) {
   }
 
   return { data: summaries, error: null }
+}
+
+const POLICY_TERM_TXN_SELECT_FULL = `
+  id, policy_id, amount, premium_amount, transaction_type, transaction_date, created_at,
+  voided_at, transaction_effective_date, transaction_expiration_date, policy_number,
+  policy_effective_date, policy_expiration_date, producer, csr, carrier, mga, broker_fee,
+  agency_commission_amount, producer_commission_amount, agency_net_commission
+`
+const POLICY_TERM_TXN_SELECT_COMPAT = POLICY_SUMMARY_SELECT_FULL
+
+/** Lightweight per-policy transactions for term presentation. Archived rows excluded. */
+export async function fetchPolicyTermTxnRows(policyIds: string[]) {
+  const ids = [...new Set(policyIds.filter(Boolean))]
+  const empty = {
+    data: {} as Record<string, ReturnType<typeof toPolicyTermTxn>[]>,
+    error: null as { message: string } | null,
+  }
+  if (ids.length === 0) return empty
+
+  const full = await supabase
+    .from('transactions')
+    .select(POLICY_TERM_TXN_SELECT_FULL)
+    .in('policy_id', ids)
+    .is('archived_at', null)
+
+  const result =
+    full.error && isMissingColumnError(full.error)
+      ? await supabase
+          .from('transactions')
+          .select(POLICY_TERM_TXN_SELECT_COMPAT)
+          .in('policy_id', ids)
+          .is('archived_at', null)
+      : full
+
+  if (result.error) {
+    return { data: {} as Record<string, ReturnType<typeof toPolicyTermTxn>[]>, error: result.error }
+  }
+
+  const byPolicy: Record<string, ReturnType<typeof toPolicyTermTxn>[]> = {}
+  for (const id of ids) byPolicy[id] = []
+  for (const row of result.data ?? []) {
+    const policyId = String(row.policy_id ?? '')
+    if (!policyId || !byPolicy[policyId]) continue
+    byPolicy[policyId].push(toPolicyTermTxn(row))
+  }
+  return { data: byPolicy, error: null }
 }
 
 function roundMoney(n: number): number {
