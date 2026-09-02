@@ -2,10 +2,11 @@
  * Current Policy Premium / policy-term financial SoT.
  *
  * Formula under test:
+ *   no live transactions → imported/reference policies.premium
  *   current term = latest live New Business or Renewal
  *                + live endorsements/audits/cancellations in that term
  *   voided/archived excluded
- *   policies.premium never added
+ *   policies.premium never added onto live current-term totals
  *
  * Run: npx tsx scripts/validate-onboarding-policy-premium-display.ts
  */
@@ -43,13 +44,14 @@ function txn(partial: Partial<PolicyPremiumTxn> & { type: string; amount: number
   return toPolicyPremiumTxn(partial)
 }
 
-console.log('A. Stored reference premium is not a live total')
+console.log('A. No live transactions → imported/reference premium')
 {
   const current = resolveCurrentPolicyPremium({
-    policyPremium: 10000,
+    policyPremium: 8425,
     transactionPremiumSum: 0,
+    liveTransactionCount: 0,
   })
-  assertEq(current, 0, 'zero live txns → $0, not imported policies.premium')
+  assertEq(current, 8425, 'zero live txns → imported $8,425, not $0')
 }
 
 console.log('B. Caller-provided current-term sum is not added to policies.premium')
@@ -58,6 +60,7 @@ console.log('B. Caller-provided current-term sum is not added to policies.premiu
   const current = resolveCurrentPolicyPremium({
     policyPremium: 10000,
     transactionPremiumSum: txnSum,
+    liveTransactionCount: 1,
   })
   assertEq(current, 500, 'does not add stored opening onto live current-term sum')
 }
@@ -316,21 +319,78 @@ console.log('J. Lossy TRX-2026-000011 row cannot recover broker/split from store
 console.log('K. Null / invalid stored premium ignored')
 {
   assertEq(
-    resolveCurrentPolicyPremium({ policyPremium: null, transactionPremiumSum: 250 }),
+    resolveCurrentPolicyPremium({
+      policyPremium: null,
+      transactionPremiumSum: 250,
+      liveTransactionCount: 1,
+    }),
     250,
     'null policy premium',
   )
   assertEq(
-    resolveCurrentPolicyPremium({ policyPremium: undefined, transactionPremiumSum: 100 }),
+    resolveCurrentPolicyPremium({
+      policyPremium: undefined,
+      transactionPremiumSum: 100,
+      liveTransactionCount: 1,
+    }),
     100,
     'undefined policy premium',
   )
   assertEq(
-    resolveCurrentPolicyPremium({ policyPremium: Number.NaN, transactionPremiumSum: 75 }),
+    resolveCurrentPolicyPremium({
+      policyPremium: Number.NaN,
+      transactionPremiumSum: 75,
+      liveTransactionCount: 1,
+    }),
     75,
     'NaN policy premium',
   )
   assert(roundPolicyPremiumMoney(100 + 814) === 914, 'round helper stable')
+}
+
+console.log('L. Master Agency imported premium vs later live term (no double-count)')
+{
+  assertEq(
+    resolveCurrentPolicyPremium({
+      policyPremium: 8425,
+      transactionPremiumSum: 0,
+      liveTransactionCount: 0,
+    }),
+    8425,
+    'BHP-GL-2026-001: no txns → $8,425',
+  )
+  assertEq(
+    policyTermFinancialTotals([]).currentPolicyPremium,
+    0,
+    'Financial Totals commission path stays $0 with no txns',
+  )
+  assertEq(
+    resolveCurrentPolicyPremium({
+      policyPremium: 8425,
+      transactionPremiumSum: 1000,
+      liveTransactionCount: 1,
+    }),
+    1000,
+    'later NB $1,000 replaces reference; not $9,425',
+  )
+  assertEq(
+    resolveCurrentPolicyPremium({
+      policyPremium: 8425,
+      transactionPremiumSum: 8525,
+      liveTransactionCount: 2,
+    }),
+    8525,
+    'NB + endorsement is live term only, not 8425+8525',
+  )
+  assertEq(
+    resolveCurrentPolicyPremium({
+      policyPremium: 8425,
+      transactionPremiumSum: 0,
+      liveTransactionCount: 2,
+    }),
+    0,
+    'live term that nets to $0 stays $0, does not restore imported $8,425',
+  )
 }
 
 console.log(`\n${passed} passed, ${failed} failed`)

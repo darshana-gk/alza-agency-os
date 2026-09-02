@@ -2,7 +2,7 @@
  * Current Policy Premium / policy-term financial SoT.
  *
  * Current Policy Premium is the live premium for the current policy term, not a
- * blind SUM of every non-voided transaction on the policy, and not policies.premium.
+ * blind SUM of every non-voided transaction on the policy.
  *
  * Term-establishing types (New Business, Renewal) set the term premium.
  * Term-adjusting types (Endorsement, Audit, Cancellation, legacy Return Premium)
@@ -12,7 +12,8 @@
  * Voided and archived rows never count.
  *
  * policies.premium is a stored reference only (Add Policy writes 0; onboarding may
- * persist an imported value) and is never added into live/current totals.
+ * persist an imported value). It is displayed when the policy has no live
+ * transactions yet, and is never added into live/current-term totals.
  */
 
 export const TERM_ESTABLISHING_TYPES = ['new_policy_premium', 'renewal_premium'] as const
@@ -246,15 +247,34 @@ export function toPolicyPremiumTxn(input: {
   }
 }
 
+function hasLivePolicyTransactions(input: {
+  transactionPremiumSum: number | null | undefined
+  liveTransactionCount?: number | null | undefined
+}): boolean {
+  const countRaw = input.liveTransactionCount
+  if (countRaw !== undefined && countRaw !== null && String(countRaw).trim() !== '') {
+    const count = Number(countRaw)
+    if (Number.isFinite(count)) return count > 0
+  }
+  // Count omitted: a non-zero current-term sum means a live ledger exists.
+  return toFiniteMoney(input.transactionPremiumSum) !== 0
+}
+
 /**
- * Apply a caller-provided live/current-term sum. policies.premium is ignored.
- * Prefer currentPolicyPremiumFromTransactions when raw ledger rows are available.
+ * Displayed Current Policy Premium.
+ *
+ * - No live transactions: imported/reference policies.premium (onboarding book of business).
+ * - Any live transactions: current-term ledger only. policies.premium is never added.
  */
 export function resolveCurrentPolicyPremium(input: {
   policyPremium?: number | null | undefined
   transactionPremiumSum: number | null | undefined
+  liveTransactionCount?: number | null | undefined
 }): number {
-  return roundPolicyPremiumMoney(toFiniteMoney(input.transactionPremiumSum))
+  if (hasLivePolicyTransactions(input)) {
+    return roundPolicyPremiumMoney(toFiniteMoney(input.transactionPremiumSum))
+  }
+  return roundPolicyPremiumMoney(toFiniteMoney(input.policyPremium))
 }
 
 export function sumTransactionPremiumAmounts(
@@ -271,6 +291,7 @@ export function sumClientCurrentPremium(
   policies: Array<{
     policyPremium: number | null | undefined
     transactionPremiumSum: number | null | undefined
+    liveTransactionCount?: number | null | undefined
   }>,
 ): number {
   return roundPolicyPremiumMoney(
@@ -280,6 +301,7 @@ export function sumClientCurrentPremium(
         resolveCurrentPolicyPremium({
           policyPremium: p.policyPremium,
           transactionPremiumSum: p.transactionPremiumSum,
+          liveTransactionCount: p.liveTransactionCount,
         }),
       0,
     ),
@@ -298,15 +320,26 @@ export function buildClientTotalPremiumByClientId(input: {
   }>
   /** Current-term premium by policy_id (from fetchPolicyTransactionSummaries). */
   transactionPremiumSumByPolicyId: Map<string, number> | Record<string, number>
+  /** Live (non-voided, non-archived) transaction counts by policy_id. */
+  liveTransactionCountByPolicyId?: Map<string, number> | Record<string, number>
 }): Map<string, number> {
   const txnMap =
     input.transactionPremiumSumByPolicyId instanceof Map
       ? input.transactionPremiumSumByPolicyId
       : new Map(Object.entries(input.transactionPremiumSumByPolicyId))
+  const countMap = !input.liveTransactionCountByPolicyId
+    ? null
+    : input.liveTransactionCountByPolicyId instanceof Map
+      ? input.liveTransactionCountByPolicyId
+      : new Map(Object.entries(input.liveTransactionCountByPolicyId))
 
   const byClient = new Map<
     string,
-    Array<{ policyPremium: number; transactionPremiumSum: number }>
+    Array<{
+      policyPremium: number
+      transactionPremiumSum: number
+      liveTransactionCount?: number
+    }>
   >()
   for (const policy of input.policies) {
     const clientId = String(policy.clientId ?? '').trim()
@@ -315,6 +348,7 @@ export function buildClientTotalPremiumByClientId(input: {
     list.push({
       policyPremium: toFiniteMoney(policy.premium),
       transactionPremiumSum: toFiniteMoney(txnMap.get(policy.id) ?? 0),
+      liveTransactionCount: countMap ? toFiniteMoney(countMap.get(policy.id) ?? 0) : undefined,
     })
     byClient.set(clientId, list)
   }

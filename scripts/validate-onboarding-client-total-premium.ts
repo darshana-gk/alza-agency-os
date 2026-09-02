@@ -32,7 +32,7 @@ function assertEq(actual: unknown, expected: unknown, message: string) {
   )
 }
 
-console.log('A. Stored opening with zero live transactions is $0')
+console.log('A. Stored opening with zero live transactions is the imported/reference premium')
 {
   const totals = buildClientTotalPremiumByClientId({
     policies: [
@@ -41,9 +41,14 @@ console.log('A. Stored opening with zero live transactions is $0')
       { id: 'p3', clientId: 'c2', premium: 22000 },
     ],
     transactionPremiumSumByPolicyId: new Map(),
+    liveTransactionCountByPolicyId: new Map([
+      ['p1', 0],
+      ['p2', 0],
+      ['p3', 0],
+    ]),
   })
-  assertEq(totals.get('c1'), 0, 'no live txns → client total 0')
-  assertEq(totals.get('c2'), 0, 'no live txns → client total 0')
+  assertEq(totals.get('c1'), 30000, 'no live txns → client total uses imported premiums')
+  assertEq(totals.get('c2'), 22000, 'no live txns → client total uses imported premium')
 }
 
 console.log('B. Multiple policies under one client — live ledger')
@@ -61,17 +66,21 @@ console.log('B. Multiple policies under one client — live ledger')
 console.log('C. Stored opening is not added onto live endorsement')
 {
   assertEq(
-    resolveCurrentPolicyPremium({ policyPremium: 12000, transactionPremiumSum: 500 }),
+    resolveCurrentPolicyPremium({
+      policyPremium: 12000,
+      transactionPremiumSum: 500,
+      liveTransactionCount: 1,
+    }),
     500,
     'single policy live endorsement only',
   )
   assertEq(
     sumClientCurrentPremium([
-      { policyPremium: 12000, transactionPremiumSum: 500 },
-      { policyPremium: 18000, transactionPremiumSum: 0 },
+      { policyPremium: 12000, transactionPremiumSum: 500, liveTransactionCount: 1 },
+      { policyPremium: 18000, transactionPremiumSum: 0, liveTransactionCount: 1 },
     ]),
     500,
-    'client total ignores stored opening',
+    'client total uses live term even when a sibling policy nets to $0',
   )
 }
 

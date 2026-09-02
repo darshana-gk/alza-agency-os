@@ -284,8 +284,10 @@ export function Clients() {
     }
 
     const txnSumByPolicy = new Map<string, number>()
+    const liveCountByPolicy = new Map<string, number>()
     for (const id of policyIds) {
       txnSumByPolicy.set(id, summaryRes.data[id]?.totalPremium ?? 0)
+      liveCountByPolicy.set(id, summaryRes.data[id]?.transactionCount ?? 0)
     }
 
     const { policyCountByClientId, totalPremiumByClientId } =
@@ -297,6 +299,7 @@ export function Clients() {
           premium?: unknown
         }>,
         transactionPremiumSumByPolicyId: txnSumByPolicy,
+        liveTransactionCountByPolicyId: liveCountByPolicy,
       })
 
     const mapped = ((clientsRes.data as SupabaseClientRow[] | null) ?? []).map((row) => {

@@ -22,7 +22,7 @@ import {
   producerKeysMatch,
   roleInputFromProfile,
 } from '../lib/permissions'
-import { policyTermFinancialTotals, toPolicyPremiumTxn } from '../lib/policyPremium'
+import { policyTermFinancialTotals, resolveCurrentPolicyPremium, toPolicyPremiumTxn } from '../lib/policyPremium'
 import {
   fetchCommissionTransactionsByPolicy,
   formatCommissionTypeLabel,
@@ -31,6 +31,7 @@ import {
   formatLabel,
   formatPercent,
   formatTypeLabel,
+  isActiveFinancialTransaction,
   normalizeCommissionType,
   paymentStatusStyles,
   reviewStatusStyles,
@@ -310,7 +311,7 @@ export function PolicyDetails() {
     return `/transactions?${params.toString()}`
   }, [policy])
 
-  const financialTotals = useMemo(() => {
+  const termTotals = useMemo(() => {
     return policyTermFinancialTotals(
       transactions.map((tx) => toPolicyPremiumTxn(tx)),
       {
@@ -319,6 +320,20 @@ export function PolicyDetails() {
       },
     )
   }, [transactions, policy?.effectiveDate, policy?.expirationDate])
+
+  const liveTransactionCount = useMemo(
+    () => transactions.filter((tx) => isActiveFinancialTransaction(tx)).length,
+    [transactions],
+  )
+
+  const financialTotals = useMemo(() => {
+    const currentPolicyPremium = resolveCurrentPolicyPremium({
+      policyPremium: policy?.premium,
+      transactionPremiumSum: termTotals.currentPolicyPremium,
+      liveTransactionCount,
+    })
+    return { ...termTotals, currentPolicyPremium }
+  }, [termTotals, policy?.premium, liveTransactionCount])
 
   function openEdit() {
     if (!policy || !canEdit) return
@@ -554,11 +569,13 @@ export function PolicyDetails() {
       <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
         <h2 className="mb-1 text-lg font-semibold text-slate-900">Financial Totals</h2>
         <p className="mb-5 text-xs text-slate-500">
-          Current Policy Premium is the current term: latest New Business or Renewal plus signed
-          endorsements, audits, and cancellations in that term. Prior terms and voided or archived
-          transactions are excluded. Commission totals use the same current-term set and the
-          persisted snapshots: producer commission = (agency commission + broker fee) × split % at
-          save.
+          Current Policy Premium is the current term once live transactions exist: latest New
+          Business or Renewal plus signed endorsements, audits, and cancellations in that term.
+          Before any live transaction, the imported/reference premium on the policy is shown.
+          Prior terms and voided or archived transactions are excluded. Commission totals use the
+          same current-term set and the persisted snapshots: producer commission = (agency
+          commission + broker fee) × split % at save. Imported reference premium is never added
+          onto live transaction totals.
         </p>
         <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
           <InfoField

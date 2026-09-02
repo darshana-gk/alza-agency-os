@@ -371,6 +371,7 @@ export function ClientDetails() {
         totalPremium: resolveCurrentPolicyPremium({
           policyPremium: policy.writtenPremium,
           transactionPremiumSum: summary?.totalPremium ?? 0,
+          liveTransactionCount: summary?.transactionCount ?? 0,
         }),
         latestTransactionDate: summary?.latestTransactionDate ?? null,
       }
@@ -383,6 +384,7 @@ export function ClientDetails() {
       policies.map((p) => ({
         policyPremium: p.writtenPremium,
         transactionPremiumSum: summaryRes.data[p.id]?.totalPremium ?? 0,
+        liveTransactionCount: summaryRes.data[p.id]?.transactionCount ?? 0,
       })),
     )
     const agencyCommission = liveClientTxns.reduce((sum, tx) => sum + tx.agencyCommissionAmount, 0)

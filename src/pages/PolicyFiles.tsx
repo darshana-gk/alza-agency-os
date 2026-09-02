@@ -48,7 +48,7 @@ interface PolicyRow {
   expirationDate: string
   producer: string
   csr: string
-  /** On-screen Current Policy Premium = current-term live premium. */
+  /** On-screen Current Policy Premium = imported/reference when no live txns, else current term. */
   premium: number
   /** Raw policies.premium (opening / stored reference). */
   filePremium: number
@@ -228,6 +228,7 @@ export function PolicyFiles() {
       premium: resolveCurrentPolicyPremium({
         policyPremium: policy.filePremium,
         transactionPremiumSum: summaryRes.data[policy.id]?.totalPremium ?? 0,
+        liveTransactionCount: summaryRes.data[policy.id]?.transactionCount ?? 0,
       }),
     }))
 

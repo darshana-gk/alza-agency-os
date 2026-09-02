@@ -145,8 +145,12 @@ console.log('B. Voided transactions excluded from active totals')
   assert(agencyBPage.returnPremiumTotal === 0, 'Return Premiums ignore voided new-business row')
   assert(agencyBPage.pendingCount === 2, 'Pending count excludes voided')
   assert(
-    resolveCurrentPolicyPremium({ policyPremium: 300, transactionPremiumSum: 914 }) === 914,
-    'current premium ignores stored policies.premium',
+    resolveCurrentPolicyPremium({
+      policyPremium: 300,
+      transactionPremiumSum: 914,
+      liveTransactionCount: 1,
+    }) === 914,
+    'current premium ignores stored policies.premium once live txns exist',
   )
   const policyPremium = read('src/lib/policyPremium.ts')
   assert(

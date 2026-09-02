@@ -48,7 +48,7 @@ console.log('A. Clients.tsx select contract includes aliased policies.premium')
   )
 }
 
-console.log('B. Stored opening with zero live txns displays $0')
+console.log('B. Stored opening with zero live txns displays imported/reference premium')
 {
   const policyRows = [
     { id: 'pol-gl-001', client_id: CLIENT_ONE, opening_premium: 12000 },
@@ -64,12 +64,17 @@ console.log('B. Stored opening with zero live txns displays $0')
         'pol-wc-002': 0,
         'pol-gl-003': 0,
       },
+      liveTransactionCountByPolicyId: {
+        'pol-gl-001': 0,
+        'pol-wc-002': 0,
+        'pol-gl-003': 0,
+      },
     })
 
   assertEq(policyCountByClientId.get(CLIENT_ONE), 2, 'CLIENT ONE policy count 2')
   assertEq(policyCountByClientId.get(CLIENT_TWO), 1, 'CLIENT TWO policy count 1')
-  assertEq(totalPremiumByClientId.get(CLIENT_ONE), 0, 'CLIENT ONE Total Premium 0 without live txns')
-  assertEq(totalPremiumByClientId.get(CLIENT_TWO), 0, 'CLIENT TWO Total Premium 0 without live txns')
+  assertEq(totalPremiumByClientId.get(CLIENT_ONE), 30000, 'CLIENT ONE Total Premium uses imported premiums')
+  assertEq(totalPremiumByClientId.get(CLIENT_TWO), 22000, 'CLIENT TWO Total Premium uses imported premium')
 }
 
 console.log('C. Live ledger sums are the displayed totals')
@@ -208,6 +213,30 @@ console.log('J. Fallback txn rows use current-term (latest NB, not lifetime SUM)
     ],
   })
   assertEq(totalPremiumByClientId.get(CLIENT_ONE), 1000, 'latest NB is current premium, not 1814')
+}
+
+console.log('K. Master Agency imported premium with zero txns; live term not double-counted')
+{
+  const none = aggregateClientsListPremiumFromRows({
+    policies: [{ id: 'bhp', client_id: CLIENT_ONE, opening_premium: 8425 }],
+    transactionPremiumSumByPolicyId: { bhp: 0 },
+    liveTransactionCountByPolicyId: { bhp: 0 },
+  })
+  assertEq(none.totalPremiumByClientId.get(CLIENT_ONE), 8425, 'imported $8,425 with 0 txns')
+
+  const live = aggregateClientsListPremiumFromRows({
+    policies: [{ id: 'bhp', client_id: CLIENT_ONE, opening_premium: 8425 }],
+    transactionPremiumSumByPolicyId: { bhp: 1000 },
+    liveTransactionCountByPolicyId: { bhp: 1 },
+  })
+  assertEq(live.totalPremiumByClientId.get(CLIENT_ONE), 1000, 'live NB replaces imported, not $9,425')
+
+  const netZero = aggregateClientsListPremiumFromRows({
+    policies: [{ id: 'bhp', client_id: CLIENT_ONE, opening_premium: 8425 }],
+    transactionPremiumSumByPolicyId: { bhp: 0 },
+    liveTransactionCountByPolicyId: { bhp: 2 },
+  })
+  assertEq(netZero.totalPremiumByClientId.get(CLIENT_ONE), 0, 'live term net $0 stays $0')
 }
 
 console.log(`\n${passed} passed, ${failed} failed`)

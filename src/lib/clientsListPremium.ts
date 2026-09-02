@@ -2,8 +2,9 @@
  * Clients browse-page premium aggregation (query-row → displayed Total Premium).
  *
  * Same Current Policy Premium SoT as Policy Files / Policy Details / Client Details:
- *   per policy: current-term premium (NB/Renewal + signed adjustments)
- *   per client: SUM(per-policy current-term premium)
+ *   per policy: imported/reference premium when there are no live transactions,
+ *               otherwise current-term premium (NB/Renewal + signed adjustments)
+ *   per client: SUM(per-policy displayed Current Policy Premium)
  */
 
 import { parseMoney } from './reconciliationMatching'
@@ -66,6 +67,8 @@ export function aggregateClientsListPremiumFromRows(input: {
   transactions?: ClientsListTransactionRow[]
   /** Pre-aggregated current-term premium by policy id (fetchPolicyTransactionSummaries). */
   transactionPremiumSumByPolicyId?: Map<string, number> | Record<string, number>
+  /** Live (non-voided, non-archived) transaction counts by policy id. */
+  liveTransactionCountByPolicyId?: Map<string, number> | Record<string, number>
 }): {
   policyCountByClientId: Map<string, number>
   totalPremiumByClientId: Map<string, number>
@@ -92,6 +95,14 @@ export function aggregateClientsListPremiumFromRows(input: {
   }
 
   let transactionPremiumSumByPolicyId: Map<string, number>
+  let liveTransactionCountByPolicyId: Map<string, number> | undefined
+  if (input.liveTransactionCountByPolicyId instanceof Map) {
+    liveTransactionCountByPolicyId = input.liveTransactionCountByPolicyId
+  } else if (input.liveTransactionCountByPolicyId) {
+    liveTransactionCountByPolicyId = new Map(
+      Object.entries(input.liveTransactionCountByPolicyId).map(([k, v]) => [k, Number(v) || 0]),
+    )
+  }
   if (input.transactionPremiumSumByPolicyId instanceof Map) {
     transactionPremiumSumByPolicyId = input.transactionPremiumSumByPolicyId
   } else if (input.transactionPremiumSumByPolicyId) {
@@ -103,6 +114,7 @@ export function aggregateClientsListPremiumFromRows(input: {
     )
   } else {
     transactionPremiumSumByPolicyId = new Map()
+    liveTransactionCountByPolicyId = liveTransactionCountByPolicyId ?? new Map()
     const liveByPolicy = new Map<string, ReturnType<typeof toPolicyPremiumTxn>[]>()
     for (const row of input.transactions ?? []) {
       if (row.archived_at || row.voided_at) continue
@@ -130,12 +142,14 @@ export function aggregateClientsListPremiumFromRows(input: {
     }
     for (const [policyId, txns] of liveByPolicy) {
       transactionPremiumSumByPolicyId.set(policyId, currentPolicyPremiumFromTransactions(txns))
+      liveTransactionCountByPolicyId.set(policyId, txns.length)
     }
   }
 
   const totalPremiumByClientId = buildClientTotalPremiumByClientId({
     policies: policiesForPremium,
     transactionPremiumSumByPolicyId,
+    liveTransactionCountByPolicyId,
   })
 
   return { policyCountByClientId, totalPremiumByClientId }

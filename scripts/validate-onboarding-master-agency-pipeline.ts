@@ -16,6 +16,7 @@ import {
   executeMasterAgencyImport,
   type MasterAgencyChildEntity,
 } from '../src/lib/onboardingMasterImport.ts'
+import { resolveCurrentPolicyPremium } from '../src/lib/policyPremium.ts'
 
 let passed = 0
 let failed = 0
@@ -403,6 +404,26 @@ console.log('18. Master Agency Data policies import without agency commission')
   assert(
     store.policies.some((p) => Number(p.producerSplitPercentage) === 0),
     'split 0 persisted',
+  )
+  const samplePremium = Number(store.policies.find((p) => p.policyNumber === 'P1')?.premium)
+  assertEq(samplePremium, 10000, 'P1 imported premium persisted as 10000')
+  assertEq(
+    resolveCurrentPolicyPremium({
+      policyPremium: samplePremium,
+      transactionPremiumSum: 0,
+      liveTransactionCount: 0,
+    }),
+    10000,
+    'zero live txns display imported premium, not $0',
+  )
+  assertEq(
+    resolveCurrentPolicyPremium({
+      policyPremium: samplePremium,
+      transactionPremiumSum: 1000,
+      liveTransactionCount: 1,
+    }),
+    1000,
+    'later live NB replaces imported premium; not double-counted',
   )
 }
 
