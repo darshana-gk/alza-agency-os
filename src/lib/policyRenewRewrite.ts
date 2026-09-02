@@ -273,6 +273,10 @@ export type RenewPolicyDeps = {
     policyId: string,
     patch: Record<string, unknown>,
   ) => Promise<{ error: string | null }>
+  freezeHistoricalPolicySnapshots?: (
+    policyId: string,
+    snapshot: HistoricalPolicySnapshot,
+  ) => Promise<{ error: string | null }>
   createTransaction?: typeof createTransaction
 }
 
@@ -312,6 +316,38 @@ async function updatePolicySetup(
   patch: Record<string, unknown>,
 ): Promise<{ error: string | null }> {
   const { error } = await supabase.from('policies').update(patch).eq('id', policyId).is('archived_at', null)
+  return { error: error?.message ?? null }
+}
+
+export type HistoricalPolicySnapshot = {
+  policyNumber: string
+  effectiveDate: string
+  expirationDate: string
+}
+
+/**
+ * Stamp create-time policy number/term onto historical rows that still lack a snapshot.
+ * Must run before the Policy File is renamed on renewal. Never overwrites a non-null
+ * policy_number, and never rewrites commission / carrier / producer columns.
+ */
+export async function freezeHistoricalPolicySnapshots(
+  policyId: string,
+  snapshot: HistoricalPolicySnapshot,
+): Promise<{ error: string | null }> {
+  const number = snapshot.policyNumber.trim()
+  if (!policyId.trim() || !number) return { error: null }
+
+  const patch: Record<string, unknown> = { policy_number: number }
+  const eff = isoDateOnly(snapshot.effectiveDate)
+  const exp = isoDateOnly(snapshot.expirationDate)
+  if (eff) patch.policy_effective_date = eff
+  if (exp) patch.policy_expiration_date = exp
+
+  const { error } = await supabase
+    .from('transactions')
+    .update(patch)
+    .eq('policy_id', policyId)
+    .is('policy_number', null)
   return { error: error?.message ?? null }
 }
 
@@ -401,6 +437,14 @@ export async function renewPolicy(
   }
 
   const updateSetup = deps?.updatePolicySetup ?? updatePolicySetup
+  const freezeHistory = deps?.freezeHistoricalPolicySnapshots ?? freezeHistoricalPolicySnapshots
+  const frozen = await freezeHistory(sourceId, {
+    policyNumber: source.data.policyNumber,
+    effectiveDate: source.data.effectiveDate,
+    expirationDate: source.data.expirationDate,
+  })
+  if (frozen.error) return { data: null, error: frozen.error }
+
   const updated = await updateSetup(sourceId, patch)
   if (updated.error) return { data: null, error: updated.error }
 
@@ -425,6 +469,7 @@ export async function renewPolicy(
     producerSplitPercentage: setup.producerSplitPercentage,
     reviewerUserId: input.reviewerUserId ?? null,
     producerSplitSource: input.producerSplitSource ?? null,
+    policyNumber,
     policyEffectiveDate: eff,
     policyExpirationDate: exp,
   })
@@ -753,6 +798,7 @@ export async function rewritePolicy(
     brokerFee: input.brokerFee,
     producerSplitPercentage: input.producerSplitPercentage,
     reviewerUserId: input.reviewerUserId ?? null,
+    policyNumber,
     policyEffectiveDate: eff,
     policyExpirationDate: exp,
   })

@@ -23,7 +23,7 @@ import {
   producerKeysMatch,
   roleInputFromProfile,
 } from '../lib/permissions'
-import { policyTermFinancialTotals, resolveCurrentPolicyPremium, toPolicyPremiumTxn } from '../lib/policyPremium'
+import { groupRelatedPolicyTransactions, policyTermFinancialTotals, resolveCurrentPolicyPremium, toPolicyPremiumTxn } from '../lib/policyPremium'
 import {
   fetchCommissionTransactionsByPolicy,
   formatCommissionTypeLabel,
@@ -139,6 +139,111 @@ function InfoField({ label, value }: { label: string; value: string }) {
     <div>
       <p className="text-xs font-medium uppercase tracking-wider text-slate-500">{label}</p>
       <p className="mt-1 text-sm text-slate-900">{value}</p>
+    </div>
+  )
+}
+
+function formatPolicyTermRange(effectiveDate: string, expirationDate: string): string {
+  const start = formatDateSafe(effectiveDate)
+  const end = formatDateSafe(expirationDate)
+  if (start === '—' && end === '—') return '—'
+  return `${start} – ${end}`
+}
+
+function RelatedTermSection({
+  title,
+  rows,
+  emptyLabel,
+  policyId,
+  financialsReturnTo,
+}: {
+  title: string
+  rows: CommissionTransaction[]
+  emptyLabel: string
+  policyId: string
+  financialsReturnTo?: string | null
+}) {
+  const columns = [
+    'Transaction #',
+    'Date',
+    'Type',
+    'Policy #',
+    'Term',
+    'Amount',
+    'Agency Commission',
+    'Producer Split %',
+    'Producer Commission',
+    'Review Status',
+    'Producer Payment Status',
+  ]
+  return (
+    <div>
+      <div className="border-b border-slate-200 bg-slate-50/80 px-6 py-2.5">
+        <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-600">{title}</h3>
+      </div>
+      <table className="min-w-full">
+        <thead>
+          <tr className="border-b border-slate-200 bg-slate-50/50">
+            {columns.map((col) => (
+              <th key={col} className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">
+                {col}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-slate-100">
+          {rows.length === 0 ? (
+            <tr>
+              <td colSpan={columns.length} className="px-4 py-8 text-center text-sm text-slate-500">
+                {emptyLabel}
+              </td>
+            </tr>
+          ) : (
+            rows.map((tx) => (
+              <tr key={tx.id} className="hover:bg-slate-50/60">
+                <td className="whitespace-nowrap px-4 py-4 text-sm font-medium text-alza-blue-700">
+                  <Link
+                    to={`/transactions/${tx.id}`}
+                    state={transactionLinkState({
+                      returnTo: `/policies/${policyId}`,
+                      returnLabel: 'Policy',
+                      financialsReturnTo,
+                    })}
+                  >
+                    {tx.transactionNumber || '—'}
+                  </Link>
+                </td>
+                <td className="whitespace-nowrap px-4 py-4 text-sm text-slate-700">{formatDateSafe(tx.transactionDate)}</td>
+                <td className="px-4 py-4">
+                  <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ring-inset ${typeStyles[tx.type] ?? typeStyles.new_policy_premium}`}>
+                    {formatTypeLabel(tx.type)}
+                  </span>
+                </td>
+                <td className="whitespace-nowrap px-4 py-4 text-sm text-slate-700">{tx.policyNumber || '—'}</td>
+                <td className="whitespace-nowrap px-4 py-4 text-sm text-slate-700">
+                  {formatPolicyTermRange(tx.policyEffectiveDate, tx.policyExpirationDate)}
+                </td>
+                <td className={`whitespace-nowrap px-4 py-4 text-sm font-semibold tabular-nums ${tx.amount < 0 ? 'text-orange-700' : 'text-slate-900'}`}>
+                  {formatCurrency(tx.amount)}
+                </td>
+                <td className="whitespace-nowrap px-4 py-4 text-sm tabular-nums text-slate-700">{formatCurrency(tx.agencyCommissionAmount)}</td>
+                <td className="whitespace-nowrap px-4 py-4 text-sm tabular-nums text-slate-700">{formatPercent(tx.producerSplitPercentage)}</td>
+                <td className="whitespace-nowrap px-4 py-4 text-sm tabular-nums text-slate-700">{formatCurrency(tx.producerCommissionAmount)}</td>
+                <td className="whitespace-nowrap px-4 py-4">
+                  <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ring-inset ${reviewStatusStyles[tx.reviewStatus] ?? 'bg-slate-100 text-slate-700 ring-slate-500/20'}`}>
+                    {formatLabel(tx.reviewStatus)}
+                  </span>
+                </td>
+                <td className="whitespace-nowrap px-4 py-4">
+                  <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ring-inset ${paymentStatusStyles[tx.producerPaymentStatus]}`}>
+                    {formatLabel(tx.producerPaymentStatus)}
+                  </span>
+                </td>
+              </tr>
+            ))
+          )}
+        </tbody>
+      </table>
     </div>
   )
 }
@@ -336,6 +441,24 @@ export function PolicyDetails() {
       },
     )
   }, [transactions, policy?.effectiveDate, policy?.expirationDate])
+
+  const relatedGroups = useMemo(() => {
+    return groupRelatedPolicyTransactions(
+      transactions.map((tx) => toPolicyPremiumTxn(tx)),
+      {
+        policyEffectiveDate: policy?.effectiveDate,
+        policyExpirationDate: policy?.expirationDate,
+      },
+    )
+  }, [transactions, policy?.effectiveDate, policy?.expirationDate])
+
+  const relatedById = useMemo(() => new Map(transactions.map((tx) => [tx.id, tx])), [transactions])
+  const currentTermTxns = relatedGroups.currentTerm
+    .map((row) => relatedById.get(String(row.id ?? '')))
+    .filter((tx): tx is CommissionTransaction => Boolean(tx))
+  const priorTermTxns = relatedGroups.priorTerms
+    .map((row) => relatedById.get(String(row.id ?? '')))
+    .filter((tx): tx is CommissionTransaction => Boolean(tx))
 
   const liveTransactionCount = useMemo(
     () => transactions.filter((tx) => isActiveFinancialTransaction(tx)).length,
@@ -723,65 +846,26 @@ export function PolicyDetails() {
           </div>
         )}
         <div className="overflow-x-auto">
-          <table className="min-w-full">
-            <thead>
-              <tr className="border-b border-slate-200 bg-slate-50/80">
-                {['Transaction #', 'Date', 'Type', 'Amount', 'Agency Commission', 'Producer Split %', 'Producer Commission', 'Review Status', 'Producer Payment Status'].map((col) => (
-                  <th key={col} className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">
-                    {col}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {transactions.length === 0 ? (
-                <tr>
-                    <td colSpan={9} className="px-4 py-10 text-center text-sm text-slate-500">
-                    No transactions recorded for this policy.
-                  </td>
-                </tr>
-              ) : (
-                transactions.map((tx) => (
-                  <tr key={tx.id} className="hover:bg-slate-50/60">
-                    <td className="whitespace-nowrap px-4 py-4 text-sm font-medium text-alza-blue-700">
-                      <Link
-                        to={`/transactions/${tx.id}`}
-                        state={transactionLinkState({
-                          returnTo: `/policies/${policy.id}`,
-                          returnLabel: 'Policy',
-                          financialsReturnTo,
-                        })}
-                      >
-                        {tx.transactionNumber || '—'}
-                      </Link>
-                    </td>
-                    <td className="whitespace-nowrap px-4 py-4 text-sm text-slate-700">{formatDateSafe(tx.transactionDate)}</td>
-                    <td className="px-4 py-4">
-                      <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ring-inset ${typeStyles[tx.type] ?? typeStyles.new_policy_premium}`}>
-                        {formatTypeLabel(tx.type)}
-                      </span>
-                    </td>
-                    <td className={`whitespace-nowrap px-4 py-4 text-sm font-semibold tabular-nums ${tx.amount < 0 ? 'text-orange-700' : 'text-slate-900'}`}>
-                      {formatCurrency(tx.amount)}
-                    </td>
-                    <td className="whitespace-nowrap px-4 py-4 text-sm tabular-nums text-slate-700">{formatCurrency(tx.agencyCommissionAmount)}</td>
-                    <td className="whitespace-nowrap px-4 py-4 text-sm tabular-nums text-slate-700">{formatPercent(tx.producerSplitPercentage)}</td>
-                    <td className="whitespace-nowrap px-4 py-4 text-sm tabular-nums text-slate-700">{formatCurrency(tx.producerCommissionAmount)}</td>
-                    <td className="whitespace-nowrap px-4 py-4">
-                      <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ring-inset ${reviewStatusStyles[tx.reviewStatus] ?? 'bg-slate-100 text-slate-700 ring-slate-500/20'}`}>
-                        {formatLabel(tx.reviewStatus)}
-                      </span>
-                    </td>
-                    <td className="whitespace-nowrap px-4 py-4">
-                      <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ring-inset ${paymentStatusStyles[tx.producerPaymentStatus]}`}>
-                        {formatLabel(tx.producerPaymentStatus)}
-                      </span>
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
+          {transactions.length === 0 ? (
+            <p className="px-6 py-10 text-center text-sm text-slate-500">No transactions recorded for this policy.</p>
+          ) : (
+            <div className="divide-y divide-slate-200">
+              <RelatedTermSection
+                title="Current Term"
+                rows={currentTermTxns}
+                emptyLabel="No current-term transactions."
+                policyId={policy.id}
+                financialsReturnTo={financialsReturnTo}
+              />
+              <RelatedTermSection
+                title="Prior Terms"
+                rows={priorTermTxns}
+                emptyLabel="No prior-term transactions."
+                policyId={policy.id}
+                financialsReturnTo={financialsReturnTo}
+              />
+            </div>
+          )}
         </div>
       </div>
 

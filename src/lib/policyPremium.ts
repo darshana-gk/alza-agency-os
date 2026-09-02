@@ -150,6 +150,57 @@ export function selectCurrentTermTransactions(
   return [current, ...adjustments]
 }
 
+/**
+ * Display SoT for a transaction's policy number: the create-time snapshot.
+ * Fall back to the live Policy File only when no snapshot exists (legacy rows).
+ */
+export function resolveDisplayedPolicyNumber(input: {
+  snapshotPolicyNumber?: string | null
+  currentPolicyNumber?: string | null
+}): string {
+  const snapshot = String(input.snapshotPolicyNumber ?? '').trim()
+  if (snapshot) return snapshot
+  const current = String(input.currentPolicyNumber ?? '').trim()
+  return current || '—'
+}
+
+export function resolveDisplayedPolicyTerm(input: {
+  snapshotEffectiveDate?: string | null
+  snapshotExpirationDate?: string | null
+  currentEffectiveDate?: string | null
+  currentExpirationDate?: string | null
+}): { effectiveDate: string; expirationDate: string } {
+  const snapEff = isoDate(input.snapshotEffectiveDate)
+  const snapExp = isoDate(input.snapshotExpirationDate)
+  if (snapEff || snapExp) {
+    return { effectiveDate: snapEff, expirationDate: snapExp }
+  }
+  return {
+    effectiveDate: isoDate(input.currentEffectiveDate),
+    expirationDate: isoDate(input.currentExpirationDate),
+  }
+}
+
+/**
+ * Split a policy's related transactions into the live current term vs everything else.
+ * Uses the same current-term membership as financial totals; does not change those totals.
+ */
+export function groupRelatedPolicyTransactions<T extends PolicyPremiumTxn>(
+  transactions: T[],
+  options?: PolicyTermOptions,
+): { currentTerm: T[]; priorTerms: T[] } {
+  const currentIds = new Set(
+    selectCurrentTermTransactions(transactions, options).map((tx) => String(tx.id ?? '')),
+  )
+  const currentTerm: T[] = []
+  const priorTerms: T[] = []
+  for (const tx of transactions) {
+    if (currentIds.has(String(tx.id ?? ''))) currentTerm.push(tx)
+    else priorTerms.push(tx)
+  }
+  return { currentTerm, priorTerms }
+}
+
 export function currentPolicyPremiumFromTransactions(
   transactions: PolicyPremiumTxn[],
   options?: PolicyTermOptions,

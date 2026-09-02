@@ -20,9 +20,12 @@ import { validateProducerSplitPercentage } from './producerSplitValidation'
 import { mapCreatedAtValue } from './createdFirstSort'
 import {
   currentPolicyPremiumFromTransactions,
+  resolveDisplayedPolicyNumber,
+  resolveDisplayedPolicyTerm,
   toPolicyPremiumTxn,
 } from './policyPremium'
 import {
+  isoDateOnly,
   isPolicyTermUpdatingType,
   resolvePersistedTransactionDates,
   validateTransactionDateInputs,
@@ -868,6 +871,9 @@ export const TRANSACTION_COMMISSION_SELECT = `
   producer_split_source,
   transaction_effective_date,
   transaction_expiration_date,
+  policy_number,
+  policy_effective_date,
+  policy_expiration_date,
   csr_user_id,
   archived_at,
   created_at,
@@ -1006,6 +1012,9 @@ export const TRANSACTION_V1_FINANCIAL_SNAPSHOT_COLUMNS = [
   'agency_net_commission',
   'transaction_effective_date',
   'transaction_expiration_date',
+  'policy_number',
+  'policy_effective_date',
+  'policy_expiration_date',
   'csr',
   'carrier',
   'mga',
@@ -1112,6 +1121,9 @@ export interface TransactionCommissionRow {
   producer_split_source: string | null
   transaction_effective_date: string | null
   transaction_expiration_date: string | null
+  policy_number?: string | null
+  policy_effective_date?: string | null
+  policy_expiration_date?: string | null
   archived_at: string | null
   created_at?: string | null
   clients:
@@ -1234,6 +1246,12 @@ export function mapCommissionTransaction(row: TransactionCommissionRow): Commiss
   const reviewer = firstEmbed(row.reviewer)
   const returnedBy = firstEmbed(row.returned_by_user)
   const amountReceivedRaw = row.amount_received
+  const displayedPolicyTerm = resolveDisplayedPolicyTerm({
+    snapshotEffectiveDate: row.policy_effective_date,
+    snapshotExpirationDate: row.policy_expiration_date,
+    currentEffectiveDate: policy?.effective_date,
+    currentExpirationDate: policy?.expiration_date,
+  })
 
   return {
     id: row.id,
@@ -1249,10 +1267,13 @@ export function mapCommissionTransaction(row: TransactionCommissionRow): Commiss
     clientName: client?.business_name?.trim() || 'Unknown client',
     clientNumber: client?.client_number?.trim() || '',
     policyId: row.policy_id ?? '',
-    policyNumber: policy?.policy_number?.trim() || '—',
+    policyNumber: resolveDisplayedPolicyNumber({
+      snapshotPolicyNumber: row.policy_number,
+      currentPolicyNumber: policy?.policy_number,
+    }),
     policyType: policy?.policy_type?.trim() || '—',
-    policyEffectiveDate: policy?.effective_date?.trim() || '',
-    policyExpirationDate: policy?.expiration_date?.trim() || '',
+    policyEffectiveDate: displayedPolicyTerm.effectiveDate,
+    policyExpirationDate: displayedPolicyTerm.expirationDate,
     transactionEffectiveDate: row.transaction_effective_date?.trim() || '',
     transactionExpirationDate: row.transaction_expiration_date?.trim() || '',
     producer: row.producer?.trim() || '—',
@@ -1550,6 +1571,8 @@ export interface CreateTransactionInput {
   /** Policy term for New Business / Renewal (also snapshotted onto the transaction when those columns exist). */
   policyEffectiveDate?: string | null
   policyExpirationDate?: string | null
+  /** Create-time policy number snapshot. When omitted, loaded from the Policy File. */
+  policyNumber?: string | null
 }
 
 /**
@@ -1701,6 +1724,32 @@ export async function createTransaction(input: CreateTransactionInput) {
     transactionExpirationDate: input.transactionExpirationDate ?? '',
   })
 
+  let snapshotPolicyNumber = String(input.policyNumber ?? '').trim()
+  let snapshotPolicyEffective = isoDateOnly(input.policyEffectiveDate ?? '')
+  let snapshotPolicyExpiration = isoDateOnly(input.policyExpirationDate ?? '')
+  if (!snapshotPolicyNumber || !snapshotPolicyEffective || !snapshotPolicyExpiration) {
+    const { data: policySnap, error: policySnapError } = await supabase
+      .from('policies')
+      .select('policy_number, effective_date, expiration_date')
+      .eq('id', input.policyId.trim())
+      .maybeSingle()
+    if (policySnapError) {
+      return {
+        error: {
+          message: policySnapError.message,
+          table: 'policies',
+          operation: 'policy_snapshot_lookup',
+          details: policySnapError,
+        },
+      }
+    }
+    if (!snapshotPolicyNumber) {
+      snapshotPolicyNumber = String(policySnap?.policy_number ?? '').trim()
+    }
+    if (!snapshotPolicyEffective) snapshotPolicyEffective = isoDateOnly(policySnap?.effective_date)
+    if (!snapshotPolicyExpiration) snapshotPolicyExpiration = isoDateOnly(policySnap?.expiration_date)
+  }
+
   const derived = deriveCommission({
     commissionType,
     baseAmount: premiumAmount,
@@ -1758,6 +1807,9 @@ export async function createTransaction(input: CreateTransactionInput) {
     producer_split_source: input.producerSplitSource ?? null,
     transaction_effective_date: persistedDates.transactionEffectiveDate,
     transaction_expiration_date: persistedDates.transactionExpirationDate,
+    policy_number: snapshotPolicyNumber || null,
+    policy_effective_date: snapshotPolicyEffective || null,
+    policy_expiration_date: snapshotPolicyExpiration || null,
     voided_at: null,
     voided_by: null,
     void_reason: null,

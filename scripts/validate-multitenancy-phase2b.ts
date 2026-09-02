@@ -195,7 +195,8 @@ console.log('G. No Phase 3 RLS / app / Billing / Support / Integrations / task c
       !f.startsWith('20260901120000_alza_support_platform_login_and_agency_brief') &&
       !f.startsWith('20260901121000_alza_support_user_roles_select_no_recursion') &&
       !f.startsWith('20260901220000_support_ticket_actor_brief') &&
-      !f.startsWith('20260902120000_policy_rewrite_lineage')
+      !f.startsWith('20260902120000_policy_rewrite_lineage') &&
+      !f.startsWith('20260902200000_transaction_policy_snapshots')
   )
   })
   assert(extra.length === 0, `no unexpected migrations after 2B-finalize (${extra.join(', ') || 'none'})`)

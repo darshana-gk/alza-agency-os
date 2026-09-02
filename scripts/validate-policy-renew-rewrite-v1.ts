@@ -13,7 +13,7 @@
 
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
-import { policyTermFinancialTotals, toPolicyPremiumTxn, type PolicyPremiumTxn } from '../src/lib/policyPremium.ts'
+import { policyTermFinancialTotals, groupRelatedPolicyTransactions, resolveDisplayedPolicyNumber, toPolicyPremiumTxn, type PolicyPremiumTxn } from '../src/lib/policyPremium.ts'
 import {
   assertNotSelfRewrite,
   assertRewriteSameAgency,
@@ -324,6 +324,12 @@ console.log('H. Static wiring — schema, surfaces, no new transaction type')
   assert(details.includes('RewritePolicyModal'), 'Policy Details opens Rewrite modal')
   assert(details.includes('Rewritten from'), 'Policy Details shows Rewritten from')
   assert(details.includes('Rewritten to'), 'Policy Details shows Rewritten to')
+  assert(details.includes('Current Term'), 'Policy Details groups current-term transactions')
+  assert(details.includes('Prior Terms'), 'Policy Details groups prior-term transactions')
+  assert(details.includes('groupRelatedPolicyTransactions'), 'Policy Details uses current-term grouping helper')
+
+  const clientDetails = readFileSync(resolve(root, 'src/pages/ClientDetails.tsx'), 'utf8')
+  assert(clientDetails.includes('policyNumber: tx.policyNumber'), 'Client Details recent txns use mapped snapshot number')
 
   const files = readFileSync(resolve(root, 'src/pages/PolicyFiles.tsx'), 'utf8')
   assert(files.includes('setRenewTarget'), 'Policy Files has per-row Renew')
@@ -331,6 +337,28 @@ console.log('H. Static wiring — schema, surfaces, no new transaction type')
 
   const commission = readFileSync(resolve(root, 'src/lib/commission.ts'), 'utf8')
   assert(!commission.includes('rewrite_premium'), 'does not invent a rewrite transaction type')
+  assert(commission.includes("'policy_number'"), 'create insert treats policy_number as a required snapshot')
+  assert(commission.includes('resolveDisplayedPolicyNumber'), 'txn mapper prefers snapshotted policy number')
+
+  const renewLib = readFileSync(resolve(root, 'src/lib/policyRenewRewrite.ts'), 'utf8')
+  assert(renewLib.includes('freezeHistoricalPolicySnapshots'), 'renew freezes historical policy snapshots')
+  assert(renewLib.includes(".is('policy_number', null)"), 'freeze only fills rows that lack a snapshot')
+  assert(!/freezeHistoricalPolicySnapshots[\s\S]{0,1200}producer_commission/.test(renewLib), 'freeze does not rewrite producer commission')
+
+  const recon = readFileSync(resolve(root, 'src/lib/reconciliation.ts'), 'utf8')
+  assert(recon.includes('policies!transactions_policy_id_fkey ( policy_number )'), 'reconciliation still matches on live Policy File number')
+
+  const snapshotMigration = readFileSync(
+    resolve(root, 'supabase/migrations/20260902200000_transaction_policy_snapshots.sql'),
+    'utf8',
+  )
+  assert(snapshotMigration.includes('ADD COLUMN IF NOT EXISTS policy_number text'), 'snapshot migration adds policy_number')
+  assert(snapshotMigration.includes('policy_effective_date'), 'snapshot migration adds policy term effective date')
+  assert(snapshotMigration.includes('policy_expiration_date'), 'snapshot migration adds policy term expiration date')
+  assert(
+    !/UPDATE[\s\S]{0,400}policy_number[\s\S]{0,200}policies/i.test(snapshotMigration),
+    'snapshot migration does not backfill policy_number from the current Policy File',
+  )
 
   const modal = readFileSync(resolve(root, 'src/components/transactions/AddTransactionModal.tsx'), 'utf8')
   assert(modal.includes('renewPolicy'), 'Renew modal saves through renewPolicy')
@@ -354,7 +382,17 @@ console.log('I. Renewal keeps the same Policy File and updates current setup')
 
   async function runRenew(input: RenewPolicyInput) {
     const policyPatches: Array<Record<string, unknown>> = []
-    const createdTxns: Array<{ policyId: string; type: string; premiumAmount: number; clientId: string }> = []
+    const createdTxns: Array<{
+      policyId: string
+      type: string
+      premiumAmount: number
+      clientId: string
+      policyNumber?: string | null
+      policyEffectiveDate?: string | null
+      policyExpirationDate?: string | null
+    }> = []
+    const freezeCalls: Array<{ policyId: string; snapshot: Record<string, string> }> = []
+    const callOrder: string[] = []
     const result = await renewPolicy(input, {
       bypassAuth: true,
       skipActivity: true,
@@ -365,21 +403,38 @@ console.log('I. Renewal keeps the same Policy File and updates current setup')
         error: null,
       }),
       hasConflictingPolicyNumber: async () => ({ conflict: false, error: null }),
+      freezeHistoricalPolicySnapshots: async (policyId, snapshot) => {
+        callOrder.push('freeze')
+        freezeCalls.push({
+          policyId,
+          snapshot: {
+            policyNumber: snapshot.policyNumber,
+            effectiveDate: snapshot.effectiveDate,
+            expirationDate: snapshot.expirationDate,
+          },
+        })
+        return { error: null }
+      },
       updatePolicySetup: async (_policyId, patch) => {
+        callOrder.push('patch')
         policyPatches.push({ ...patch })
         return { error: null }
       },
       createTransaction: async (txnInput) => {
+        callOrder.push('create')
         createdTxns.push({
           policyId: txnInput.policyId,
           type: txnInput.transactionType,
           premiumAmount: txnInput.premiumAmount,
           clientId: txnInput.clientId,
+          policyNumber: txnInput.policyNumber,
+          policyEffectiveDate: txnInput.policyEffectiveDate,
+          policyExpirationDate: txnInput.policyExpirationDate,
         })
         return { data: { id: 'txn-ren-1', transactionNumber: 'TRX-REN-1' }, error: null }
       },
     })
-    return { result, policyPatches, createdTxns }
+    return { result, policyPatches, createdTxns, freezeCalls, callOrder }
   }
 
   const unchanged = await runRenew(renewInput())
@@ -398,6 +453,14 @@ console.log('I. Renewal keeps the same Policy File and updates current setup')
   assertEq(renamed.createdTxns[0]?.policyId, SOURCE_POLICY_ID, 'renewal txn stays on the original policy id')
   assertEq(renamed.createdTxns[0]?.type, 'renewal_premium', 'changed number remains a Renewal, not New Business')
   assertEq(renamed.policyPatches[0]?.policy_number, 'BHP-GL-2027-001', 'Policy File current number becomes the new number')
+  assertEq(renamed.callOrder.join('>'), 'freeze>patch>create', 'history freeze runs before Policy File rename')
+  assertEq(renamed.freezeCalls[0]?.policyId, SOURCE_POLICY_ID, 'freeze targets the same Policy File')
+  assertEq(renamed.freezeCalls[0]?.snapshot.policyNumber, 'BHP-GL-2026-001', 'freeze stamps the old policy number')
+  assertEq(renamed.freezeCalls[0]?.snapshot.effectiveDate, '2025-09-01', 'freeze stamps the expiring term effective date')
+  assertEq(renamed.freezeCalls[0]?.snapshot.expirationDate, '2026-09-01', 'freeze stamps the expiring term expiration date')
+  assertEq(renamed.createdTxns[0]?.policyNumber, 'BHP-GL-2027-001', 'renewal txn snapshots the new policy number')
+  assertEq(renamed.createdTxns[0]?.policyEffectiveDate, '2026-09-01', 'renewal txn snapshots the new term effective date')
+  assertEq(renamed.createdTxns[0]?.policyExpirationDate, '2027-09-01', 'renewal txn snapshots the new term expiration date')
   assert(
     !Object.prototype.hasOwnProperty.call(renamed.policyPatches[0] ?? {}, 'rewritten_from_policy_id'),
     'changed-number renew does not set rewrite lineage',
@@ -479,6 +542,78 @@ console.log('J. Prior-term financials stay out of renewed current-term totals af
   assertEq(totals.currentPolicyPremium, 9100, 'renewed current premium ignores prior-term NB')
   assertEq(totals.totalAgencyCommission, 1365, 'renewed current commission ignores prior-term commission')
   assert(!totals.termTransactionIds.includes('nb'), 'prior-term NB excluded after renewal')
+}
+
+console.log('K. Transaction history snapshots display the create-time policy number and term')
+{
+  assertEq(
+    resolveDisplayedPolicyNumber({
+      snapshotPolicyNumber: 'BHP-GL-2026-001',
+      currentPolicyNumber: 'BHP-GL-2027-001',
+    }),
+    'BHP-GL-2026-001',
+    'display prefers the transaction snapshot over the current Policy File number',
+  )
+  assertEq(
+    resolveDisplayedPolicyNumber({
+      snapshotPolicyNumber: '  ',
+      currentPolicyNumber: 'BHP-GL-2027-001',
+    }),
+    'BHP-GL-2027-001',
+    'legacy rows with no snapshot still fall back to the current Policy File',
+  )
+
+  const grouped = groupRelatedPolicyTransactions([
+    txn({
+      id: 'nb',
+      type: 'new_policy_premium',
+      amount: 8000,
+      createdAt: '2025-09-01T10:00:00Z',
+      transactionEffectiveDate: '2025-09-01',
+      transactionExpirationDate: '2026-09-01',
+    }),
+    txn({
+      id: 'endo',
+      type: 'endorsement_premium',
+      amount: 400,
+      createdAt: '2025-10-01T10:00:00Z',
+      transactionEffectiveDate: '2025-10-01',
+      transactionExpirationDate: '2026-09-01',
+    }),
+    txn({
+      id: 'ren',
+      type: 'renewal_premium',
+      amount: 9100,
+      createdAt: '2026-09-01T10:00:00Z',
+      transactionEffectiveDate: '2026-09-01',
+      transactionExpirationDate: '2027-09-01',
+    }),
+  ])
+  assertEq(grouped.currentTerm.map((tx) => tx.id).join(','), 'ren', 'renewal is current term')
+  assertEq(grouped.priorTerms.map((tx) => tx.id).join(','), 'nb,endo', 'NB and endorsement are prior terms')
+
+  const totals = policyTermFinancialTotals([
+    txn({
+      id: 'nb',
+      type: 'new_policy_premium',
+      amount: 8000,
+      agencyCommissionAmount: 1000,
+      createdAt: '2025-09-01T10:00:00Z',
+      transactionEffectiveDate: '2025-09-01',
+      transactionExpirationDate: '2026-09-01',
+    }),
+    txn({
+      id: 'ren',
+      type: 'renewal_premium',
+      amount: 9100,
+      agencyCommissionAmount: 1365,
+      createdAt: '2026-09-01T10:00:00Z',
+      transactionEffectiveDate: '2026-09-01',
+      transactionExpirationDate: '2027-09-01',
+    }),
+  ])
+  assertEq(totals.currentPolicyPremium, 9100, 'grouping helper does not change current-term premium formula')
+  assertEq(totals.totalAgencyCommission, 1365, 'grouping helper does not change current-term commission formula')
 }
 
 if (failed > 0) {
