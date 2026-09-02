@@ -61,6 +61,17 @@ export const TRANSACTION_TYPES_FOR_CREATE = [
   'cancellation_premium',
 ] as const
 
+/** Types allowed when adding to a prior/expired term (do not establish a new term). */
+export const TRANSACTION_TYPES_FOR_HISTORICAL_TERM = [
+  'endorsement_premium',
+  'audit_premium',
+  'cancellation_premium',
+] as const
+
+export function transactionTypesForPolicyTerm(isCurrentTerm: boolean): readonly TransactionType[] {
+  return isCurrentTerm ? TRANSACTION_TYPES_FOR_CREATE : TRANSACTION_TYPES_FOR_HISTORICAL_TERM
+}
+
 /** Commission basis — stored on policy (default) and transaction (snapshot). */
 export const COMMISSION_TYPES = ['percentage', 'flat'] as const
 export type CommissionType = (typeof COMMISSION_TYPES)[number]
@@ -1184,6 +1195,10 @@ export interface CommissionTransaction {
   clientNumber: string
   policyId: string
   policyNumber: string
+  /** Raw create-time snapshot; empty when the row has no stored policy_number. */
+  snapshotPolicyNumber: string
+  snapshotPolicyEffectiveDate: string
+  snapshotPolicyExpirationDate: string
   policyType: string
   policyEffectiveDate: string
   policyExpirationDate: string
@@ -1268,6 +1283,9 @@ export function mapCommissionTransaction(row: TransactionCommissionRow): Commiss
     clientName: client?.business_name?.trim() || 'Unknown client',
     clientNumber: client?.client_number?.trim() || '',
     policyId: row.policy_id ?? '',
+    snapshotPolicyNumber: row.policy_number?.trim() || '',
+    snapshotPolicyEffectiveDate: row.policy_effective_date?.trim() || '',
+    snapshotPolicyExpirationDate: row.policy_expiration_date?.trim() || '',
     policyNumber: resolveDisplayedPolicyNumber({
       snapshotPolicyNumber: row.policy_number,
       currentPolicyNumber: policy?.policy_number,
@@ -1452,7 +1470,8 @@ const POLICY_TERM_TXN_SELECT_FULL = `
   id, policy_id, amount, premium_amount, transaction_type, transaction_date, created_at,
   voided_at, transaction_effective_date, transaction_expiration_date, policy_number,
   policy_effective_date, policy_expiration_date, producer, csr, carrier, mga, broker_fee,
-  agency_commission_amount, producer_commission_amount, agency_net_commission
+  agency_commission_amount, producer_commission_amount, agency_net_commission,
+  commission_type, agency_commission_percentage, producer_split_percentage
 `
 const POLICY_TERM_TXN_SELECT_COMPAT = POLICY_SUMMARY_SELECT_FULL
 
@@ -1620,6 +1639,11 @@ export interface CreateTransactionInput {
   policyExpirationDate?: string | null
   /** Create-time policy number snapshot. When omitted, loaded from the Policy File. */
   policyNumber?: string | null
+  /**
+   * When true, persist only the provided policy identity snapshots.
+   * Do not fill missing number/dates from the live Policy File (historical terms).
+   */
+  lockPolicyIdentitySnapshot?: boolean
 }
 
 /**
@@ -1774,7 +1798,10 @@ export async function createTransaction(input: CreateTransactionInput) {
   let snapshotPolicyNumber = String(input.policyNumber ?? '').trim()
   let snapshotPolicyEffective = isoDateOnly(input.policyEffectiveDate ?? '')
   let snapshotPolicyExpiration = isoDateOnly(input.policyExpirationDate ?? '')
-  if (!snapshotPolicyNumber || !snapshotPolicyEffective || !snapshotPolicyExpiration) {
+  if (
+    !input.lockPolicyIdentitySnapshot &&
+    (!snapshotPolicyNumber || !snapshotPolicyEffective || !snapshotPolicyExpiration)
+  ) {
     const { data: policySnap, error: policySnapError } = await supabase
       .from('policies')
       .select('policy_number, effective_date, expiration_date')

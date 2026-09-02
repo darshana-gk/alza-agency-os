@@ -13,6 +13,8 @@ import {
   X,
 } from 'lucide-react'
 import { AddPolicyModal } from '../components/policies/AddPolicyModal'
+import { PolicyTermActionsMenu } from '../components/policies/PolicyTermActionsMenu'
+import { AddTransactionModal } from '../components/transactions/AddTransactionModal'
 import { DirectoryNameSelect } from '../components/directory/DirectoryNameSelect'
 import { useAuth } from '../lib/auth'
 import {
@@ -31,13 +33,16 @@ import { updateClient } from '../lib/directory'
 import {
   groupPolicyTermsByLineOfBusiness,
   listPolicyFileTerms,
+  policyTermCreateAnchor,
   policyTermPath,
   sumClientCurrentPremium,
   toPolicyTermTxn,
+  type PolicyTermCreateAnchor,
 } from '../lib/policyPremium'
 import {
   canManageClients,
   canManagePolicies,
+  canManageTransactions,
   isProducerBookScoped,
   producerKeysMatch,
   roleInputFromProfile,
@@ -67,6 +72,7 @@ interface ClientPolicy {
   /** Term premium for this term only. */
   totalPremium: number
   latestTransactionDate: string | null
+  termAnchor: PolicyTermCreateAnchor
 }
 
 interface ClientFinancials {
@@ -245,6 +251,22 @@ function mapPolicy(row: PolicyRow): ClientPolicy {
     transactionCount: 0,
     totalPremium: 0,
     latestTransactionDate: null,
+    termAnchor: {
+      termId: 'current',
+      isCurrent: true,
+      policyNumber: display(row.policy_number) === '—' ? '' : display(row.policy_number),
+      effectiveDate: row.effective_date?.trim() || '',
+      expirationDate: row.expiration_date?.trim() || '',
+      producer: display(row.producer) === '—' ? '' : display(row.producer),
+      csr: display(row.csr) === '—' ? '' : display(row.csr),
+      carrier: display(row.carrier) === '—' ? '' : display(row.carrier),
+      mga: display(row.mga) === '—' ? '' : display(row.mga),
+      commissionType: null,
+      agencyCommissionPercentage: null,
+      agencyCommissionAmount: 0,
+      brokerFee: 0,
+      producerSplitPercentage: null,
+    },
   }
 }
 
@@ -264,12 +286,14 @@ export function ClientDetails() {
   const roleInput = roleInputFromProfile(profile)
   const canEdit = canManageClients(roleInput)
   const canAddPolicy = canManagePolicies(roleInput)
+  const canAddTxn = canManageTransactions(roleInput)
   const producerLocked = isProducerBookScoped(roleInput)
   const [client, setClient] = useState<ClientDetail | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [notFound, setNotFound] = useState(false)
   const [addPolicyOpen, setAddPolicyOpen] = useState(false)
+  const [txnTermTarget, setTxnTermTarget] = useState<ClientPolicy | null>(null)
   const [editOpen, setEditOpen] = useState(false)
   const [saving, setSaving] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
@@ -403,13 +427,16 @@ export function ClientDetails() {
               agencyCommissionAmount: tx.agencyCommissionAmount,
               producerCommissionAmount: tx.producerCommissionAmount,
               agencyNetCommission: tx.agencyNetCommission,
-              policyNumber: tx.policyNumber,
-              policyEffectiveDate: tx.policyEffectiveDate,
-              policyExpirationDate: tx.policyExpirationDate,
+              policyNumber: tx.snapshotPolicyNumber || null,
+              policyEffectiveDate: tx.snapshotPolicyEffectiveDate || tx.transactionEffectiveDate,
+              policyExpirationDate: tx.snapshotPolicyExpirationDate || tx.transactionExpirationDate,
               producer: tx.producer,
               csr: tx.csr,
               carrier: tx.carrier,
               mga: tx.mga,
+              commissionType: tx.commissionType,
+              agencyCommissionPercentage: tx.agencyCommissionPercentage,
+              producerSplitPercentage: tx.producerSplitPercentage,
             }),
           ),
         {
@@ -447,6 +474,7 @@ export function ClientDetails() {
         transactionCount: term.transactionIds.length,
         totalPremium: term.displayedPremium,
         latestTransactionDate: summaryRes.data[policy.id]?.latestTransactionDate ?? null,
+        termAnchor: policyTermCreateAnchor(term),
       }))
     })
     const liveClientTxns = clientTxns.filter(isActiveFinancialTransaction)
@@ -473,7 +501,7 @@ export function ClientDetails() {
         transactionDate: tx.transactionDate,
         type: tx.type,
         amount: tx.amount,
-        policyNumber: tx.policyNumber || '—',
+        policyNumber: tx.snapshotPolicyNumber || tx.policyNumber || '—',
       }))
 
     const row = clientRow as ClientRow
@@ -785,6 +813,7 @@ export function ClientDetails() {
                         'Current Policy Premium',
                         'Status',
                         'Transactions',
+                        'Actions',
                       ].map((col) => (
                         <th
                           key={col}
@@ -830,6 +859,19 @@ export function ClientDetails() {
                           <p className="font-semibold tabular-nums text-slate-900">{policy.transactionCount}</p>
                           <p className="text-xs text-slate-500">This term only</p>
                         </td>
+                        <td className="w-px whitespace-nowrap px-2 py-4">
+                          <PolicyTermActionsMenu
+                            policyNumber={policy.policyNumber}
+                            canView
+                            canAddTransaction={canAddTxn}
+                            onView={() =>
+                              navigate(policyTermPath(policy.id, policy.termId), {
+                                state: withFinancialsReturn(financialsReturnTo),
+                              })
+                            }
+                            onAddTransaction={() => setTxnTermTarget(policy)}
+                          />
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -851,6 +893,20 @@ export function ClientDetails() {
           navigate(`/policies/${policyId}`, {
             state: withFinancialsReturn(financialsReturnTo),
           })
+        }}
+      />
+      <AddTransactionModal
+        open={Boolean(txnTermTarget)}
+        onClose={() => setTxnTermTarget(null)}
+        lockedClientId={client.id}
+        lockedClientLabel={client.businessName}
+        lockedPolicyId={txnTermTarget?.id}
+        lockedPolicyLabel={txnTermTarget?.policyNumber}
+        termAnchor={txnTermTarget?.termAnchor ?? null}
+        onCreated={async () => {
+          setTxnTermTarget(null)
+          setActionSuccess('Transaction created.')
+          await loadClient()
         }}
       />
 

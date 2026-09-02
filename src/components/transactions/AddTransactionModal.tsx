@@ -13,7 +13,7 @@ import {
   normalizeCommissionType,
   normalizePremiumAmountForType,
   todayIsoDate,
-  TRANSACTION_TYPES_FOR_CREATE,
+  transactionTypesForPolicyTerm,
   validateTransactionPremiumAmount,
   type CommissionType,
   type TransactionType,
@@ -30,6 +30,11 @@ import {
   transactionDateSemantics,
   validateTransactionDateInputs,
 } from '../../lib/transactionDateSemantics'
+import {
+  EXPIRED_TERM_ADD_WARNING,
+  displayValueOrEmpty,
+  type PolicyTermCreateAnchor,
+} from '../../lib/policyPremium'
 import { defaultNextTermDates, renewPolicy } from '../../lib/policyRenewRewrite'
 
 const inputClassName =
@@ -47,6 +52,8 @@ export interface AddTransactionModalProps {
   lockedClientLabel?: string
   lockedPolicyId?: string
   lockedPolicyLabel?: string
+  /** Selected policy term. Historical terms prefill snapshots instead of the live Policy File. */
+  termAnchor?: PolicyTermCreateAnchor | null
   /** Renew Policy: lock type to Renewal and default the next term dates. */
   mode?: 'create' | 'renew'
 }
@@ -96,8 +103,14 @@ export function AddTransactionModal({
   lockedClientLabel,
   lockedPolicyId,
   lockedPolicyLabel,
+  termAnchor = null,
   mode = 'create',
 }: AddTransactionModalProps) {
+  const historicalTerm = Boolean(termAnchor && !termAnchor.isCurrent)
+  const createTypes = transactionTypesForPolicyTerm(!historicalTerm)
+  const defaultCreateType: TransactionType = historicalTerm
+    ? 'endorsement_premium'
+    : 'new_policy_premium'
   const [clients, setClients] = useState<ClientOption[]>([])
   const [policies, setPolicies] = useState<PolicyOption[]>([])
   const [reviewers, setReviewers] = useState<ReviewerOption[]>([])
@@ -139,21 +152,21 @@ export function AddTransactionModal({
     setForm({
       clientId: lockedClientId ?? '',
       policyId: lockedPolicyId ?? '',
-      policyNumber: '',
+      policyNumber: displayValueOrEmpty(termAnchor?.policyNumber),
       policyType: '',
       transactionDate: todayIsoDate(),
-      transactionEffectiveDate: '',
-      transactionExpirationDate: '',
-      policyEffectiveDate: '',
-      policyExpirationDate: '',
-      transactionType: mode === 'renew' ? 'renewal_premium' : 'new_policy_premium',
+      transactionEffectiveDate: historicalTerm ? termAnchor?.effectiveDate ?? '' : '',
+      transactionExpirationDate: historicalTerm ? termAnchor?.expirationDate ?? '' : '',
+      policyEffectiveDate: termAnchor?.effectiveDate ?? '',
+      policyExpirationDate: termAnchor?.expirationDate ?? '',
+      transactionType: mode === 'renew' ? 'renewal_premium' : defaultCreateType,
       description: '',
       notes: '',
       remarks: '',
-      producer: '',
-      csr: '',
-      carrier: '',
-      mga: '',
+      producer: displayValueOrEmpty(termAnchor?.producer),
+      csr: displayValueOrEmpty(termAnchor?.csr),
+      carrier: displayValueOrEmpty(termAnchor?.carrier),
+      mga: displayValueOrEmpty(termAnchor?.mga),
       premiumAmount: '',
       commissionType: 'percentage',
       agencyCommissionPercentage: '',
@@ -254,7 +267,7 @@ export function AddTransactionModal({
     return () => {
       cancelled = true
     }
-  }, [open, lockedClientId, lockedPolicyId, mode])
+  }, [open, lockedClientId, lockedPolicyId, mode, termAnchor, defaultCreateType, historicalTerm])
 
   const clientPolicies = useMemo(
     () => policies.filter((p) => !form.clientId || p.clientId === form.clientId),
@@ -267,9 +280,10 @@ export function AddTransactionModal({
   }, [clients, form.clientId, lockedClientLabel])
 
   const policyLabel = useMemo(() => {
+    if (termAnchor?.policyNumber) return termAnchor.policyNumber
     if (lockedPolicyLabel) return lockedPolicyLabel
     return policies.find((p) => p.id === form.policyId)?.number ?? ''
-  }, [policies, form.policyId, lockedPolicyLabel])
+  }, [policies, form.policyId, lockedPolicyLabel, termAnchor?.policyNumber])
 
   const selectedPolicy = useMemo(
     () => policies.find((p) => p.id === form.policyId) ?? null,
@@ -366,32 +380,79 @@ export function AddTransactionModal({
       const usePolicyTerm = defaultsTransactionDatesFromPolicy(prev.transactionType)
       const isRenewal = prev.transactionType === 'renewal_premium'
       const nextTerm = isRenewal ? defaultNextTermDates(policy.expirationDate) : null
-      const policyEffectiveDate = nextTerm?.effectiveDate || policy.effectiveDate || ''
-      const policyExpirationDate = nextTerm?.expirationDate || policy.expirationDate || ''
+      const anchorNumber = displayValueOrEmpty(termAnchor?.policyNumber)
+      const anchorEff = termAnchor?.effectiveDate || ''
+      const anchorExp = termAnchor?.expirationDate || ''
+      const policyEffectiveDate = isRenewal
+        ? nextTerm?.effectiveDate || policy.effectiveDate || ''
+        : historicalTerm
+          ? anchorEff || policy.effectiveDate || ''
+          : policy.effectiveDate || ''
+      const policyExpirationDate = isRenewal
+        ? nextTerm?.expirationDate || policy.expirationDate || ''
+        : historicalTerm
+          ? anchorExp || policy.expirationDate || ''
+          : policy.expirationDate || ''
+      const producer = historicalTerm
+        ? displayValueOrEmpty(termAnchor?.producer) || policy.producer
+        : policy.producer
+      const csr = historicalTerm ? displayValueOrEmpty(termAnchor?.csr) || policy.csr : policy.csr
+      const carrier = historicalTerm
+        ? displayValueOrEmpty(termAnchor?.carrier) || policy.carrier
+        : policy.carrier
+      const mga = historicalTerm ? displayValueOrEmpty(termAnchor?.mga) || policy.mga : policy.mga
+      const commissionType = historicalTerm
+        ? normalizeCommissionType(termAnchor?.commissionType || policy.commissionType)
+        : policy.commissionType
+      const agencyPct =
+        historicalTerm && termAnchor?.agencyCommissionPercentage != null
+          ? termAnchor.agencyCommissionPercentage
+          : policy.agencyCommissionPercentage
+      const agencyAmt =
+        historicalTerm && termAnchor
+          ? termAnchor.agencyCommissionAmount
+          : policy.agencyCommissionAmount
+      const brokerFee =
+        historicalTerm && termAnchor ? termAnchor.brokerFee : policy.brokerFee
+      const split =
+        historicalTerm && termAnchor?.producerSplitPercentage != null
+          ? termAnchor.producerSplitPercentage
+          : splitToUse
+      const txnEff = historicalTerm
+        ? prev.transactionEffectiveDate || policyEffectiveDate
+        : usePolicyTerm
+          ? policyEffectiveDate
+          : prev.transactionEffectiveDate
+      const txnExp = historicalTerm
+        ? prev.transactionExpirationDate || policyExpirationDate
+        : usePolicyTerm
+          ? policyExpirationDate
+          : prev.transactionExpirationDate
       return {
         ...prev,
         policyId: policy.id,
         clientId: isRenewal ? prev.clientId || policy.clientId : lockedClientId || policy.clientId,
-        policyNumber: isRenewal ? prev.policyNumber || policy.number : prev.policyNumber,
+        policyNumber: isRenewal
+          ? prev.policyNumber || policy.number
+          : historicalTerm
+            ? anchorNumber
+            : prev.policyNumber || (termAnchor?.isCurrent ? anchorNumber : ''),
         policyType: isRenewal ? prev.policyType || policy.policyType : prev.policyType,
-        producer: policy.producer,
-        csr: policy.csr,
-        carrier: policy.carrier,
-        mga: policy.mga,
+        producer,
+        csr,
+        carrier,
+        mga,
         policyEffectiveDate,
         policyExpirationDate,
-        transactionEffectiveDate: usePolicyTerm ? policyEffectiveDate : prev.transactionEffectiveDate,
-        transactionExpirationDate: usePolicyTerm ? policyExpirationDate : prev.transactionExpirationDate,
+        transactionEffectiveDate: txnEff,
+        transactionExpirationDate: txnExp,
         // Do not touch premiumAmount — never copy policies.premium.
-        commissionType: policy.commissionType,
-        agencyCommissionPercentage:
-          policy.agencyCommissionPercentage === null
-            ? ''
-            : String(policy.agencyCommissionPercentage),
+        commissionType,
+        agencyCommissionPercentage: agencyPct === null ? '' : String(agencyPct),
         // Renew: do not carry the old actual commission amount.
-        agencyCommissionAmount: isRenewal ? '' : String(policy.agencyCommissionAmount),
-        brokerFee: String(policy.brokerFee),
-        producerSplitPercentage: String(splitToUse),
+        agencyCommissionAmount: isRenewal ? '' : String(agencyAmt),
+        brokerFee: String(brokerFee),
+        producerSplitPercentage: String(split),
         producerDefaultSplit: defaultSplit,
         splitTouched: false,
         description:
@@ -487,6 +548,8 @@ export function AddTransactionModal({
             transactionExpirationDate: form.transactionExpirationDate || null,
             policyEffectiveDate: form.policyEffectiveDate || null,
             policyExpirationDate: form.policyExpirationDate || null,
+            policyNumber: form.policyNumber || termAnchor?.policyNumber || null,
+            lockPolicyIdentitySnapshot: historicalTerm,
             transactionType: form.transactionType,
             description: form.description,
             notes: form.notes,
@@ -558,6 +621,12 @@ export function AddTransactionModal({
               {error}
             </div>
           )}
+          {historicalTerm ? (
+            <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+              {EXPIRED_TERM_ADD_WARNING} Save is still allowed. This transaction will belong to{' '}
+              {termAnchor?.policyNumber || 'this term'} only.
+            </div>
+          ) : null}
 
           <div className="grid gap-3 sm:grid-cols-2">
             <label className="block">
@@ -585,7 +654,12 @@ export function AddTransactionModal({
                     let nextExpiration = prev.transactionExpirationDate
                     let nextPolicyEffective = prev.policyEffectiveDate
                     let nextPolicyExpiration = prev.policyExpirationDate
-                    if (nextSemantics.snapshotTxnDatesFromPolicyTerm && policy) {
+                    if (historicalTerm && termAnchor) {
+                      nextPolicyEffective = termAnchor.effectiveDate || prev.policyEffectiveDate
+                      nextPolicyExpiration = termAnchor.expirationDate || prev.policyExpirationDate
+                      if (!nextEffective) nextEffective = nextPolicyEffective
+                      if (!nextExpiration) nextExpiration = nextPolicyExpiration
+                    } else if (nextSemantics.snapshotTxnDatesFromPolicyTerm && policy) {
                       if (nextType === 'renewal_premium') {
                         const nextTerm = defaultNextTermDates(policy.expirationDate)
                         nextPolicyEffective = nextTerm.effectiveDate || policy.effectiveDate || ''
@@ -599,7 +673,7 @@ export function AddTransactionModal({
                     } else if (!nextSemantics.showTxnEffective) {
                       nextEffective = ''
                     }
-                    if (!nextSemantics.showTxnExpiration) {
+                    if (!historicalTerm && !nextSemantics.showTxnExpiration) {
                       nextExpiration = ''
                     }
                     return {
@@ -617,7 +691,7 @@ export function AddTransactionModal({
                 }}
                 className={selectClassName}
               >
-                {TRANSACTION_TYPES_FOR_CREATE.map((type) => (
+                {createTypes.map((type) => (
                   <option key={type} value={type}>
                     {formatTypeLabel(type)}
                   </option>

@@ -25,10 +25,12 @@ import {
 } from '../lib/permissions'
 import {
   listPolicyFileTerms,
+  policyTermCreateAnchor,
   policyTermFinancialTotals,
   policyTermPath,
   resolveCurrentPolicyPremium,
   resolvePolicyFileTerm,
+  resolveTermTransactionPolicyNumber,
   toPolicyTermTxn,
 } from '../lib/policyPremium'
 import {
@@ -161,12 +163,20 @@ function RelatedTermSection({
   rows,
   emptyLabel,
   policyId,
+  termId,
+  termPolicyNumber,
+  livePolicyNumber,
+  isCurrentTerm,
   financialsReturnTo,
 }: {
   title: string
   rows: CommissionTransaction[]
   emptyLabel: string
   policyId: string
+  termId?: string | null
+  termPolicyNumber: string
+  livePolicyNumber: string
+  isCurrentTerm: boolean
   financialsReturnTo?: string | null
 }) {
   const columns = [
@@ -211,21 +221,28 @@ function RelatedTermSection({
                   <Link
                     to={`/transactions/${tx.id}`}
                     state={transactionLinkState({
-                      returnTo: `/policies/${policyId}`,
-                      returnLabel: 'Policy',
-                      financialsReturnTo,
-                    })}
-                  >
-                    {tx.transactionNumber || '—'}
-                  </Link>
-                </td>
-                <td className="whitespace-nowrap px-4 py-4 text-sm text-slate-700">{formatDateSafe(tx.transactionDate)}</td>
-                <td className="px-4 py-4">
-                  <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ring-inset ${typeStyles[tx.type] ?? typeStyles.new_policy_premium}`}>
-                    {formatTypeLabel(tx.type)}
-                  </span>
-                </td>
-                <td className="whitespace-nowrap px-4 py-4 text-sm text-slate-700">{tx.policyNumber || '—'}</td>
+                    returnTo: policyTermPath(policyId, termId),
+                    returnLabel: 'Policy',
+                    financialsReturnTo,
+                  })}
+                >
+                  {tx.transactionNumber || '—'}
+                </Link>
+              </td>
+              <td className="whitespace-nowrap px-4 py-4 text-sm text-slate-700">{formatDateSafe(tx.transactionDate)}</td>
+              <td className="px-4 py-4">
+                <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ring-inset ${typeStyles[tx.type] ?? typeStyles.new_policy_premium}`}>
+                  {formatTypeLabel(tx.type)}
+                </span>
+              </td>
+              <td className="whitespace-nowrap px-4 py-4 text-sm text-slate-700">
+                {resolveTermTransactionPolicyNumber({
+                  snapshotPolicyNumber: tx.snapshotPolicyNumber,
+                  termPolicyNumber,
+                  livePolicyNumber,
+                  isCurrentTerm,
+                })}
+              </td>
                 <td className="whitespace-nowrap px-4 py-4 text-sm text-slate-700">
                   {formatPolicyTermRange(tx.policyEffectiveDate, tx.policyExpirationDate)}
                 </td>
@@ -458,13 +475,16 @@ export function PolicyDetails() {
           agencyCommissionAmount: tx.agencyCommissionAmount,
           producerCommissionAmount: tx.producerCommissionAmount,
           agencyNetCommission: tx.agencyNetCommission,
-          policyNumber: tx.policyNumber,
-          policyEffectiveDate: tx.policyEffectiveDate,
-          policyExpirationDate: tx.policyExpirationDate,
+          policyNumber: tx.snapshotPolicyNumber || null,
+          policyEffectiveDate: tx.snapshotPolicyEffectiveDate || tx.transactionEffectiveDate,
+          policyExpirationDate: tx.snapshotPolicyExpirationDate || tx.transactionExpirationDate,
           producer: tx.producer,
           csr: tx.csr,
           carrier: tx.carrier,
           mga: tx.mga,
+          commissionType: tx.commissionType,
+          agencyCommissionPercentage: tx.agencyCommissionPercentage,
+          producerSplitPercentage: tx.producerSplitPercentage,
         }),
       ),
       {
@@ -512,13 +532,13 @@ export function PolicyDetails() {
     return { ...termTotals, currentPolicyPremium }
   }, [termTotals, policy?.premium, liveTransactionCount, isCurrentTerm])
 
-  const displayedPolicyNumber = selectedTerm?.policyNumber || policy?.policyNumber || '—'
-  const displayedEffectiveDate = selectedTerm?.effectiveDate || policy?.effectiveDate || ''
-  const displayedExpirationDate = selectedTerm?.expirationDate || policy?.expirationDate || ''
-  const displayedCarrier = selectedTerm?.carrier || policy?.carrier || '—'
-  const displayedMga = selectedTerm?.mga || policy?.mga || '—'
-  const displayedProducer = selectedTerm?.producer || policy?.producer || '—'
-  const displayedCsr = selectedTerm?.csr || policy?.csr || '—'
+  const displayedPolicyNumber = selectedTerm?.policyNumber || '—'
+  const displayedEffectiveDate = selectedTerm?.effectiveDate || ''
+  const displayedExpirationDate = selectedTerm?.expirationDate || ''
+  const displayedCarrier = selectedTerm?.carrier || '—'
+  const displayedMga = selectedTerm?.mga || '—'
+  const displayedProducer = selectedTerm?.producer || '—'
+  const displayedCsr = selectedTerm?.csr || '—'
   const displayedStatus: PolicyStatus = !isCurrentTerm
     ? policy?.status === 'cancelled'
       ? 'cancelled'
@@ -657,7 +677,7 @@ export function PolicyDetails() {
           <ArrowLeft className="h-4 w-4" />
           Back to Policy Files
         </Link>
-        {canAddTxn && isCurrentTerm && (
+        {canAddTxn && (
           <button
             type="button"
             onClick={() => setAddTxnOpen(true)}
@@ -718,7 +738,7 @@ export function PolicyDetails() {
               Rewrite
             </button>
           )}
-          {canAddTxn && isCurrentTerm && (
+          {canAddTxn && (
             <button
               type="button"
               onClick={() => setAddTxnOpen(true)}
@@ -927,9 +947,32 @@ export function PolicyDetails() {
           <InfoField label="Override split" value={policy.overrideSplit ? 'Yes' : 'No'} />
         </div>
         ) : (
-          <p className="text-sm text-slate-600">
-            Commission setup for new transactions lives on the current term.
-          </p>
+          <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+            <InfoField
+              label="Commission Basis"
+              value={formatCommissionTypeLabel(selectedTerm?.commissionType || 'percentage')}
+            />
+            {selectedTerm?.commissionType === 'flat' ? (
+              <InfoField
+                label="Term Agency Commission Amount"
+                value={formatCurrency(selectedTerm.agencyCommissionAmount)}
+              />
+            ) : (
+              <InfoField
+                label="Term Agency Commission %"
+                value={formatPercent(selectedTerm?.agencyCommissionPercentage)}
+              />
+            )}
+            <InfoField label="Term Broker Fee" value={formatCurrency(selectedTerm?.brokerFee ?? 0)} />
+            <InfoField
+              label="Term Producer Split %"
+              value={formatPercent(selectedTerm?.producerSplitPercentage)}
+            />
+            <p className="sm:col-span-2 text-sm text-slate-600 lg:col-span-3">
+              These values are this term’s transaction snapshots. They are used when adding a late
+              transaction to this expired term. They do not change the current Policy File.
+            </p>
+          </div>
         )}
       </div>
 
@@ -946,7 +989,7 @@ export function PolicyDetails() {
               </div>
             </div>
             <div className="flex flex-wrap items-center gap-3">
-              {canAddTxn && isCurrentTerm && (
+              {canAddTxn && (
                 <button
                   type="button"
                   onClick={() => setAddTxnOpen(true)}
@@ -976,6 +1019,10 @@ export function PolicyDetails() {
               rows={termTransactions}
               emptyLabel="No transactions recorded for this term."
               policyId={policy.id}
+              termId={selectedTerm?.termId}
+              termPolicyNumber={displayedPolicyNumber}
+              livePolicyNumber={policy.policyNumber}
+              isCurrentTerm={isCurrentTerm}
               financialsReturnTo={financialsReturnTo}
             />
           )}
@@ -1117,7 +1164,8 @@ export function PolicyDetails() {
         lockedClientId={policy.clientId || undefined}
         lockedClientLabel={policy.clientName}
         lockedPolicyId={policy.id}
-        lockedPolicyLabel={policy.policyNumber}
+        lockedPolicyLabel={displayedPolicyNumber}
+        termAnchor={selectedTerm ? policyTermCreateAnchor(selectedTerm) : null}
         onCreated={async () => {
           setAddTxnOpen(false)
           setActionSuccess('Transaction created. Related list refreshed.')

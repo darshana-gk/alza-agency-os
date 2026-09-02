@@ -8,17 +8,23 @@
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import {
+  EXPIRED_TERM_ADD_WARNING,
   groupPolicyTermsByLineOfBusiness,
   listPolicyFileTerms,
+  policyTermCreateAnchor,
+  policyTermCreateSnapshots,
   policyTermFinancialTotals,
   policyTermPath,
   resolveDisplayedPolicyNumber,
   resolvePolicyFileTerm,
+  resolveTermTransactionPolicyNumber,
   sumClientCurrentPremium,
   toPolicyTermTxn,
   type PolicyTermTxn,
 } from '../src/lib/policyPremium.ts'
 import { assertRewriteSameAgency } from '../src/lib/policyRenewRewrite.ts'
+import { transactionTypesForPolicyTerm } from '../src/lib/commission.ts'
+import { canManageTransactions } from '../src/lib/permissions.ts'
 
 let passed = 0
 let failed = 0
@@ -205,6 +211,149 @@ console.log('F. Static wiring — no schema split, rewrite still first-class')
 
   const recon = readFileSync(resolve(root, 'src/lib/reconciliation.ts'), 'utf8')
   assert(recon.includes('policies!transactions_policy_id_fkey ( policy_number )'), 'reconciliation still matches live Policy File numbers')
+}
+
+console.log('G. Expired-term Add Transaction + historical identity')
+{
+  const terms = listPolicyFileTerms(glTerms, file)
+  const prior = terms[0]
+  const current = terms[1]
+  const priorAnchor = policyTermCreateAnchor(prior!)
+  const priorSnap = policyTermCreateSnapshots(priorAnchor)
+  const currentSnap = policyTermCreateSnapshots(policyTermCreateAnchor(current!))
+
+  assertEq(priorSnap.lockPolicyIdentitySnapshot, true, 'expired term Add Transaction locks snapshots off the live Policy File')
+  assertEq(priorSnap.policyNumber, 'BHP-GL-2026-001', 'historical-term Add Transaction prefills the old policy number')
+  assertEq(priorSnap.policyEffectiveDate, '2026-09-01', 'historical-term Add Transaction prefills the old effective date')
+  assertEq(priorSnap.policyExpirationDate, '2027-09-01', 'historical-term Add Transaction prefills the old expiration date')
+  assertEq(priorSnap.producer, 'Avery Producer', 'historical-term Add Transaction prefills the old producer')
+  assertEq(priorSnap.carrier, 'North Star Mutual', 'historical-term Add Transaction prefills the old carrier')
+  assertEq(priorSnap.mga, 'Harbor MGA', 'historical-term Add Transaction prefills the old MGA')
+  assertEq(priorSnap.csr, 'Blake CSR', 'historical-term Add Transaction prefills the old CSR')
+  assertEq(priorSnap.defaultTransactionType, 'endorsement_premium', 'historical add defaults to endorsement, not a new term')
+  assertEq(currentSnap.policyNumber, 'BHP-GL-2027-002', 'current term keeps the renewed policy number')
+  assertEq(currentSnap.lockPolicyIdentitySnapshot, false, 'current term may still fill from the live Policy File')
+
+  const historicalTypes = transactionTypesForPolicyTerm(false)
+  assert(historicalTypes.includes('endorsement_premium'), 'expired term can add an endorsement')
+  assert(historicalTypes.includes('audit_premium'), 'expired term can add an audit')
+  assert(historicalTypes.includes('cancellation_premium'), 'expired term can add a cancellation')
+  assert(!historicalTypes.includes('renewal_premium'), 'expired term cannot establish a renewal')
+  assert(!historicalTypes.includes('new_policy_premium'), 'expired term cannot establish new business')
+
+  const late = [
+    ...glTerms,
+    txn({
+      id: 'late-endo',
+      type: 'endorsement_premium',
+      amount: 250,
+      agencyCommissionAmount: 30,
+      createdAt: '2027-10-15T10:00:00Z',
+      transactionEffectiveDate: '2026-12-01',
+      transactionExpirationDate: '2027-09-01',
+      policyNumber: 'BHP-GL-2026-001',
+      policyEffectiveDate: '2026-09-01',
+      policyExpirationDate: '2027-09-01',
+    }),
+    txn({
+      id: 'late-audit',
+      type: 'audit_premium',
+      amount: 100,
+      agencyCommissionAmount: 12,
+      createdAt: '2027-11-01T10:00:00Z',
+      transactionEffectiveDate: '2027-01-15',
+      transactionExpirationDate: '2027-09-01',
+      policyNumber: 'BHP-GL-2026-001',
+      policyEffectiveDate: '2026-09-01',
+      policyExpirationDate: '2027-09-01',
+    }),
+  ]
+  const afterLate = listPolicyFileTerms(late, file)
+  assert(afterLate[0]?.transactionIds.includes('late-endo'), 'late endorsement belongs only to the old term')
+  assert(afterLate[0]?.transactionIds.includes('late-audit'), 'late audit belongs only to the old term')
+  assert(!afterLate[1]?.transactionIds.includes('late-endo'), 'late endorsement is not on the current term')
+  assert(!afterLate[1]?.transactionIds.includes('late-audit'), 'late audit is not on the current term')
+  assertEq(afterLate[1]?.displayedPremium, 9100, 'current term totals remain unchanged after late prior-term activity')
+  assertEq(afterLate[0]?.displayedPremium, 8750, 'historical term totals update for late endorsement + audit')
+  const currentLedger = policyTermFinancialTotals(late)
+  assertEq(currentLedger.currentPolicyPremium, 9100, 'current-term financial formula is unchanged')
+
+  const renamedFile = { ...file, policyNumber: 'BHP-GL-2027-002' }
+  const afterRename = listPolicyFileTerms(glTerms, renamedFile)
+  assertEq(afterRename[0]?.policyNumber, 'BHP-GL-2026-001', 'old number remains old after renewal rename')
+  assertEq(afterRename[1]?.policyNumber, 'BHP-GL-2027-002', 'new term keeps the new number')
+  const grouped = groupPolicyTermsByLineOfBusiness(
+    afterRename.map((term) => ({ policyType: 'General Liability', policyNumber: term.policyNumber })),
+  )
+  assertEq(grouped[0]?.terms.map((t) => t.policyNumber).join(','), 'BHP-GL-2026-001,BHP-GL-2027-002', 'client Policy Summary shows both numbers')
+
+  const nullSnapshotPrior = listPolicyFileTerms(
+    [
+      txn({
+        id: 'nb-legacy',
+        type: 'new_policy_premium',
+        amount: 8000,
+        createdAt: '2026-09-01T10:00:00Z',
+        transactionEffectiveDate: '2026-09-01',
+        transactionExpirationDate: '2027-09-01',
+        policyNumber: null,
+      }),
+      glTerms[2],
+    ],
+    file,
+  )
+  assertEq(
+    nullSnapshotPrior[0]?.policyNumber,
+    '—',
+    'missing historical snapshot is not replaced with the live current policy number',
+  )
+
+  assertEq(
+    resolveTermTransactionPolicyNumber({
+      snapshotPolicyNumber: '',
+      termPolicyNumber: 'BHP-GL-2026-001',
+      livePolicyNumber: 'BHP-GL-2027-002',
+      isCurrentTerm: false,
+    }),
+    'BHP-GL-2026-001',
+    'historical related-txn display uses term identity, not the live Policy File',
+  )
+  assertEq(
+    resolveDisplayedPolicyNumber({
+      snapshotPolicyNumber: 'BHP-GL-2026-001',
+      currentPolicyNumber: 'BHP-GL-2027-002',
+    }),
+    'BHP-GL-2026-001',
+    'snapshot wins over the live current number',
+  )
+
+  const details = readFileSync(resolve(root, 'src/pages/PolicyDetails.tsx'), 'utf8')
+  assert(details.includes('policyTermCreateAnchor(selectedTerm)'), 'Policy Details anchors Add Transaction to the selected term')
+  assert(details.includes('{canAddTxn && ('), 'expired terms still expose Add Transaction')
+  assert(details.includes('canAddTxn && isCurrentTerm'), 'Renew/Rewrite remain gated to the current term')
+  assert(details.includes('snapshotPolicyNumber'), 'Policy Details term identity uses raw snapshots')
+
+  const modal = readFileSync(resolve(root, 'src/components/transactions/AddTransactionModal.tsx'), 'utf8')
+  assert(modal.includes('EXPIRED_TERM_ADD_WARNING'), 'expired-term add shows the informational warning')
+  assert(
+    readFileSync(resolve(root, 'src/lib/policyPremium.ts'), 'utf8').includes(EXPIRED_TERM_ADD_WARNING),
+    'expired-term warning copy is informational and not a save block',
+  )
+  assert(modal.includes('lockPolicyIdentitySnapshot: historicalTerm'), 'historical add does not stamp the live current policy number')
+
+  const clientDetails = readFileSync(resolve(root, 'src/pages/ClientDetails.tsx'), 'utf8')
+  assert(clientDetails.includes('PolicyTermActionsMenu'), 'Client Details Policy Summary has an Actions menu')
+  assert(clientDetails.includes('canAddTransaction={canAddTxn}'), 'prior-term rows expose Add Transaction')
+  assert(clientDetails.includes('snapshotPolicyNumber'), 'Client Details term identity uses raw snapshots')
+
+  const createSrc = readFileSync(resolve(root, 'src/lib/commission.ts'), 'utf8')
+  assert(createSrc.includes('lockPolicyIdentitySnapshot'), 'createTransaction can skip live Policy File fallback')
+
+  assert(canManageTransactions('owner'), 'owner may add transactions')
+  assert(canManageTransactions('admin'), 'admin may add transactions')
+  assert(canManageTransactions('csr'), 'csr may add transactions')
+  assert(!canManageTransactions('viewer'), 'viewer cannot add transactions')
+  assert(!canManageTransactions('producer'), 'producer cannot add transactions')
 }
 
 if (failed > 0) {

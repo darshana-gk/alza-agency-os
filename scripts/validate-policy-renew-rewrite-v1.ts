@@ -330,7 +330,11 @@ console.log('H. Static wiring — schema, surfaces, no new transaction type')
   assert(!details.includes('Prior Terms'), 'Policy Details no longer merges prior terms onto the current page')
 
   const clientDetails = readFileSync(resolve(root, 'src/pages/ClientDetails.tsx'), 'utf8')
-  assert(clientDetails.includes('policyNumber: tx.policyNumber'), 'Client Details recent txns use mapped snapshot number')
+  assert(
+    clientDetails.includes('snapshotPolicyNumber || tx.policyNumber') ||
+      clientDetails.includes('policyNumber: tx.policyNumber'),
+    'Client Details recent txns use mapped snapshot number',
+  )
 
   const files = readFileSync(resolve(root, 'src/pages/PolicyFiles.tsx'), 'utf8')
   assert(files.includes('setRenewTarget'), 'Policy Files has per-row Renew')

@@ -49,6 +49,9 @@ export type PolicyTermTxn = PolicyPremiumTxn & {
   csr?: string | null
   carrier?: string | null
   mga?: string | null
+  commissionType?: string | null
+  agencyCommissionPercentage?: number | null
+  producerSplitPercentage?: number | null
 }
 
 /** Synthetic term id when a Policy File has no establishing New Business / Renewal yet. */
@@ -82,6 +85,79 @@ export type PolicyFileTerm = {
   liveTransactionCount: number
   displayedPremium: number
   totals: PolicyTermFinancialTotals
+  commissionType: string | null
+  agencyCommissionPercentage: number | null
+  agencyCommissionAmount: number
+  brokerFee: number
+  producerSplitPercentage: number | null
+}
+
+/** Identity + commission used to prefill Add Transaction on a selected term. */
+export type PolicyTermCreateAnchor = {
+  termId: string
+  isCurrent: boolean
+  policyNumber: string
+  effectiveDate: string
+  expirationDate: string
+  producer: string
+  csr: string
+  carrier: string
+  mga: string
+  commissionType: string | null
+  agencyCommissionPercentage: number | null
+  agencyCommissionAmount: number
+  brokerFee: number
+  producerSplitPercentage: number | null
+}
+
+export const EXPIRED_TERM_ADD_WARNING = 'You are adding a transaction to an expired policy term.'
+
+export function displayValueOrEmpty(value: string | null | undefined): string {
+  const trimmed = String(value ?? '').trim()
+  return !trimmed || trimmed === '—' ? '' : trimmed
+}
+
+export function policyTermCreateAnchor(term: PolicyFileTerm): PolicyTermCreateAnchor {
+  return {
+    termId: term.termId,
+    isCurrent: term.isCurrent,
+    policyNumber: displayValueOrEmpty(term.policyNumber),
+    effectiveDate: isoDate(term.effectiveDate),
+    expirationDate: isoDate(term.expirationDate),
+    producer: displayValueOrEmpty(term.producer),
+    csr: displayValueOrEmpty(term.csr),
+    carrier: displayValueOrEmpty(term.carrier),
+    mga: displayValueOrEmpty(term.mga),
+    commissionType: term.commissionType,
+    agencyCommissionPercentage: term.agencyCommissionPercentage,
+    agencyCommissionAmount: term.agencyCommissionAmount,
+    brokerFee: term.brokerFee,
+    producerSplitPercentage: term.producerSplitPercentage,
+  }
+}
+
+export function policyTermCreateSnapshots(anchor: PolicyTermCreateAnchor): {
+  policyNumber: string
+  policyEffectiveDate: string
+  policyExpirationDate: string
+  producer: string
+  csr: string
+  carrier: string
+  mga: string
+  lockPolicyIdentitySnapshot: boolean
+  defaultTransactionType: 'endorsement_premium' | 'new_policy_premium'
+} {
+  return {
+    policyNumber: anchor.policyNumber,
+    policyEffectiveDate: anchor.effectiveDate,
+    policyExpirationDate: anchor.expirationDate,
+    producer: anchor.producer,
+    csr: anchor.csr,
+    carrier: anchor.carrier,
+    mga: anchor.mga,
+    lockPolicyIdentitySnapshot: !anchor.isCurrent,
+    defaultTransactionType: anchor.isCurrent ? 'new_policy_premium' : 'endorsement_premium',
+  }
 }
 
 export type PolicyTermOptions = {
@@ -384,6 +460,11 @@ export function listPolicyFileTerms(
           liveTransactionCount: live.length,
         }),
         totals,
+        commissionType: null,
+        agencyCommissionPercentage: null,
+        agencyCommissionAmount: 0,
+        brokerFee: 0,
+        producerSplitPercentage: null,
       },
     ]
   }
@@ -432,6 +513,13 @@ export function listPolicyFileTerms(
           })
         : totals.currentPolicyPremium,
       totals,
+      commissionType: head.commissionType ?? null,
+      agencyCommissionPercentage:
+        head.agencyCommissionPercentage === undefined ? null : head.agencyCommissionPercentage,
+      agencyCommissionAmount: toFiniteMoney(head.agencyCommissionAmount),
+      brokerFee: toFiniteMoney(head.brokerFee),
+      producerSplitPercentage:
+        head.producerSplitPercentage === undefined ? null : head.producerSplitPercentage,
     }
   })
 }
@@ -541,6 +629,12 @@ export function toPolicyPremiumTxn(input: {
   }
 }
 
+function toNullableFinite(value: unknown): number | null {
+  if (value === null || value === undefined || value === '') return null
+  const n = Number(value)
+  return Number.isFinite(n) ? n : null
+}
+
 export function toPolicyTermTxn(input: Parameters<typeof toPolicyPremiumTxn>[0] & {
   policyNumber?: string | null
   policy_number?: string | null
@@ -552,6 +646,12 @@ export function toPolicyTermTxn(input: Parameters<typeof toPolicyPremiumTxn>[0] 
   csr?: string | null
   carrier?: string | null
   mga?: string | null
+  commissionType?: string | null
+  commission_type?: string | null
+  agencyCommissionPercentage?: number | null
+  agency_commission_percentage?: number | string | null
+  producerSplitPercentage?: number | null
+  producer_split_percentage?: number | string | null
 }): PolicyTermTxn {
   return {
     ...toPolicyPremiumTxn(input),
@@ -562,7 +662,32 @@ export function toPolicyTermTxn(input: Parameters<typeof toPolicyPremiumTxn>[0] 
     csr: input.csr ?? null,
     carrier: input.carrier ?? null,
     mga: input.mga ?? null,
+    commissionType: input.commissionType ?? input.commission_type ?? null,
+    agencyCommissionPercentage: toNullableFinite(
+      input.agencyCommissionPercentage ?? input.agency_commission_percentage,
+    ),
+    producerSplitPercentage: toNullableFinite(
+      input.producerSplitPercentage ?? input.producer_split_percentage,
+    ),
   }
+}
+
+export function resolveTermTransactionPolicyNumber(input: {
+  snapshotPolicyNumber?: string | null
+  termPolicyNumber?: string | null
+  livePolicyNumber?: string | null
+  isCurrentTerm: boolean
+}): string {
+  const snapshot = String(input.snapshotPolicyNumber ?? '').trim()
+  if (snapshot && snapshot !== '—') return snapshot
+  if (!input.isCurrentTerm) {
+    const term = String(input.termPolicyNumber ?? '').trim()
+    return term || '—'
+  }
+  return resolveDisplayedPolicyNumber({
+    snapshotPolicyNumber: snapshot,
+    currentPolicyNumber: input.livePolicyNumber,
+  })
 }
 
 function hasLivePolicyTransactions(input: {
