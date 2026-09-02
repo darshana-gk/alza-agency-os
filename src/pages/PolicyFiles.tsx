@@ -21,7 +21,14 @@ import { SortableTh } from '../components/ui/SortableTh'
 import { useAuth } from '../lib/auth'
 import { fetchPolicyTermTxnRows } from '../lib/commission'
 import { policyExportColumns } from '../lib/exportDefinitions'
-import { listPolicyFileTerms, policyTermCreateAnchor, policyTermPath, type PolicyTermCreateAnchor } from '../lib/policyPremium'
+import {
+  includePolicyInCurrentPremiumTotals,
+  listPolicyFileTerms,
+  policyTermCreateAnchor,
+  policyTermPath,
+  rewrittenPredecessorIds,
+  type PolicyTermCreateAnchor,
+} from '../lib/policyPremium'
 import { downloadTableExport } from '../lib/tableExport'
 import {
   CREATED_AT_DESC,
@@ -66,6 +73,7 @@ interface PolicyRow {
   createdAt: string
   transactionCount: number
   termAnchor: PolicyTermCreateAnchor
+  rewrittenFromPolicyId: string | null
 }
 
 const PAGE_SIZE = 10
@@ -189,6 +197,7 @@ export function PolicyFiles() {
         agency_commission_percentage,
         status,
         created_at,
+        rewritten_from_policy_id,
         clients!policies_client_id_fkey ( business_name )
       `,
       )
@@ -232,6 +241,7 @@ export function PolicyFiles() {
         })(),
         status: normalizeStatus(row.status as string | null),
         createdAt: String(row.created_at ?? ''),
+        rewrittenFromPolicyId: String(row.rewritten_from_policy_id ?? '').trim() || null,
         transactionCount: 0,
         termAnchor: {
           termId: 'current',
@@ -382,7 +392,10 @@ export function PolicyFiles() {
   ])
 
   const summary = useMemo(() => {
-    const currentTerms = policies.filter((p) => p.isCurrent)
+    const replacedIds = rewrittenPredecessorIds(policies)
+    const currentTerms = policies.filter(
+      (p) => p.isCurrent && includePolicyInCurrentPremiumTotals(p.id, replacedIds),
+    )
     const active = currentTerms.filter((p) => p.status === 'active').length
     const renewalsDue = currentTerms.filter(
       (p) => p.status === 'renewal_due' || (p.status === 'active' && isRenewalDueWithin90Days(p.expirationDate)),

@@ -33,9 +33,11 @@ import {
 import { updateClient } from '../lib/directory'
 import {
   groupPolicyTermsByLineOfBusiness,
+  includePolicyInCurrentPremiumTotals,
   listPolicyFileTerms,
   policyTermCreateAnchor,
   policyTermPath,
+  rewrittenPredecessorIds,
   sumClientCurrentPremium,
   toPolicyTermTxn,
   type PolicyTermCreateAnchor,
@@ -75,6 +77,7 @@ interface ClientPolicy {
   totalPremium: number
   latestTransactionDate: string | null
   termAnchor: PolicyTermCreateAnchor
+  rewrittenFromPolicyId: string | null
 }
 
 interface ClientFinancials {
@@ -142,6 +145,7 @@ interface PolicyRow {
   expiration_date: string | null
   premium: number | string | null
   status: string | null
+  rewritten_from_policy_id?: string | null
 }
 
 const clientStatusLabels: Record<ClientStatus, string> = {
@@ -253,6 +257,7 @@ function mapPolicy(row: PolicyRow): ClientPolicy {
     transactionCount: 0,
     totalPremium: 0,
     latestTransactionDate: null,
+    rewrittenFromPolicyId: String(row.rewritten_from_policy_id ?? '').trim() || null,
     termAnchor: {
       termId: 'current',
       isCurrent: true,
@@ -379,7 +384,8 @@ export function ClientDetails() {
         effective_date,
         expiration_date,
         premium,
-        status
+        status,
+        rewritten_from_policy_id
       `,
       )
       .eq('client_id', id)
@@ -483,8 +489,12 @@ export function ClientDetails() {
     })
     const liveClientTxns = clientTxns.filter(isActiveFinancialTransaction)
     // Client Total Premium = SUM of per-policy current-term premiums (not Dashboard book volume).
+    // Rewritten-away predecessors stay on the page but are not added to current coverage.
+    const replacedIds = rewrittenPredecessorIds(policiesBase)
     const totalPremium = sumClientCurrentPremium(
-      policiesBase.map((p) => ({
+      policiesBase
+        .filter((p) => includePolicyInCurrentPremiumTotals(p.id, replacedIds))
+        .map((p) => ({
         policyPremium: p.writtenPremium,
         transactionPremiumSum: summaryRes.data[p.id]?.totalPremium ?? 0,
         liveTransactionCount: summaryRes.data[p.id]?.transactionCount ?? 0,

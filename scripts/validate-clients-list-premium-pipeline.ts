@@ -46,6 +46,10 @@ console.log('A. Clients.tsx select contract includes aliased policies.premium')
     CLIENTS_LIST_POLICY_PREMIUM_SELECT.includes('client_id'),
     'select includes client_id',
   )
+  assert(
+    CLIENTS_LIST_POLICY_PREMIUM_SELECT.includes('rewritten_from_policy_id'),
+    'select includes rewrite lineage so replaced files can be excluded from current premium',
+  )
 }
 
 console.log('B. Stored opening with zero live txns displays imported/reference premium')
@@ -237,6 +241,35 @@ console.log('K. Master Agency imported premium with zero txns; live term not dou
     liveTransactionCountByPolicyId: { bhp: 2 },
   })
   assertEq(netZero.totalPremiumByClientId.get(CLIENT_ONE), 0, 'live term net $0 stays $0')
+}
+
+console.log('H. Rewritten replacement is not double-counted with the replaced Policy File')
+{
+  const { policyCountByClientId, totalPremiumByClientId } = aggregateClientsListPremiumFromRows({
+    policies: [
+      { id: 'old-file', client_id: CLIENT_ONE, opening_premium: 0 },
+      {
+        id: 'new-file',
+        client_id: CLIENT_ONE,
+        opening_premium: 0,
+        rewritten_from_policy_id: 'old-file',
+      },
+    ],
+    transactionPremiumSumByPolicyId: {
+      'old-file': 8425,
+      'new-file': 7600,
+    },
+    liveTransactionCountByPolicyId: {
+      'old-file': 1,
+      'new-file': 1,
+    },
+  })
+  assertEq(policyCountByClientId.get(CLIENT_ONE), 2, 'both Policy Files remain visible on the client')
+  assertEq(
+    totalPremiumByClientId.get(CLIENT_ONE),
+    7600,
+    'client total uses the rewritten file only, not 8425+7600',
+  )
 }
 
 console.log(`\n${passed} passed, ${failed} failed`)

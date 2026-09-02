@@ -13,7 +13,7 @@
 
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
-import { policyTermFinancialTotals, groupRelatedPolicyTransactions, resolveDisplayedPolicyNumber, toPolicyPremiumTxn, type PolicyPremiumTxn } from '../src/lib/policyPremium.ts'
+import { policyTermFinancialTotals, groupRelatedPolicyTransactions, resolveDisplayedPolicyNumber, rewrittenPredecessorIds, includePolicyInCurrentPremiumTotals, sumClientCurrentPremium, toPolicyPremiumTxn, type PolicyPremiumTxn } from '../src/lib/policyPremium.ts'
 import {
   assertNotSelfRewrite,
   assertRewriteSameAgency,
@@ -158,7 +158,7 @@ console.log('B. Renew prefill copies setup, not premium or actual commission')
   assertEq(prefill.policyExpirationDate, '2027-09-01', 'renew expiration = +1 year')
 }
 
-console.log('C. Rewrite prefill blanks number/premium/actual commission; copies setup')
+console.log('C. Rewrite prefill blanks number/premium/actual commission; copies setup; does not roll dates')
 {
   const prefill = rewritePrefillFromPolicy(samplePolicy())
   assertEq(prefill.policyNumber, '', 'rewrite does not inherit policy number')
@@ -170,9 +170,17 @@ console.log('C. Rewrite prefill blanks number/premium/actual commission; copies 
   assertEq(prefill.agencyCommissionPercentage, '12.5', 'rewrite copies commission %')
   assertEq(prefill.brokerFee, '50', 'rewrite copies broker-fee setup')
   assertEq(prefill.producerSplitPercentage, '60', 'rewrite copies split %')
+  assertEq(prefill.notes, 'imported', 'rewrite copies notes')
+  assertEq(prefill.remarks, '', 'rewrite remarks stay blank')
+  assertEq(prefill.status, 'active', 'rewrite copies status')
   assertEq(prefill.rewrittenFromPolicyId, SOURCE_POLICY_ID, 'rewrite records predecessor id')
-  assertEq(prefill.effectiveDate, '2026-09-01', 'rewrite effective = prior expiration')
-  assertEq(prefill.expirationDate, '2027-09-01', 'rewrite expiration = +1 year')
+  assertEq(prefill.effectiveDate, '2025-09-01', 'rewrite dates copy the existing effective date, not next term')
+  assertEq(prefill.expirationDate, '2026-09-01', 'rewrite dates copy the existing expiration date, not +1 year')
+  assert(
+    prefill.effectiveDate !== defaultNextTermDates(samplePolicy().expirationDate).effectiveDate ||
+      samplePolicy().effectiveDate === samplePolicy().expirationDate,
+    'rewrite prefill is not the renew next-term default',
+  )
 }
 
 console.log('D. Tenant isolation helpers')
@@ -190,13 +198,30 @@ console.log('D. Tenant isolation helpers')
 console.log('E. Rewrite creation + linkage (mocked writes)')
 {
   const createdPolicies: CreatePolicyInput[] = []
-  const createdTxns: Array<{ policyId: string; type: string; premiumAmount: number }> = []
+  const createdTxns: Array<{
+    policyId: string
+    type: string
+    premiumAmount: number
+    policyNumber?: string | null
+    notes?: string
+    remarks?: string
+    carrier?: string
+    mga?: string
+    producer?: string
+    csr?: string
+    brokerFee?: number
+    producerSplitPercentage?: number
+    agencyCommissionPercentage?: number | null
+    policyEffectiveDate?: string | null
+    policyExpirationDate?: string | null
+  }> = []
   const source = samplePolicy()
   const result = await rewritePolicy(rewriteInput(), {
     bypassAuth: true,
     skipActivity: true,
     callerAgencyId: AGENCY_A,
     loadSource: async () => ({ data: source, error: null }),
+    loadClientAgencyId: async () => ({ agencyProfileId: AGENCY_A, error: null }),
     createPolicy: async (input) => {
       createdPolicies.push(input)
       return { data: { id: 'policy-new-1' }, error: null }
@@ -206,19 +231,33 @@ console.log('E. Rewrite creation + linkage (mocked writes)')
         policyId: input.policyId,
         type: input.transactionType,
         premiumAmount: input.premiumAmount,
+        policyNumber: input.policyNumber,
+        notes: input.notes,
+        remarks: input.remarks,
+        carrier: input.carrier,
+        mga: input.mga,
+        producer: input.producer,
+        csr: input.csr,
+        brokerFee: input.brokerFee,
+        producerSplitPercentage: input.producerSplitPercentage,
+        agencyCommissionPercentage: input.agencyCommissionPercentage,
+        policyEffectiveDate: input.policyEffectiveDate,
+        policyExpirationDate: input.policyExpirationDate,
       })
       return { data: { id: 'txn-new-1', transactionNumber: 'TRX-1' }, error: null }
     },
   })
   assert(result.error === null && result.data?.policyId === 'policy-new-1', 'rewrite returns new policy id')
+  assert(result.data?.policyId !== SOURCE_POLICY_ID, 'rewrite creates a new Policy File id')
   assert(result.data?.transactionId === 'txn-new-1', 'rewrite returns opening transaction id')
   assertEq(createdPolicies.length, 1, 'creates exactly one new policy file')
   assertEq(createdPolicies[0]?.rewrittenFromPolicyId, SOURCE_POLICY_ID, 'new file links rewritten_from')
   assertEq(createdPolicies[0]?.policyNumber, 'BHP-GL-2027-RW', 'uses user-entered policy number')
   assertEq(createdPolicies[0]?.premium, 0, 'does not write old premium onto the new policy row')
-  assertEq(createdTxns[0]?.type, 'new_policy_premium', 'opening txn is New Business, not a new type')
+  assertEq(createdTxns[0]?.type, 'new_policy_premium', 'opening txn is New Business, not a renewal')
   assertEq(createdTxns[0]?.premiumAmount, 9100, 'opening txn uses user-entered premium, not 8425')
   assertEq(createdTxns[0]?.policyId, 'policy-new-1', 'opening txn is on the new policy')
+  assertEq(createdTxns[0]?.policyNumber, 'BHP-GL-2027-RW', 'opening txn snapshots the new policy number')
 }
 
 console.log('F. Rewrite rejects blank number, inherited-zero premium, and cross-tenant caller')
@@ -229,6 +268,7 @@ console.log('F. Rewrite rejects blank number, inherited-zero premium, and cross-
     skipActivity: true,
     callerAgencyId: AGENCY_A,
     loadSource: async () => ({ data: source, error: null }),
+    loadClientAgencyId: async () => ({ agencyProfileId: AGENCY_A, error: null }),
     createPolicy: async () => ({ data: { id: 'should-not-create' }, error: null }),
     createTransaction: async () => ({ data: { id: 'should-not-create', transactionNumber: 'x' }, error: null }),
   }
@@ -240,6 +280,12 @@ console.log('F. Rewrite rejects blank number, inherited-zero premium, and cross-
 
   const crossTenant = await rewritePolicy(rewriteInput(), { ...deps, callerAgencyId: AGENCY_B })
   assert(crossTenant.error?.includes('same agency'), 'Agency B cannot rewrite Agency A policy')
+
+  const crossClient = await rewritePolicy(rewriteInput({ clientId: 'client-b-1' }), {
+    ...deps,
+    loadClientAgencyId: async () => ({ agencyProfileId: AGENCY_B, error: null }),
+  })
+  assert(crossClient.error?.includes('same agency'), 'cannot rewrite onto a client in another agency')
 }
 
 console.log('G. Renewal term rollover — prior NB/endo/audit/cancel excluded from current totals')
@@ -369,6 +415,26 @@ console.log('H. Static wiring — schema, surfaces, no new transaction type')
   assert(modal.includes('renewPolicy'), 'Renew modal saves through renewPolicy')
   assert(modal.includes("mode === 'renew'"), 'Renew modal unlocks carried-forward fields')
   assert(modal.includes('Policy Type / LOB'), 'Renew modal exposes Policy Type / LOB')
+
+  const rewriteModal = readFileSync(resolve(root, 'src/components/policies/RewritePolicyModal.tsx'), 'utf8')
+  assert(
+    rewriteModal.includes(
+      'Creates a replacement Policy File. The existing policy and all of its historical terms and transactions remain unchanged.',
+    ),
+    'rewrite modal uses the replacement-file explanation',
+  )
+  assert(rewriteModal.includes('Rewritten From'), 'rewrite modal keeps Rewritten From read-only')
+  assert(rewriteModal.includes('to={`/policies/${sourcePolicyId}`}'), 'Rewritten From links to the existing Policy File')
+  assert(rewriteModal.includes('New Policy #'), 'rewrite modal exposes New Policy #')
+  assert(rewriteModal.includes('>LOB<') || rewriteModal.includes('>LOB</span>'), 'rewrite modal exposes LOB')
+  assert(rewriteModal.includes('Reviewer'), 'rewrite modal exposes Reviewer')
+  assert(rewriteModal.includes('Remarks'), 'rewrite modal exposes Remarks')
+  assert(rewriteModal.includes('Effective Date'), 'rewrite modal exposes Effective Date')
+  assert(rewriteModal.includes('Expiration Date'), 'rewrite modal exposes Expiration Date')
+  assert(
+    rewriteModal.includes('A rewrite may start mid-term'),
+    'rewrite modal states dates are not rolled to the next renewal term',
+  )
 }
 
 console.log('I. Renewal keeps the same Policy File and updates current setup')
@@ -619,6 +685,169 @@ console.log('K. Transaction history snapshots display the create-time policy num
   ])
   assertEq(totals.currentPolicyPremium, 9100, 'grouping helper does not change current-term premium formula')
   assertEq(totals.totalAgencyCommission, 1365, 'grouping helper does not change current-term commission formula')
+}
+
+console.log('L. Mid-term rewrite and rewrite at expiration create a new file, not a renewal term')
+{
+  const source = samplePolicy()
+  const sourceSnapshot = Object.freeze({
+    id: SOURCE_POLICY_ID,
+    policyNumber: 'BHP-GL-2026-001',
+    premium: 8425,
+    carrier: 'North Star Mutual',
+    mga: 'Harbor MGA',
+    producer: 'Avery Producer',
+    csr: 'Blake CSR',
+  })
+
+  async function runRewrite(input: RewritePolicyInput) {
+    const createdPolicies: CreatePolicyInput[] = []
+    const createdTxns: Array<Record<string, unknown>> = []
+    const result = await rewritePolicy(input, {
+      bypassAuth: true,
+      skipActivity: true,
+      callerAgencyId: AGENCY_A,
+      loadSource: async () => ({ data: source, error: null }),
+      loadClientAgencyId: async () => ({ agencyProfileId: AGENCY_A, error: null }),
+      createPolicy: async (policyInput) => {
+        createdPolicies.push(policyInput)
+        return { data: { id: 'policy-new-1' }, error: null }
+      },
+      createTransaction: async (txnInput) => {
+        createdTxns.push({ ...txnInput })
+        return { data: { id: 'txn-new-1', transactionNumber: 'TRX-1' }, error: null }
+      },
+    })
+    return { result, createdPolicies, createdTxns }
+  }
+
+  const midTerm = await runRewrite(
+    rewriteInput({
+      policyNumber: 'BHP-GL-MID-001',
+      effectiveDate: '2026-03-15',
+      expirationDate: '2027-03-15',
+      premiumAmount: 7600,
+    }),
+  )
+  assert(midTerm.result.error === null, 'mid-term rewrite succeeds')
+  assertEq(midTerm.result.data?.policyId, 'policy-new-1', 'mid-term rewrite creates a new Policy File')
+  assert(midTerm.result.data?.policyId !== SOURCE_POLICY_ID, 'mid-term rewrite does not keep the old Policy File')
+  assertEq(midTerm.createdPolicies[0]?.effectiveDate, '2026-03-15', 'mid-term rewrite uses the entered effective date')
+  assertEq(midTerm.createdPolicies[0]?.expirationDate, '2027-03-15', 'mid-term rewrite uses the entered expiration date')
+  assert(
+    midTerm.createdPolicies[0]?.effectiveDate !== defaultNextTermDates(source.expirationDate).effectiveDate,
+    'mid-term rewrite is not defaulted onto the next renewal term',
+  )
+  assertEq(midTerm.createdTxns[0]?.transactionType, 'new_policy_premium', 'mid-term rewrite opens with New Business')
+  assertEq(midTerm.createdTxns[0]?.policyId, 'policy-new-1', 'mid-term opening txn is on the new file')
+  assertEq(midTerm.createdTxns[0]?.policyEffectiveDate, '2026-03-15', 'mid-term txn snapshots the new effective date')
+  assertEq(midTerm.createdTxns[0]?.policyExpirationDate, '2027-03-15', 'mid-term txn snapshots the new expiration date')
+
+  const atExpiration = await runRewrite(
+    rewriteInput({
+      policyNumber: 'BHP-GL-2027-RW',
+      effectiveDate: '2026-09-01',
+      expirationDate: '2027-09-01',
+      premiumAmount: 9100,
+    }),
+  )
+  assert(atExpiration.result.error === null, 'rewrite at expiration succeeds')
+  assertEq(atExpiration.result.data?.policyId, 'policy-new-1', 'rewrite at expiration still creates a new Policy File')
+  assertEq(atExpiration.createdTxns[0]?.transactionType, 'new_policy_premium', 'rewrite at expiration is not a Renewal')
+  assertEq(atExpiration.createdPolicies[0]?.rewrittenFromPolicyId, SOURCE_POLICY_ID, 'rewrite at expiration still links Rewritten From')
+  assertEq(sourceSnapshot.policyNumber, 'BHP-GL-2026-001', 'old policy number object is unchanged')
+  assertEq(sourceSnapshot.premium, 8425, 'old policy premium object is unchanged')
+}
+
+console.log('M. Replacement setup edits apply only to the new file')
+{
+  const source = samplePolicy()
+  const createdPolicies: CreatePolicyInput[] = []
+  const createdTxns: Array<Record<string, unknown>> = []
+  const result = await rewritePolicy(
+    rewriteInput({
+      policyNumber: 'BHP-GL-2027-RW',
+      carrier: 'Harbor Specialty',
+      mga: 'Coastal MGA',
+      producer: 'Casey Producer',
+      csr: 'Drew CSR',
+      agencyCommissionPercentage: 15,
+      brokerFee: 75,
+      producerSplitPercentage: 55,
+      notes: 'replacement notes',
+      remarks: 'opening remarks',
+      reviewerUserId: 'reviewer-1',
+      status: 'pending',
+    }),
+    {
+      bypassAuth: true,
+      skipActivity: true,
+      callerAgencyId: AGENCY_A,
+      loadSource: async () => ({ data: source, error: null }),
+      loadClientAgencyId: async () => ({ agencyProfileId: AGENCY_A, error: null }),
+      createPolicy: async (policyInput) => {
+        createdPolicies.push(policyInput)
+        return { data: { id: 'policy-new-1' }, error: null }
+      },
+      createTransaction: async (txnInput) => {
+        createdTxns.push({ ...txnInput })
+        return { data: { id: 'txn-new-1', transactionNumber: 'TRX-1' }, error: null }
+      },
+    },
+  )
+  assert(result.error === null, 'setup-edited rewrite succeeds')
+  assertEq(createdPolicies[0]?.carrier, 'Harbor Specialty', 'replacement policy has the new carrier')
+  assertEq(createdPolicies[0]?.mga, 'Coastal MGA', 'replacement policy has the new MGA')
+  assertEq(createdPolicies[0]?.producer, 'Casey Producer', 'replacement policy has the new producer')
+  assertEq(createdPolicies[0]?.csr, 'Drew CSR', 'replacement policy has the new CSR')
+  assertEq(createdPolicies[0]?.agencyCommissionPercentage, 15, 'replacement policy has the new commission %')
+  assertEq(createdPolicies[0]?.brokerFee, 75, 'replacement policy has the new broker fee')
+  assertEq(createdPolicies[0]?.producerSplitPercentage, 55, 'replacement policy has the new split %')
+  assertEq(createdPolicies[0]?.overrideSplit, true, 'changed split marks override on the replacement file')
+  assertEq(createdPolicies[0]?.status, 'pending', 'replacement policy has the entered status')
+  assertEq(createdPolicies[0]?.notes, 'replacement notes', 'replacement policy stores notes')
+  assertEq(createdTxns[0]?.carrier, 'Harbor Specialty', 'opening txn snapshots the new carrier')
+  assertEq(createdTxns[0]?.mga, 'Coastal MGA', 'opening txn snapshots the new MGA')
+  assertEq(createdTxns[0]?.producer, 'Casey Producer', 'opening txn snapshots the new producer')
+  assertEq(createdTxns[0]?.csr, 'Drew CSR', 'opening txn snapshots the new CSR')
+  assertEq(createdTxns[0]?.agencyCommissionPercentage, 15, 'opening txn snapshots the new commission %')
+  assertEq(createdTxns[0]?.brokerFee, 75, 'opening txn snapshots the new broker fee')
+  assertEq(createdTxns[0]?.producerSplitPercentage, 55, 'opening txn snapshots the new split %')
+  assertEq(createdTxns[0]?.notes, 'replacement notes', 'opening txn stores notes')
+  assertEq(createdTxns[0]?.remarks, 'opening remarks', 'opening txn stores remarks')
+  assertEq(createdTxns[0]?.reviewerUserId, 'reviewer-1', 'opening txn stores reviewer')
+  assertEq(source.carrier, 'North Star Mutual', 'source carrier snapshot is unchanged')
+  assertEq(source.producer, 'Avery Producer', 'source producer snapshot is unchanged')
+  assertEq(source.agencyCommissionPercentage, 12.5, 'source commission % snapshot is unchanged')
+  assertEq(source.brokerFee, 50, 'source broker fee snapshot is unchanged')
+  assertEq(source.producerSplitPercentage, 60, 'source split % snapshot is unchanged')
+  assertEq(source.policyNumber, 'BHP-GL-2026-001', 'source policy number is unchanged')
+}
+
+console.log('N. Rewritten-away files are excluded from current/client premium totals')
+{
+  const replacedIds = rewrittenPredecessorIds([
+    { rewrittenFromPolicyId: null },
+    { rewrittenFromPolicyId: SOURCE_POLICY_ID },
+  ])
+  assert(replacedIds.has(SOURCE_POLICY_ID), 'source file is marked replaced when a successor exists')
+  assert(
+    includePolicyInCurrentPremiumTotals('policy-new-1', replacedIds),
+    'replacement file still counts in current premium',
+  )
+  assert(
+    !includePolicyInCurrentPremiumTotals(SOURCE_POLICY_ID, replacedIds),
+    'replaced file does not count in current premium',
+  )
+  const clientTotal = sumClientCurrentPremium([
+    { policyPremium: 0, transactionPremiumSum: 8425, liveTransactionCount: 1 },
+    { policyPremium: 0, transactionPremiumSum: 7600, liveTransactionCount: 1 },
+  ])
+  assertEq(clientTotal, 16025, 'unfiltered sum still adds both files')
+  const liveTotal = sumClientCurrentPremium([
+    { policyPremium: 0, transactionPremiumSum: 7600, liveTransactionCount: 1 },
+  ])
+  assertEq(liveTotal, 7600, 'after excluding the replaced file, client total is the replacement only')
 }
 
 if (failed > 0) {

@@ -6,7 +6,7 @@
  */
 
 import { createTransaction, normalizeCommissionType, todayIsoDate, type CommissionType } from './commission'
-import { createPolicy, roundMoney, type PolicyStatusValue } from './directory'
+import { createPolicy, POLICY_STATUSES, roundMoney, type PolicyStatusValue } from './directory'
 import { canManagePolicies, canManageTransactions, rejectUnlessRole, type RoleInput } from './permissions'
 import { validateProducerSplitPercentage } from './producerSplitValidation'
 import { isoDateOnly } from './transactionDateSemantics'
@@ -512,8 +512,12 @@ export type RewritePrefill = {
   mga: string
   producer: string
   csr: string
+  /** Copied from the source file; not rolled to the next renewal term. */
   effectiveDate: string
   expirationDate: string
+  status: PolicyStatusValue
+  notes: string
+  remarks: string
   commissionType: CommissionType
   agencyCommissionPercentage: string
   agencyCommissionAmount: string
@@ -524,8 +528,19 @@ export type RewritePrefill = {
   rewrittenFromPolicyNumber: string
 }
 
+export function rewriteStatusFromPolicy(status: string | null | undefined): PolicyStatusValue {
+  const value = String(status ?? '').trim().toLowerCase()
+  return (POLICY_STATUSES as readonly string[]).includes(value)
+    ? (value as PolicyStatusValue)
+    : 'active'
+}
+
+/**
+ * Prefill replacement setup from the existing Policy File.
+ * Dates stay on the source term (mid-term rewrite is allowed) and are independently editable.
+ * New Policy #, premium, and actual commission amount stay blank.
+ */
 export function rewritePrefillFromPolicy(policy: RenewRewritePolicySnapshot): RewritePrefill {
-  const term = defaultNextTermDates(policy.expirationDate)
   return {
     clientId: policy.clientId,
     clientName: policy.clientName,
@@ -535,8 +550,11 @@ export function rewritePrefillFromPolicy(policy: RenewRewritePolicySnapshot): Re
     mga: policy.mga,
     producer: policy.producer,
     csr: policy.csr,
-    effectiveDate: term.effectiveDate,
-    expirationDate: term.expirationDate,
+    effectiveDate: isoDateOnly(policy.effectiveDate),
+    expirationDate: isoDateOnly(policy.expirationDate),
+    status: rewriteStatusFromPolicy(policy.status),
+    notes: policy.notes,
+    remarks: '',
     commissionType: normalizeCommissionType(policy.commissionType),
     agencyCommissionPercentage:
       policy.agencyCommissionPercentage === null ? '' : String(policy.agencyCommissionPercentage),
@@ -691,6 +709,7 @@ export type RewritePolicyInput = {
   expirationDate: string
   status?: PolicyStatusValue
   notes?: string
+  remarks?: string
   premiumAmount: number
   commissionType: CommissionType
   agencyCommissionPercentage: number | null
@@ -706,6 +725,7 @@ export type RewritePolicyDeps = {
   skipActivity?: boolean
   callerAgencyId?: string
   loadSource?: (id: string) => Promise<{ data: RenewRewritePolicySnapshot | null; error: string | null }>
+  loadClientAgencyId?: (clientId: string) => Promise<{ agencyProfileId: string | null; error: string | null }>
   createPolicy?: typeof createPolicy
   createTransaction?: typeof createTransaction
 }
@@ -726,6 +746,8 @@ export async function rewritePolicy(
   if (!sourceId) return { data: null, error: 'Source policy is required.' }
   const policyNumber = input.policyNumber.trim()
   if (!policyNumber) return { data: null, error: 'New policy number is required.' }
+  const clientId = input.clientId.trim()
+  if (!clientId) return { data: null, error: 'Client is required.' }
 
   const loadSource = deps?.loadSource ?? loadPolicySnapshot
   const source = await loadSource(sourceId)
@@ -736,10 +758,18 @@ export async function rewritePolicy(
   const selfErr = assertNotSelfRewrite(sourceId)
   if (selfErr) return { data: null, error: selfErr }
 
+  const loadClient = deps?.loadClientAgencyId ?? loadClientAgencyId
+  const clientAgency = await loadClient(clientId)
+  if (clientAgency.error) return { data: null, error: clientAgency.error }
+  const clientTenantErr = assertRewriteSameAgency(source.data.agencyProfileId, clientAgency.agencyProfileId)
+  if (clientTenantErr) return { data: null, error: clientTenantErr }
   if (deps?.callerAgencyId) {
     const tenantErr = assertRewriteSameAgency(source.data.agencyProfileId, deps.callerAgencyId)
     if (tenantErr) return { data: null, error: tenantErr }
   }
+
+  const splitError = validateProducerSplitPercentage(input.producerSplitPercentage)
+  if (splitError) return { data: null, error: splitError }
 
   const eff = isoDateOnly(input.effectiveDate)
   const exp = isoDateOnly(input.expirationDate)
@@ -751,9 +781,13 @@ export async function rewritePolicy(
     return { data: null, error: 'Enter the new policy premium. It is not copied from the original policy.' }
   }
 
+  const splitChanged =
+    roundMoney(input.producerSplitPercentage) !== roundMoney(source.data.producerSplitPercentage)
+  const overrideSplit = input.overrideSplit ?? (splitChanged ? true : source.data.overrideSplit)
+
   const createPolicyFn = deps?.createPolicy ?? createPolicy
   const created = await createPolicyFn({
-    clientId: input.clientId,
+    clientId,
     policyNumber,
     policyType: input.policyType,
     carrier: input.carrier,
@@ -768,7 +802,7 @@ export async function rewritePolicy(
     agencyCommissionPercentage: input.agencyCommissionPercentage,
     agencyCommissionAmount: input.agencyCommissionAmount,
     producerSplitPercentage: input.producerSplitPercentage,
-    overrideSplit: input.overrideSplit ?? source.data.overrideSplit,
+    overrideSplit,
     brokerFee: input.brokerFee,
     premium: 0,
     rewrittenFromPolicyId: sourceId,
@@ -778,15 +812,24 @@ export async function rewritePolicy(
   }
 
   const newPolicyId = created.data.id
+  const newIdErr = assertNotSelfRewrite(sourceId, newPolicyId)
+  if (newIdErr) {
+    await supabase
+      .from('policies')
+      .update({ archived_at: new Date().toISOString() })
+      .eq('id', newPolicyId)
+    return { data: null, error: newIdErr }
+  }
+
   const createTxnFn = deps?.createTransaction ?? createTransaction
   const txn = await createTxnFn({
-    clientId: input.clientId.trim(),
+    clientId,
     policyId: newPolicyId,
     transactionDate: todayIsoDate(),
     transactionType: 'new_policy_premium',
     description: `Rewrite of ${source.data.policyNumber}`,
-    notes: '',
-    remarks: '',
+    notes: input.notes ?? '',
+    remarks: input.remarks ?? '',
     producer: input.producer,
     csr: input.csr,
     carrier: input.carrier,
@@ -801,6 +844,8 @@ export async function rewritePolicy(
     policyNumber,
     policyEffectiveDate: eff,
     policyExpirationDate: exp,
+    transactionEffectiveDate: eff,
+    transactionExpirationDate: exp,
   })
 
   if (txn.error || !txn.data?.id) {
@@ -825,6 +870,8 @@ export async function rewritePolicy(
       newValue: {
         rewritten_from_policy_id: sourceId,
         rewritten_from_policy_number: source.data.policyNumber,
+        rewritten_to_policy_id: newPolicyId,
+        rewritten_to_policy_number: policyNumber,
         transaction_id: txn.data.id,
       },
     })

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
+import { Link } from 'react-router-dom'
 import { X } from 'lucide-react'
 import { DirectoryNameSelect } from '../directory/DirectoryNameSelect'
 import { POLICY_STATUSES, type PolicyStatusValue } from '../../lib/directory'
@@ -10,6 +11,7 @@ import {
 } from '../../lib/commission'
 import { parseProducerSplitPercentage } from '../../lib/producerSplitValidation'
 import { fetchProducerDefaultSplit } from '../../lib/producerSplit'
+import { fetchActiveReviewers, type ReviewerOption } from '../../lib/reviewers'
 import {
   loadPolicySnapshot,
   rewritePolicy,
@@ -41,6 +43,7 @@ export function RewritePolicyModal({
   const [error, setError] = useState<string | null>(null)
   const [sourceNumber, setSourceNumber] = useState('')
   const [clients, setClients] = useState<Array<{ id: string; name: string }>>([])
+  const [reviewers, setReviewers] = useState<ReviewerOption[]>([])
   const [form, setForm] = useState({
     clientId: '',
     policyNumber: '',
@@ -49,10 +52,12 @@ export function RewritePolicyModal({
     mga: '',
     producer: '',
     csr: '',
+    reviewerUserId: '',
     effectiveDate: '',
     expirationDate: '',
     status: 'active' as PolicyStatusValue,
     notes: '',
+    remarks: '',
     commissionType: 'percentage' as CommissionType,
     agencyCommissionPercentage: '',
     agencyCommissionAmount: '',
@@ -67,13 +72,21 @@ export function RewritePolicyModal({
     setSaving(false)
     let cancelled = false
     async function load() {
-      const loaded = await loadPolicySnapshot(sourcePolicyId)
+      const [loaded, reviewerRes] = await Promise.all([
+        loadPolicySnapshot(sourcePolicyId),
+        fetchActiveReviewers(),
+      ])
       if (cancelled) return
       if (loaded.error || !loaded.data) {
         setError(loaded.error || 'Source policy was not found.')
         return
       }
+      if (reviewerRes.error) {
+        setError(reviewerRes.error.message)
+      }
       const prefill = rewritePrefillFromPolicy(loaded.data)
+      const reviewerList = reviewerRes.data
+      setReviewers(reviewerList)
       setSourceNumber(prefill.rewrittenFromPolicyNumber)
       setForm({
         clientId: prefill.clientId,
@@ -83,10 +96,12 @@ export function RewritePolicyModal({
         mga: prefill.mga,
         producer: prefill.producer,
         csr: prefill.csr,
+        reviewerUserId: reviewerList.length === 1 ? reviewerList[0].id : '',
         effectiveDate: prefill.effectiveDate,
         expirationDate: prefill.expirationDate,
-        status: 'active',
-        notes: '',
+        status: prefill.status,
+        notes: prefill.notes,
+        remarks: '',
         commissionType: prefill.commissionType,
         agencyCommissionPercentage: prefill.agencyCommissionPercentage,
         agencyCommissionAmount: '',
@@ -167,7 +182,7 @@ export function RewritePolicyModal({
     }
     const brokerFee = Number(form.brokerFee)
     if (!Number.isFinite(brokerFee)) {
-      setError('Enter a valid default broker fee.')
+      setError('Enter a valid broker fee.')
       return
     }
 
@@ -186,12 +201,14 @@ export function RewritePolicyModal({
       expirationDate: form.expirationDate,
       status: form.status,
       notes: form.notes,
+      remarks: form.remarks,
       premiumAmount,
       commissionType,
       agencyCommissionPercentage,
       agencyCommissionAmount,
       brokerFee,
       producerSplitPercentage: splitParsed.value,
+      reviewerUserId: form.reviewerUserId.trim() || null,
     })
     setSaving(false)
     if (result.error || !result.data) {
@@ -215,9 +232,7 @@ export function RewritePolicyModal({
           <div>
             <h3 className="text-lg font-semibold text-slate-900">Rewrite Policy</h3>
             <p className="mt-1 text-sm text-slate-500">
-              Creates a new Policy File linked to {sourceNumber || 'the original policy'}. Enter a new
-              policy number, premium, and commission. The original file and its transactions stay
-              historical.
+              Creates a replacement Policy File. The existing policy and all of its historical terms and transactions remain unchanged.
             </p>
           </div>
           <button
@@ -238,8 +253,19 @@ export function RewritePolicyModal({
           )}
 
           <label className="block">
-            <span className="mb-1.5 block text-xs font-medium text-slate-500">Rewritten from</span>
-            <input disabled value={sourceNumber} className={`${inputClassName} bg-slate-50`} />
+            <span className="mb-1.5 block text-xs font-medium text-slate-500">Rewritten From</span>
+            <div className={`${inputClassName} flex items-center bg-slate-50`}>
+              {sourcePolicyId && sourceNumber ? (
+                <Link
+                  to={`/policies/${sourcePolicyId}`}
+                  className="font-medium text-alza-blue-700 hover:text-alza-blue-800"
+                >
+                  {sourceNumber}
+                </Link>
+              ) : (
+                <span>{sourceNumber || '—'}</span>
+              )}
+            </div>
           </label>
 
           <label className="block">
@@ -261,7 +287,7 @@ export function RewritePolicyModal({
 
           <div className="grid gap-3 sm:grid-cols-2">
             <label className="block">
-              <span className="mb-1.5 block text-xs font-medium text-slate-500">New policy number</span>
+              <span className="mb-1.5 block text-xs font-medium text-slate-500">New Policy #</span>
               <input
                 required
                 value={form.policyNumber}
@@ -271,7 +297,7 @@ export function RewritePolicyModal({
               />
             </label>
             <label className="block">
-              <span className="mb-1.5 block text-xs font-medium text-slate-500">Type / line</span>
+              <span className="mb-1.5 block text-xs font-medium text-slate-500">LOB</span>
               <input
                 value={form.policyType}
                 onChange={(e) => setForm((p) => ({ ...p, policyType: e.target.value }))}
@@ -318,8 +344,23 @@ export function RewritePolicyModal({
                 onChange={(v) => setForm((p) => ({ ...p, csr: v }))}
               />
             </label>
+            <label className="block sm:col-span-2">
+              <span className="mb-1.5 block text-xs font-medium text-slate-500">Reviewer</span>
+              <select
+                value={form.reviewerUserId}
+                onChange={(e) => setForm((p) => ({ ...p, reviewerUserId: e.target.value }))}
+                className={selectClassName}
+              >
+                <option value="">Select Owner/Admin reviewer…</option>
+                {reviewers.map((reviewer) => (
+                  <option key={reviewer.id} value={reviewer.id}>
+                    {reviewer.label}
+                  </option>
+                ))}
+              </select>
+            </label>
             <label className="block">
-              <span className="mb-1.5 block text-xs font-medium text-slate-500">Effective date</span>
+              <span className="mb-1.5 block text-xs font-medium text-slate-500">Effective Date</span>
               <input
                 required
                 type="date"
@@ -329,7 +370,7 @@ export function RewritePolicyModal({
               />
             </label>
             <label className="block">
-              <span className="mb-1.5 block text-xs font-medium text-slate-500">Expiration date</span>
+              <span className="mb-1.5 block text-xs font-medium text-slate-500">Expiration Date</span>
               <input
                 required
                 type="date"
@@ -338,6 +379,10 @@ export function RewritePolicyModal({
                 className={inputClassName}
               />
             </label>
+            <p className="sm:col-span-2 text-xs text-slate-500">
+              Effective and expiration dates are independent. They are not rolled to the next renewal
+              term. A rewrite may start mid-term.
+            </p>
             <label className="block sm:col-span-2">
               <span className="mb-1.5 block text-xs font-medium text-slate-500">Status</span>
               <select
@@ -360,7 +405,7 @@ export function RewritePolicyModal({
               Setup rates are copied. Premium and actual commission amounts are not inherited.
             </p>
             <label className="mb-3 block">
-              <span className="mb-1.5 block text-xs font-medium text-slate-500">New policy premium</span>
+              <span className="mb-1.5 block text-xs font-medium text-slate-500">Premium</span>
               <input
                 required
                 type="number"
@@ -418,7 +463,7 @@ export function RewritePolicyModal({
                 </label>
               )}
               <label className="block">
-                <span className="mb-1.5 block text-xs font-medium text-slate-500">Default Broker Fee</span>
+                <span className="mb-1.5 block text-xs font-medium text-slate-500">Broker Fee</span>
                 <input
                   type="number"
                   step="0.01"
@@ -450,6 +495,16 @@ export function RewritePolicyModal({
               value={form.notes}
               onChange={(e) => setForm((p) => ({ ...p, notes: e.target.value }))}
               rows={3}
+              className={textareaClassName}
+            />
+          </label>
+
+          <label className="block">
+            <span className="mb-1.5 block text-xs font-medium text-slate-500">Remarks</span>
+            <textarea
+              value={form.remarks}
+              onChange={(e) => setForm((p) => ({ ...p, remarks: e.target.value }))}
+              rows={2}
               className={textareaClassName}
             />
           </label>

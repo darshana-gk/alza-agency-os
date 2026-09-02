@@ -36,6 +36,7 @@ export type ClientsListPolicyRow = {
   premium?: unknown
   /** Optional PostgREST alias: opening_premium:premium */
   opening_premium?: unknown
+  rewritten_from_policy_id?: unknown
   archived_at?: unknown
 }
 
@@ -74,7 +75,12 @@ export function aggregateClientsListPremiumFromRows(input: {
   totalPremiumByClientId: Map<string, number>
 } {
   const policyCountByClientId = new Map<string, number>()
-  const policiesForPremium: Array<{ id: string; clientId: string; premium: number }> = []
+  const policiesForPremium: Array<{
+    id: string
+    clientId: string
+    premium: number
+    rewrittenFromPolicyId: string | null
+  }> = []
 
   for (const row of input.policies) {
     const clientId = asId(row.client_id)
@@ -91,6 +97,7 @@ export function aggregateClientsListPremiumFromRows(input: {
       id: policyId,
       clientId,
       premium: coercePolicyPremiumValue(premiumRaw),
+      rewrittenFromPolicyId: asId(row.rewritten_from_policy_id) || null,
     })
   }
 
@@ -157,4 +164,4 @@ export function aggregateClientsListPremiumFromRows(input: {
 
 /** Clients.tsx policies select — alias avoids any name collision with embeds. */
 export const CLIENTS_LIST_POLICY_PREMIUM_SELECT =
-  'id, client_id, opening_premium:premium' as const
+  'id, client_id, opening_premium:premium, rewritten_from_policy_id' as const

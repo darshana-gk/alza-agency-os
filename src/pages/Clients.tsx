@@ -297,6 +297,7 @@ export function Clients() {
           client_id: unknown
           opening_premium?: unknown
           premium?: unknown
+          rewritten_from_policy_id?: unknown
         }>,
         transactionPremiumSumByPolicyId: txnSumByPolicy,
         liveTransactionCountByPolicyId: liveCountByPolicy,

@@ -197,7 +197,7 @@ console.log('F. Static wiring — no schema split, rewrite still first-class')
 
   const clientDetails = readFileSync(resolve(root, 'src/pages/ClientDetails.tsx'), 'utf8')
   assert(clientDetails.includes('groupPolicyTermsByLineOfBusiness'), 'Client Details groups by LOB')
-  assert(clientDetails.includes('policiesBase.map'), 'client total still sums current-term per Policy File')
+  assert(clientDetails.includes('rewrittenPredecessorIds'), 'client total excludes rewritten-away predecessors')
   assert(clientDetails.includes('policyTermPath'), 'Client Details links each term separately')
 
   const files = readFileSync(resolve(root, 'src/pages/PolicyFiles.tsx'), 'utf8')

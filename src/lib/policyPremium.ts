@@ -727,8 +727,33 @@ export function sumTransactionPremiumAmounts(
 }
 
 /**
+ * Policy Files replaced by a rewrite (Rewritten To exists) stay visible with
+ * unchanged history, but they are not live current-premium coverage.
+ */
+export function rewrittenPredecessorIds(
+  policies: Array<{ rewrittenFromPolicyId?: string | null }>,
+): Set<string> {
+  const ids = new Set<string>()
+  for (const policy of policies) {
+    const from = String(policy.rewrittenFromPolicyId ?? '').trim()
+    if (from) ids.add(from)
+  }
+  return ids
+}
+
+export function includePolicyInCurrentPremiumTotals(
+  policyId: string | null | undefined,
+  replacedPolicyIds: Set<string>,
+): boolean {
+  const id = String(policyId ?? '').trim()
+  return Boolean(id) && !replacedPolicyIds.has(id)
+}
+
+/**
  * Client Total Premium = SUM(current-term premium) across that client's
  * non-archived policies. Same SoT as Policy Files / Policy Details / Client Details.
+ * Callers must omit rewritten-away predecessors so a replacement file is not
+ * double-counted with the file it replaced.
  */
 export function sumClientCurrentPremium(
   policies: Array<{
@@ -760,6 +785,7 @@ export function buildClientTotalPremiumByClientId(input: {
     id: string
     clientId: string
     premium: number | null | undefined
+    rewrittenFromPolicyId?: string | null
   }>
   /** Current-term premium by policy_id (from fetchPolicyTransactionSummaries). */
   transactionPremiumSumByPolicyId: Map<string, number> | Record<string, number>
@@ -775,6 +801,7 @@ export function buildClientTotalPremiumByClientId(input: {
     : input.liveTransactionCountByPolicyId instanceof Map
       ? input.liveTransactionCountByPolicyId
       : new Map(Object.entries(input.liveTransactionCountByPolicyId))
+  const replacedIds = rewrittenPredecessorIds(input.policies)
 
   const byClient = new Map<
     string,
@@ -787,6 +814,7 @@ export function buildClientTotalPremiumByClientId(input: {
   for (const policy of input.policies) {
     const clientId = String(policy.clientId ?? '').trim()
     if (!clientId) continue
+    if (!includePolicyInCurrentPremiumTotals(policy.id, replacedIds)) continue
     const list = byClient.get(clientId) ?? []
     list.push({
       policyPremium: toFiniteMoney(policy.premium),

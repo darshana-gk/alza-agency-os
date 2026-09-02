@@ -138,6 +138,25 @@ console.log('G. Agency B UAT — stored $300 must not inflate injected current-t
   )
 }
 
+console.log('G. Rewrite replacement is not added to the replaced Policy File current premium')
+{
+  const totals = buildClientTotalPremiumByClientId({
+    policies: [
+      { id: 'old-file', clientId: 'c1', premium: 0 },
+      { id: 'new-file', clientId: 'c1', premium: 0, rewrittenFromPolicyId: 'old-file' },
+    ],
+    transactionPremiumSumByPolicyId: new Map([
+      ['old-file', 8425],
+      ['new-file', 7600],
+    ]),
+    liveTransactionCountByPolicyId: new Map([
+      ['old-file', 1],
+      ['new-file', 1],
+    ]),
+  })
+  assertEq(totals.get('c1'), 7600, 'client total excludes the rewritten-away predecessor')
+}
+
 console.log(`\n${passed} passed, ${failed} failed`)
 if (failed > 0) process.exit(1)
 console.log('validate-onboarding-client-total-premium: ALL GREEN')
