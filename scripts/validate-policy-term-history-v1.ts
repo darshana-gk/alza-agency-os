@@ -9,6 +9,7 @@ import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import {
   EXPIRED_TERM_ADD_WARNING,
+  FILE_CURRENT_TERM_ID,
   groupPolicyTermsByLineOfBusiness,
   listPolicyFileTerms,
   policyTermCreateAnchor,
@@ -20,6 +21,7 @@ import {
   resolveTermTransactionPolicyNumber,
   sumClientCurrentPremium,
   toPolicyTermTxn,
+  uniqueEstablishingHeads,
   type PolicyTermTxn,
 } from '../src/lib/policyPremium.ts'
 import { assertRewriteSameAgency } from '../src/lib/policyRenewRewrite.ts'
@@ -449,6 +451,173 @@ console.log('H. Owner/Admin historical term snapshot repair')
 
   const activity = readFileSync(resolve(root, 'src/lib/activityPresentation.ts'), 'utf8')
   assert(activity.includes("case 'policy_term_snapshot_repair'"), 'Activity History labels the term repair action')
+}
+
+console.log('I. Rewritten Policy File with one New Business is a single current term')
+{
+  const rewriteFile = {
+    policyNumber: 'BHP-GL-2027-RW 002',
+    effectiveDate: '2027-01-14',
+    expirationDate: '2028-01-14',
+    producer: 'Casey Producer',
+    csr: 'Drew CSR',
+    carrier: 'Harbor Specialty',
+    mga: 'Coastal MGA',
+    premium: 0,
+  }
+  const rewriteNb = txn({
+    id: 'rw-nb',
+    type: 'new_policy_premium',
+    amount: 10000,
+    agencyCommissionAmount: 1250,
+    brokerFee: 50,
+    createdAt: '2027-01-14T18:00:00Z',
+    transactionEffectiveDate: '2027-01-14',
+    transactionExpirationDate: '2028-01-14',
+    policyNumber: 'BHP-GL-2027-RW 002',
+    policyEffectiveDate: '2027-01-14',
+    policyExpirationDate: '2028-01-14',
+    producer: 'Casey Producer',
+    csr: 'Drew CSR',
+    carrier: 'Harbor Specialty',
+    mga: 'Coastal MGA',
+  })
+  const predecessorNb = txn({
+    id: 'pred-nb',
+    type: 'new_policy_premium',
+    amount: 8425,
+    createdAt: '2026-01-14T10:00:00Z',
+    transactionEffectiveDate: '2026-01-14',
+    transactionExpirationDate: '2027-01-14',
+    policyNumber: 'BHP-GL-2026-001',
+    policyEffectiveDate: '2026-01-14',
+    policyExpirationDate: '2027-01-14',
+  })
+
+  const terms = listPolicyFileTerms([rewriteNb], rewriteFile)
+  assertEq(terms.length, 1, 'rewritten file with one NB builds exactly one virtual term')
+  assertEq(terms[0]?.isCurrent, true, 'that term is the current term')
+  assertEq(terms[0]?.termId, 'rw-nb', 'term identity is the establishing New Business id')
+  assertEq(terms[0]?.establishingTransactionId, 'rw-nb', 'establishing transaction id is unique')
+  assertEq(terms[0]?.priorTermId, null, 'rewritten file does not synthesize a prior term')
+  assertEq(terms[0]?.displayedPremium, 10000, 'current premium is the single New Business')
+  assertEq(terms[0]?.transactionIds.join(','), 'rw-nb', 'transactions this term = 1')
+  assertEq(terms.filter((term) => term.termId === 'rw-nb').length, 1, 'establishing txn id appears once')
+  assert(!terms.some((term) => term.termId === FILE_CURRENT_TERM_ID), 'does not also emit a file-identity term')
+
+  const selected = resolvePolicyFileTerm(terms, 'pred-nb')
+  assertEq(selected?.termId, 'rw-nb', 'stale prior-term query does not select a missing predecessor term')
+  assertEq(selected?.isCurrent, true, 'stale query still resolves to the current term')
+  assertEq(Boolean(selected && !selected.isCurrent), false, 'no prior-term banner state')
+
+  const duplicateId = listPolicyFileTerms([rewriteNb, { ...rewriteNb }], rewriteFile)
+  assertEq(duplicateId.length, 1, 'same establishing txn id cannot produce two terms')
+  assertEq(uniqueEstablishingHeads([rewriteNb, { ...rewriteNb }]).length, 1, 'uniqueEstablishingHeads dedupes by id')
+
+  const sameDates = listPolicyFileTerms(
+    [
+      rewriteNb,
+      txn({
+        ...rewriteNb,
+        id: 'rw-nb-copy',
+        createdAt: '2027-01-14T18:01:00Z',
+      }),
+    ],
+    rewriteFile,
+  )
+  assertEq(sameDates.length, 1, 'duplicate same-date establishing heads collapse to one term')
+  assertEq(sameDates[0]?.isCurrent, true, 'collapsed rewrite term remains current')
+
+  const replacementOnly = listPolicyFileTerms([rewriteNb], rewriteFile)
+  assert(
+    !replacementOnly.some((term) => term.policyNumber === 'BHP-GL-2026-001'),
+    'predecessor policy number is not a term of the replacement file',
+  )
+  assertEq(
+    listPolicyFileTerms([rewriteNb], rewriteFile).length,
+    listPolicyFileTerms([rewriteNb], rewriteFile, {
+      policyEffectiveDate: rewriteFile.effectiveDate,
+      policyExpirationDate: rewriteFile.expirationDate,
+    }).length,
+    'file dates do not synthesize an extra term beside the New Business',
+  )
+  assertEq(
+    listPolicyFileTerms([predecessorNb], {
+      ...rewriteFile,
+      policyNumber: 'BHP-GL-2026-001',
+      effectiveDate: '2026-01-14',
+      expirationDate: '2027-01-14',
+    }).length,
+    1,
+    'predecessor file still has its own term when derived separately',
+  )
+
+  const details = readFileSync(resolve(root, 'src/pages/PolicyDetails.tsx'), 'utf8')
+  assert(details.includes('termViews.length > 1'), 'term pills render only when multiple derived terms exist')
+  assert(details.includes('!isCurrentTerm && selectedTerm'), 'prior-term banner follows selectedTerm.isCurrent')
+  assert(details.includes('canRepairTerm && !isCurrentTerm'), 'Edit Term Details stays hidden on the current term')
+  assert(details.includes('canEdit && isCurrentTerm'), 'Edit Policy remains a current-term action')
+  assert(details.includes('canAddTxn && isCurrentTerm'), 'Renew remains a current-term action')
+  assert(details.includes('canEdit && canAddTxn && isCurrentTerm'), 'Rewrite remains a current-term action')
+  assert(details.includes('Rewritten from'), 'Rewritten From linkage remains on Policy Details')
+
+  const renewLib = readFileSync(resolve(root, 'src/lib/policyRenewRewrite.ts'), 'utf8')
+  assert(renewLib.includes('rewrittenFromPolicyId: sourceId'), 'rewrite still writes rewritten_from lineage')
+  assert(renewLib.includes('transactionType: \'new_policy_premium\''), 'rewrite still opens with New Business')
+}
+
+console.log('J. Renewal Policy File still produces distinct selectable terms')
+{
+  const nb = txn({
+    id: 'nb-2025',
+    type: 'new_policy_premium',
+    amount: 7000,
+    createdAt: '2025-01-14T10:00:00Z',
+    transactionEffectiveDate: '2025-01-14',
+    transactionExpirationDate: '2026-01-14',
+    policyNumber: 'BHP-GL-2025-001',
+    policyEffectiveDate: '2025-01-14',
+    policyExpirationDate: '2026-01-14',
+  })
+  const ren1 = txn({
+    id: 'ren-2026',
+    type: 'renewal_premium',
+    amount: 8000,
+    createdAt: '2026-01-14T10:00:00Z',
+    transactionEffectiveDate: '2026-01-14',
+    transactionExpirationDate: '2027-01-14',
+    policyNumber: 'BHP-GL-2026-001',
+    policyEffectiveDate: '2026-01-14',
+    policyExpirationDate: '2027-01-14',
+  })
+  const ren2 = txn({
+    id: 'ren-2027',
+    type: 'renewal_premium',
+    amount: 9000,
+    createdAt: '2027-01-14T10:00:00Z',
+    transactionEffectiveDate: '2027-01-14',
+    transactionExpirationDate: '2028-01-14',
+    policyNumber: 'BHP-GL-2027-002',
+    policyEffectiveDate: '2027-01-14',
+    policyExpirationDate: '2028-01-14',
+  })
+  const three = listPolicyFileTerms([nb, ren1, ren2], {
+    policyNumber: 'BHP-GL-2027-002',
+    effectiveDate: '2027-01-14',
+    expirationDate: '2028-01-14',
+    premium: 0,
+  })
+  assertEq(three.length, 3, 'three consecutive renewal terms remain distinct')
+  assertEq(three.map((term) => term.termId).join(','), 'nb-2025,ren-2026,ren-2027', 'renewal terms stay separately selectable')
+  assertEq(three[0]?.isCurrent, false, 'first NB term is historical')
+  assertEq(three[1]?.isCurrent, false, 'middle renewal is historical')
+  assertEq(three[2]?.isCurrent, true, 'latest renewal is current')
+  assertEq(new Set(three.map((term) => term.termId)).size, 3, 'each establishing txn id appears once')
+  assertEq(resolvePolicyFileTerm(three, 'nb-2025')?.termId, 'nb-2025', 'prior renewal-file term remains selectable')
+  assertEq(resolvePolicyFileTerm(three, 'nb-2025')?.isCurrent, false, 'selected prior renewal-file term is not current')
+
+  const twoTermFile = listPolicyFileTerms(glTerms, file)
+  assertEq(twoTermFile.length, 2, 'renewal Policy File still produces multiple distinct terms')
 }
 
 if (failed > 0) {

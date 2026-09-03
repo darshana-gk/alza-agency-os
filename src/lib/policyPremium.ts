@@ -421,24 +421,84 @@ export function policyTermPath(policyId: string, termId?: string | null): string
   return `/policies/${id}?term=${encodeURIComponent(term)}`
 }
 
+/** Stable identity for one establishing New Business / Renewal. Missing dates do not collapse distinct txns. */
+export function establishingTermIdentityKey(tx: PolicyTermTxn): string {
+  const start = isoDate(tx.policyEffectiveDate || tx.transactionEffectiveDate || tx.transactionDate)
+  const end = isoDate(tx.policyExpirationDate || tx.transactionExpirationDate)
+  if (start && end) return `${start}|${end}`
+  const id = String(tx.id ?? '').trim()
+  return id ? `id:${id}` : `anon:${start}|${createdMs(tx)}`
+}
+
+/**
+ * Live establishing New Business / Renewal heads for virtual terms.
+ * Dedupes the same transaction id and collapses duplicate heads that share the
+ * same term dates so a rewritten file's single NB cannot emit two identical terms.
+ * Distinct renewal dates remain separate heads.
+ */
+export function uniqueEstablishingHeads<T extends PolicyTermTxn>(transactions: T[]): T[] {
+  const live = transactions.filter(
+    (tx) => !tx.archived && !tx.voidedAt && isPolicyTermEstablishingType(tx.type),
+  )
+  const byId = new Map<string, T>()
+  const anonymous: T[] = []
+  for (const tx of live) {
+    const id = String(tx.id ?? '').trim()
+    if (!id) {
+      anonymous.push(tx)
+      continue
+    }
+    const existing = byId.get(id)
+    if (!existing || compareEstablishing(tx, existing) < 0) byId.set(id, tx)
+  }
+  const sourced = byId.size > 0 ? [...byId.values()] : anonymous
+  const oldestFirst = [...sourced].sort((a, b) => compareEstablishing(b, a))
+  const groups = new Map<string, T[]>()
+  const order: string[] = []
+  for (const head of oldestFirst) {
+    const key = establishingTermIdentityKey(head)
+    if (!groups.has(key)) {
+      groups.set(key, [])
+      order.push(key)
+    }
+    groups.get(key)!.push(head)
+  }
+  return order.map((key) => {
+    const group = groups.get(key) ?? []
+    return [...group].sort(compareEstablishing)[0] ?? group[0]
+  })
+}
+
+function uniqueTermsByTermId(terms: PolicyFileTerm[]): PolicyFileTerm[] {
+  const seen = new Set<string>()
+  const unique: PolicyFileTerm[] = []
+  for (const term of terms) {
+    const id = String(term.termId ?? '').trim()
+    if (!id || seen.has(id)) continue
+    seen.add(id)
+    unique.push(term)
+  }
+  return unique
+}
+
 /**
  * Present each establishing New Business / Renewal as its own policy-term entry.
  * Does not create policy rows or mutate snapshots. Oldest term first.
+ * Never emits two terms for the same establishing transaction id, and never
+ * synthesizes a file-identity term alongside a real New Business / Renewal.
  */
 export function listPolicyFileTerms(
   transactions: PolicyTermTxn[],
   file: PolicyFileIdentity,
   options?: PolicyTermOptions,
 ): PolicyFileTerm[] {
-  const establishing = transactions
-    .filter((tx) => !tx.archived && isPolicyTermEstablishingType(tx.type) && !tx.voidedAt)
-    .sort((a, b) => compareEstablishing(b, a))
+  const establishing = uniqueEstablishingHeads(transactions)
 
   if (establishing.length === 0) {
     const displayTxns = transactions.filter((tx) => !tx.archived)
     const live = displayTxns.filter(isLiveTxn)
     const totals = policyTermFinancialTotals(transactions, options)
-    return [
+    return uniqueTermsByTermId([
       {
         termId: FILE_CURRENT_TERM_ID,
         isCurrent: true,
@@ -466,30 +526,35 @@ export function listPolicyFileTerms(
         brokerFee: 0,
         producerSplitPercentage: null,
       },
-    ]
+    ])
   }
 
   const fileDates = {
     policyEffectiveDate: options?.policyEffectiveDate ?? file.effectiveDate,
     policyExpirationDate: options?.policyExpirationDate ?? file.expirationDate,
   }
-  const currentId = String(establishing[establishing.length - 1]?.id ?? '')
+  const currentHead = establishing[establishing.length - 1]
+  const currentId = String(currentHead?.id ?? '')
+  const singleTerm = establishing.length === 1
 
-  return establishing.map((head, index) => {
+  return uniqueTermsByTermId(
+    establishing.map((head, index) => {
     const liveTerm = selectTermTransactions(transactions, head, fileDates)
     const liveIds = new Set(liveTerm.map((tx) => String(tx.id ?? '')).filter(Boolean))
     const totals = totalsFromTermSet(liveTerm)
+    const isLast = index === establishing.length - 1
     const dates = resolveDisplayedPolicyTerm({
       snapshotEffectiveDate: head.policyEffectiveDate || head.transactionEffectiveDate,
       snapshotExpirationDate: head.policyExpirationDate || head.transactionExpirationDate,
-      currentEffectiveDate: index === establishing.length - 1 ? file.effectiveDate : null,
-      currentExpirationDate: index === establishing.length - 1 ? file.expirationDate : null,
+      currentEffectiveDate: isLast ? file.effectiveDate : null,
+      currentExpirationDate: isLast ? file.expirationDate : null,
     })
-    const isCurrent = String(head.id ?? '') === currentId
+    const isCurrent = singleTerm || isLast || String(head.id ?? '') === currentId
+    const termId = String(head.id ?? '').trim() || FILE_CURRENT_TERM_ID
     return {
-      termId: String(head.id ?? ''),
+      termId,
       isCurrent,
-      establishingTransactionId: String(head.id ?? '') || null,
+      establishingTransactionId: String(head.id ?? '').trim() || null,
       priorTermId: index > 0 ? String(establishing[index - 1]?.id ?? '') : null,
       nextTermId:
         index < establishing.length - 1 ? String(establishing[index + 1]?.id ?? '') : null,
@@ -521,7 +586,8 @@ export function listPolicyFileTerms(
       producerSplitPercentage:
         head.producerSplitPercentage === undefined ? null : head.producerSplitPercentage,
     }
-  })
+  }),
+  )
 }
 
 export function resolvePolicyFileTerm(
@@ -529,12 +595,14 @@ export function resolvePolicyFileTerm(
   termId?: string | null,
 ): PolicyFileTerm | null {
   if (terms.length === 0) return null
+  const current = terms.find((term) => term.isCurrent) ?? terms[terms.length - 1] ?? null
+  if (terms.length === 1) return current
   const wanted = String(termId ?? '').trim()
-  if (wanted) {
+  if (wanted && wanted !== FILE_CURRENT_TERM_ID) {
     const match = terms.find((term) => term.termId === wanted)
     if (match) return match
   }
-  return terms.find((term) => term.isCurrent) ?? terms[terms.length - 1] ?? null
+  return current
 }
 
 export function groupPolicyTermsByLineOfBusiness<
