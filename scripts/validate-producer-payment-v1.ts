@@ -21,6 +21,13 @@ import {
   commissionReceiptVariance,
   isMarkReadyBlockedByReceiptVariance,
 } from '../src/lib/commissionReceiptVariance.ts'
+import {
+  canConfirmProducerPaidBatch,
+  formatProducerPaymentBatchStatus,
+  getNegativeProducerRecoveryWorkflowStatus,
+  isBatchSettledByRecovery,
+  SETTLED_BY_RECOVERY_LABEL,
+} from '../src/lib/producerPaymentWorkflow.ts'
 
 let passed = 0
 let failed = 0
@@ -44,6 +51,9 @@ function readRepo(rel: string): string {
 
 const CREATE_SQL = readRepo(
   'supabase/migrations/20260823150000_create_producer_payment_batch_auth_current_user_has_role.sql',
+)
+const PHASE3C_SQL = readRepo(
+  'supabase/migrations/20260828240000_multitenancy_v1_phase3c_workflow_privilege_rpcs.sql',
 )
 const CONFIRM_SQL = readRepo(
   'supabase/migrations/20260823140000_producer_payment_confirm_outside_alza_flow.sql',
@@ -483,9 +493,11 @@ assert(
   'Client confirmProducerPaid calls the RPC',
 )
 assert(
-  !CONFIRM_CLIENT.includes(".from('producer_payment_batches')") &&
+  CONFIRM_CLIENT.includes(".from('producer_payment_batches')") &&
+    CONFIRM_CLIENT.includes('isBatchSettledByRecovery') &&
+    !CONFIRM_CLIENT.includes('.update(') &&
     !CONFIRM_CLIENT.includes(".from('transactions')"),
-  'Client confirmProducerPaid does not independently update batch or transactions',
+  'Client confirmProducerPaid fetches the batch to block settled-by-recovery, then uses RPC (no independent update)',
 )
 assert(
   CONFIRM_REF_SQL.includes("RAISE EXCEPTION 'Payment reference / confirmation number is required.'") &&
@@ -691,8 +703,9 @@ assert(
 assert(!FINANCIALS.includes('Ready for Payout'), 'UI: Ready for Payout heading is gone')
 assert(
   COMMISSION_TS.includes("return 'Paid (Historical)'") &&
-    FINANCIALS.includes('formatBatchStatusLabel(row.status, row.paymentChannel)'),
-  'UI: historical paid batches use Paid (Historical) via formatBatchStatusLabel',
+    FINANCIALS.includes('formatProducerPaymentBatchStatus(row)') &&
+    FINANCIALS.includes('formatProducerPaymentBatchStatus(viewBatch)'),
+  'UI: historical paid batches use Paid (Historical) via formatProducerPaymentBatchStatus',
 )
 assert(
   CONFIRM_SQL.includes('ADD COLUMN IF NOT EXISTS confirmed_at') &&
@@ -924,7 +937,7 @@ assert(
     !COMMISSION_TS.includes("review_status = 'review_approved'") &&
     TRANSACTIONS_PAGE.includes('getDrawerWorkflowSummaryBadges') &&
     TRANSACTIONS_PAGE.includes('summaryBadges.showPaymentBadge') &&
-    TRANSACTIONS_PAGE.includes('getTransactionWorkflowTimeline(selected)'),
+    TRANSACTIONS_PAGE.includes('getTransactionWorkflowTimeline({'),
   'H2: drawer summary is display-only; timeline and DB statuses are unchanged',
 )
 assert(
@@ -1100,6 +1113,135 @@ assert(
       agencyCommissionAmount: 130,
     }) === false,
     'AB5: matching $130 received and expected does not block Mark Ready',
+  )
+}
+
+/* ── AC. Zero-net batches settle by recovery; negative recovery is application-based ── */
+{
+  const fullOffset = {
+    status: 'draft',
+    voided: false,
+    itemCount: 1,
+    grossCommission: 540,
+    netPayment: 0,
+  }
+  assert(isBatchSettledByRecovery(fullOffset) === true, 'AC1: gross $540 / recovery $540 / net $0 is Settled by Recovery')
+  assertEq(
+    formatProducerPaymentBatchStatus(fullOffset),
+    SETTLED_BY_RECOVERY_LABEL,
+    'AC1: full-offset batch label is Settled by Recovery, not Ready to Pay',
+  )
+  assert(
+    canConfirmProducerPaidBatch(fullOffset) === false,
+    'AC1: full-offset batch cannot Confirm Paid Outside ALZA Flow',
+  )
+  assertEq(
+    formatProducerPaymentBatchStatus({
+      status: 'draft',
+      voided: false,
+      grossCommission: 540,
+      netPayment: 0.01,
+    }),
+    'Ready to Pay',
+    'AC1: leftover net $0.01 is still Ready to Pay (no fake $0 settlement)',
+  )
+}
+
+{
+  const obligation = -565.5
+  assertEq(
+    getNegativeProducerRecoveryWorkflowStatus(obligation, []),
+    'Recovery Required',
+    'AC2: no recovery row after approval is Recovery Required',
+  )
+  assertEq(
+    getNegativeProducerRecoveryWorkflowStatus(obligation, [
+      { status: 'open', appliedAmount: 0, remainingAmount: 565.5 },
+    ]),
+    'Recovery Pending',
+    'AC2: open recovery with applied $0 is Recovery Pending, not Fully Recovered',
+  )
+  assertEq(
+    getNegativeProducerRecoveryWorkflowStatus(obligation, [
+      { status: 'open', appliedAmount: 540, remainingAmount: 25.5 },
+    ]),
+    'Partially Recovered',
+    'AC2: obligation $565.50 applied $540 remaining $25.50 is Partially Recovered',
+  )
+  assertEq(
+    getNegativeProducerRecoveryWorkflowStatus(obligation, [
+      { status: 'open', appliedAmount: 565.5, remainingAmount: 0 },
+    ]),
+    'Recovered / Settled',
+    'AC2: final $25.50 application (remaining $0) is Recovered / Settled',
+  )
+}
+
+{
+  const positivePayout = {
+    status: 'draft',
+    voided: false,
+    itemCount: 2,
+    grossCommission: 540,
+    netPayment: 540,
+  }
+  assert(isBatchSettledByRecovery(positivePayout) === false, 'AC3: positive net batch is not Settled by Recovery')
+  assertEq(formatProducerPaymentBatchStatus(positivePayout), 'Ready to Pay', 'AC3: positive payout stays Ready to Pay')
+  assert(canConfirmProducerPaidBatch(positivePayout) === true, 'AC3: positive payout can Confirm Paid Outside ALZA Flow')
+  assertEq(
+    getNegativeProducerRecoveryWorkflowStatus(540, [
+      { status: 'open', appliedAmount: 0, remainingAmount: 100 },
+    ]),
+    null,
+    'AC3: positive producer commission does not enter recovery workflow',
+  )
+  assert(
+    COMMISSION_TS.includes("if (normalizePaymentStatus(tx.producerPaymentStatus) === 'paid')") &&
+      COMMISSION_TS.includes("return 'Ready for Payment'") &&
+      COMMISSION_TS.includes("return 'Batch Created'") &&
+      COMMISSION_TS.includes('POSITIVE_PAYOUT_WORKFLOW_STAGES') &&
+      COMMISSION_TS.includes('!POSITIVE_PAYOUT_WORKFLOW_STAGES.includes(stage)'),
+    'AC3: positive payout timeline still has Ready for Payment / Batch / Paid; negatives exclude those stages',
+  )
+}
+
+{
+  const producerFilter = "btrim(COALESCE(r.producer, '')) = v_producer"
+  const agencyFilter = 'r.agency_profile_id = v_agency'
+  assert(
+    CREATE_SQL.includes(producerFilter) &&
+      PHASE3C_SQL.includes(producerFilter) &&
+      PHASE3C_SQL.includes(agencyFilter) &&
+      PHASE3C_SQL.includes("AND r.status = 'open'") &&
+      PHASE3C_SQL.includes('AND r.remaining_amount > 0'),
+    'AC4: batch recovery application is producer-scoped and tenant-scoped',
+  )
+  const approveBody = functionBody(COMMISSION_TS, 'approveTransactionReview')
+  const receiptBody = functionBody(COMMISSION_TS, 'confirmAgencyCommissionReceived')
+  const createBatchBody = functionBody(COMMISSION_TS, 'createProducerPaymentBatch')
+  const confirmBody = functionBody(COMMISSION_TS, 'confirmProducerPaid')
+  assert(
+    !approveBody.includes("from('producer_commission_recoveries')") &&
+      !receiptBody.includes("from('producer_commission_recoveries')") &&
+      COMMISSION_TS.includes('export async function createProducerRecovery') &&
+      FINANCIALS.includes('Settled by Recovery'),
+    'AC4: recoveries are not auto-created on approve/receipt; createProducerRecovery remains the write path',
+  )
+  assert(
+    confirmBody.includes("operation: 'confirm_paid_settled_by_recovery'") &&
+      confirmBody.includes('isBatchSettledByRecovery') &&
+      confirmBody.includes("operation: 'confirm_paid_zero_net'") &&
+      !createBatchBody.includes("status: 'paid'") &&
+      !confirmBody.includes('0.01'),
+    'AC4: confirm paid rejects settled-by-recovery / zero-net; no fake $0/$0.01 payment',
+  )
+  assert(
+    COMMISSION_TS.includes('NEGATIVE_PRODUCER_RECOVERY_MARK_READY_MESSAGE') &&
+      TRANSACTIONS_PAGE.includes('markReadyBlockedReason(selected)') &&
+      TRANSACTIONS_PAGE.includes('getNegativeProducerRecoveryWorkflowStatus') &&
+      FINANCIALS.includes('formatProducerPaymentBatchStatus') &&
+      FINANCIALS.includes('canConfirmProducerPaid(row)'),
+    'AC4: UI uses recovery-specific Mark Ready copy, application-based recovery status, and settled-by-recovery batch display',
   )
 }
 

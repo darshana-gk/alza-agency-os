@@ -48,6 +48,7 @@ import {
   formatTransactionRecoverySettledLabel,
   formatTypeLabel,
   getDrawerWorkflowSummaryBadges,
+  getNegativeProducerRecoveryWorkflowStatus,
   getTransactionWorkflowStatus,
   getTransactionWorkflowTimeline,
   isCorrectionRequired,
@@ -218,7 +219,7 @@ export function Transactions() {
   const [selectedId, setSelectedId] = useState<string | null>(routeTxnId ?? null)
   const [recoveries, setRecoveries] = useState<RecoverySummary[]>([])
   const [recoveriesLoading, setRecoveriesLoading] = useState(false)
-  const [recoveryCreatedByTxn, setRecoveryCreatedByTxn] = useState<Map<string, number>>(new Map())
+  const [recoveryByTxn, setRecoveryByTxn] = useState<Map<string, RecoverySummary[]>>(new Map())
 
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [readyOpen, setReadyOpen] = useState(false)
@@ -324,7 +325,7 @@ export function Transactions() {
       .filter((tx) => tx.producerCommissionAmount < 0)
       .map((tx) => tx.id)
     if (negativeIds.length === 0) {
-      setRecoveryCreatedByTxn(new Map())
+      setRecoveryByTxn(new Map())
       return
     }
 
@@ -332,22 +333,26 @@ export function Transactions() {
     async function loadRecoveryTotals() {
       const { data, error } = await supabase
         .from('producer_commission_recoveries')
-        .select('transaction_id, amount, status, voided_at')
+        .select('transaction_id, amount, status, voided_at, applied_amount, remaining_amount')
         .in('transaction_id', negativeIds)
       if (cancelled) return
       if (error) {
-        setRecoveryCreatedByTxn(new Map())
+        setRecoveryByTxn(new Map())
         return
       }
-      const map = new Map<string, number>()
+      const grouped = new Map<string, Array<Record<string, unknown>>>()
       for (const row of data ?? []) {
         const tid = row.transaction_id ? String(row.transaction_id) : ''
         if (!tid) continue
-        if (row.voided_at) continue
-        if (String(row.status ?? '').toLowerCase() === 'voided') continue
-        map.set(tid, (map.get(tid) ?? 0) + Number(row.amount ?? 0))
+        const list = grouped.get(tid) ?? []
+        list.push(row as Record<string, unknown>)
+        grouped.set(tid, list)
       }
-      setRecoveryCreatedByTxn(map)
+      const map = new Map<string, RecoverySummary[]>()
+      for (const [tid, rows] of grouped) {
+        map.set(tid, mapRecoveryRows(rows))
+      }
+      setRecoveryByTxn(map)
     }
     void loadRecoveryTotals()
     return () => {
@@ -502,7 +507,13 @@ export function Transactions() {
       if (error) {
         setRecoveries([])
       } else {
-        setRecoveries(mapRecoveryRows(data as Array<Record<string, unknown>>))
+        const mapped = mapRecoveryRows(data as Array<Record<string, unknown>>)
+        setRecoveries(mapped)
+        setRecoveryByTxn((prev) => {
+          const next = new Map(prev)
+          next.set(txnId, mapped)
+          return next
+        })
       }
       setRecoveriesLoading(false)
     }
@@ -672,9 +683,12 @@ export function Transactions() {
   const sortedTransactions = useMemo(
     () =>
       sortTransactionTableRows(filteredTransactions, txnSort, (tx) =>
-        getTransactionWorkflowStatus(tx),
+        getTransactionWorkflowStatus({
+          ...tx,
+          recoveries: recoveryByTxn.get(tx.id) ?? [],
+        }),
       ),
-    [filteredTransactions, txnSort],
+    [filteredTransactions, txnSort, recoveryByTxn],
   )
 
   const pagedTransactions = useMemo(
@@ -918,9 +932,9 @@ export function Transactions() {
       .order('created_at', { ascending: false })
     const mapped = mapRecoveryRows(data as Array<Record<string, unknown>>)
     setRecoveries(mapped)
-    setRecoveryCreatedByTxn((prev) => {
+    setRecoveryByTxn((prev) => {
       const next = new Map(prev)
-      next.set(selected.id, sumCreatedRecoveryAmounts(mapped))
+      next.set(selected.id, mapped)
       return next
     })
     await loadTransactions()
@@ -973,6 +987,11 @@ export function Transactions() {
         .eq('transaction_id', selected.id)
         .order('created_at', { ascending: false })
       setRecoveries(mapRecoveryRows(data as Array<Record<string, unknown>>))
+      setRecoveryByTxn((prev) => {
+        const next = new Map(prev)
+        next.set(selected.id, mapRecoveryRows(data as Array<Record<string, unknown>>))
+        return next
+      })
     }
     await loadTransactions()
   }
@@ -1276,15 +1295,6 @@ export function Transactions() {
       canArchiveTransaction(selected, recoveries.length) &&
       !showVoid,
   )
-  const hasOpenRecoveryForProducer = Boolean(
-    selected &&
-      recoveries.some(
-        (row) =>
-          row.status === 'open' &&
-          !row.voidedAt &&
-          row.remainingAmount > 0,
-      ),
-  )
   const selectedRecoveryObligation = selected
     ? transactionRecoveryObligation(selected.producerCommissionAmount)
     : 0
@@ -1295,14 +1305,16 @@ export function Transactions() {
   const selectedRecoverySettledLabel = selected
     ? formatTransactionRecoverySettledLabel(selected.producerCommissionAmount, recoveries)
     : null
-  const selectedFullyRecovered =
-    selectedRecoveryObligation > 0 && selectedRecoveryAvailable <= 0 && selectedRecoveryCreated > 0
+  const selectedRecoveryWorkflow = selected
+    ? getNegativeProducerRecoveryWorkflowStatus(selected.producerCommissionAmount, recoveries)
+    : null
+  const selectedFullyRecovered = selectedRecoveryWorkflow === 'Recovered / Settled'
   const showRecoveryAssist = Boolean(
     canRecovery &&
       selected &&
-      selected.type === 'return_premium' &&
+      selected.reviewStatus === 'approved' &&
       selected.producerCommissionAmount < 0 &&
-      !hasOpenRecoveryForProducer &&
+      selectedRecoveryWorkflow === 'Recovery Required' &&
       selectedRecoveryAvailable > 0,
   )
   const correctionRequired = Boolean(selected && isCorrectionRequired(selected))
@@ -1644,10 +1656,10 @@ export function Transactions() {
                 </tr>
               ) : (
                 paginatedTransactions.map((tx) => {
-                  const workflow = getTransactionWorkflowStatus(tx)
-                  const obligation = transactionRecoveryObligation(tx.producerCommissionAmount)
-                  const created = recoveryCreatedByTxn.get(tx.id) ?? 0
-                  const fullyRecovered = obligation > 0 && created + 0.009 >= obligation
+                  const workflow = getTransactionWorkflowStatus({
+                    ...tx,
+                    recoveries: recoveryByTxn.get(tx.id) ?? [],
+                  })
                   return (
                   <tr
                     key={tx.id}
@@ -1714,11 +1726,6 @@ export function Transactions() {
                         <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ring-inset ${workflowStatusStyles[workflow]}`}>
                           {workflow}
                         </span>
-                        {fullyRecovered && (
-                          <span className="inline-flex items-center rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-medium text-emerald-800 ring-1 ring-inset ring-emerald-600/20">
-                            Recovered / Settled
-                          </span>
-                        )}
                       </div>
                     </td>
                   </tr>
@@ -1823,9 +1830,9 @@ export function Transactions() {
                     {formatCurrency(selectedRecoveryAvailable)}
                   </p>
                   <p className="mt-1 text-xs text-amber-900/80">
-                    Return premium created a negative producer commission. Create a recovery/chargeback to settle it.
+                    Negative producer commission is Recovery Required until a recovery/chargeback is recorded. This is never created automatically.
                     {selectedRecoveryCreated > 0
-                      ? ` Already recovered ${formatCurrency(selectedRecoveryCreated)} of ${formatCurrency(selectedRecoveryObligation)}.`
+                      ? ` Already recorded ${formatCurrency(selectedRecoveryCreated)} of ${formatCurrency(selectedRecoveryObligation)}.`
                       : ''}
                   </p>
                   <button
@@ -1833,7 +1840,7 @@ export function Transactions() {
                     onClick={() =>
                       openRecoveryModal({
                         amount: String(selectedRecoveryAvailable),
-                        notes: 'Return Premium Commission Recovery',
+                        notes: 'Producer commission recovery / chargeback',
                         settlementMethod: 'next_payout',
                         fromAssist: true,
                       })
@@ -1857,11 +1864,17 @@ export function Transactions() {
                   <p className="font-semibold">{selectedRecoverySettledLabel}</p>
                   {selectedFullyRecovered ? (
                     <p className="mt-1 text-xs opacity-80">
-                      Negative producer commission for this transaction is fully recovered. Approval status is separate.
+                      Remaining is $0. Negative producer commission is Recovered / Settled. Approval status is separate.
+                    </p>
+                  ) : selectedRecoveryWorkflow === 'Partially Recovered' ? (
+                    <p className="mt-1 text-xs opacity-80">
+                      Remaining to apply: {formatCurrency(
+                        recoveries.reduce((sum, row) => sum + (row.voidedAt ? 0 : row.remainingAmount), 0),
+                      )}
                     </p>
                   ) : (
                     <p className="mt-1 text-xs opacity-80">
-                      Available to recover: {formatCurrency(selectedRecoveryAvailable)}
+                      Open recovery recorded with $0 applied. Status is Recovery Pending until an amount is applied to a payout or direct payment.
                     </p>
                   )}
                 </div>
@@ -2050,8 +2063,14 @@ export function Transactions() {
 
               <Section title="Workflow">
                 {(() => {
-                  const timeline = getTransactionWorkflowTimeline(selected)
-                  const workflow = getTransactionWorkflowStatus(selected)
+                  const timeline = getTransactionWorkflowTimeline({
+                    ...selected,
+                    recoveries,
+                  })
+                  const workflow = getTransactionWorkflowStatus({
+                    ...selected,
+                    recoveries,
+                  })
                   const summaryBadges = getDrawerWorkflowSummaryBadges({
                     workflow,
                     reviewStatus: selected.reviewStatus,

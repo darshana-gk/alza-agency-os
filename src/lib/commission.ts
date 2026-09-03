@@ -21,8 +21,32 @@ import {
   commissionReceiptVariance,
   isMarkReadyBlockedByReceiptVariance,
 } from './commissionReceiptVariance'
+import {
+  NEGATIVE_PRODUCER_RECOVERY_MARK_READY_MESSAGE,
+  NEGATIVE_PRODUCER_RECOVERY_WORKFLOW_STATUSES,
+  canConfirmProducerPaidBatch,
+  getNegativeProducerRecoveryWorkflowStatus,
+  hasNegativeProducerCommission,
+  isBatchSettledByRecovery,
+  isNegativeProducerRecoveryWorkflowStatus,
+  sumRecoveryApplication,
+  type RecoveryApplicationInput,
+} from './producerPaymentWorkflow'
 
 export { commissionReceiptVariance, isMarkReadyBlockedByReceiptVariance } from './commissionReceiptVariance'
+export {
+  NEGATIVE_PRODUCER_RECOVERY_MARK_READY_MESSAGE,
+  NEGATIVE_PRODUCER_RECOVERY_WORKFLOW_STATUSES,
+  SETTLED_BY_RECOVERY_LABEL,
+  canConfirmProducerPaidBatch,
+  formatProducerPaymentBatchStatus,
+  getNegativeProducerRecoveryWorkflowStatus,
+  hasNegativeProducerCommission,
+  isBatchSettledByRecovery,
+  isNegativeProducerRecoveryWorkflowStatus,
+  sumRecoveryApplication,
+  type RecoveryApplicationInput,
+} from './producerPaymentWorkflow'
 import { mapCreatedAtValue } from './createdFirstSort'
 import {
   currentPolicyPremiumFromTransactions,
@@ -141,6 +165,7 @@ export const WORKFLOW_STATUSES = [
   'Receipt Confirmed',
   'Awaiting Receipt',
   'Entered',
+  ...NEGATIVE_PRODUCER_RECOVERY_WORKFLOW_STATUSES,
 ] as const
 export type TransactionWorkflowStatus = (typeof WORKFLOW_STATUSES)[number]
 
@@ -169,10 +194,19 @@ export const FINAL_WORKFLOW_STAGES = [
   'Paid (Historical)',
   'Paid Outside ALZA Flow',
   'Paid via ALZA Flow Pay',
+  ...NEGATIVE_PRODUCER_RECOVERY_WORKFLOW_STATUSES,
 ] as const
 export type FinalWorkflowStage = (typeof FINAL_WORKFLOW_STAGES)[number]
 
-export type WorkflowTimelinePhase = 'Entered' | 'Receipt' | 'Review' | 'Payout' | 'Payment'
+const POSITIVE_PAYOUT_WORKFLOW_STAGES: readonly FinalWorkflowStage[] = [
+  'Ready for Payment',
+  'Batch Created',
+  'Paid (Historical)',
+  'Paid Outside ALZA Flow',
+  'Paid via ALZA Flow Pay',
+]
+
+export type WorkflowTimelinePhase = 'Entered' | 'Receipt' | 'Review' | 'Payout' | 'Payment' | 'Recovery'
 
 export const workflowStatusStyles: Record<TransactionWorkflowStatus, string> = {
   Entered: 'bg-slate-100 text-slate-600 ring-slate-500/20',
@@ -187,6 +221,10 @@ export const workflowStatusStyles: Record<TransactionWorkflowStatus, string> = {
   'Paid Outside ALZA Flow': 'bg-emerald-50 text-emerald-700 ring-emerald-600/20',
   'Paid via ALZA Flow Pay': 'bg-emerald-50 text-emerald-700 ring-emerald-600/20',
   Archived: 'bg-slate-100 text-slate-600 ring-slate-500/20',
+  'Recovery Required': 'bg-orange-50 text-orange-800 ring-orange-600/25',
+  'Recovery Pending': 'bg-amber-50 text-amber-800 ring-amber-600/20',
+  'Partially Recovered': 'bg-amber-50 text-amber-800 ring-amber-600/20',
+  'Recovered / Settled': 'bg-emerald-50 text-emerald-800 ring-emerald-600/20',
 }
 
 export function formatReviewStatusLabel(
@@ -217,7 +255,10 @@ export function getDrawerWorkflowSummaryBadges(input: {
   paymentLabel: string
 } {
   const paymentLabel = formatLabel(input.producerPaymentStatus)
-  if (input.workflow === 'Paid Outside ALZA Flow') {
+  if (
+    input.workflow === 'Paid Outside ALZA Flow' ||
+    isNegativeProducerRecoveryWorkflowStatus(input.workflow)
+  ) {
     return {
       reviewLabel: 'Review Approved',
       showPaymentBadge: false,
@@ -241,18 +282,31 @@ export function getTransactionWorkflowStatus(tx: {
   reviewStatus: string
   reviewReturnedAt?: string | null
   reviewReturnReason?: string
+  producerCommissionAmount?: number | string | null
+  recoveries?: RecoveryApplicationInput[] | null
 }): TransactionWorkflowStatus {
   if (tx.archived) return 'Archived'
-  // producer_payment_status is authoritative. paid_date alone must not
-  // display a contradictory ready/not_ready row as paid.
-  if (normalizePaymentStatus(tx.producerPaymentStatus) === 'paid') {
-    const paidLabel = formatBatchStatusLabel('paid', tx.paymentChannel)
-    if (isPaidWorkflowStatus(paidLabel)) return paidLabel
-    return 'Paid (Historical)'
+  const negativeCommission = hasNegativeProducerCommission(tx.producerCommissionAmount)
+  if (!negativeCommission) {
+    // producer_payment_status is authoritative. paid_date alone must not
+    // display a contradictory ready/not_ready row as paid.
+    if (normalizePaymentStatus(tx.producerPaymentStatus) === 'paid') {
+      const paidLabel = formatBatchStatusLabel('paid', tx.paymentChannel)
+      if (isPaidWorkflowStatus(paidLabel)) return paidLabel
+      return 'Paid (Historical)'
+    }
+    if (tx.paymentBatchId) return 'Batch Created'
+    if (normalizePaymentStatus(tx.producerPaymentStatus) === 'ready') return 'Ready for Payment'
   }
-  if (tx.paymentBatchId) return 'Batch Created'
-  if (normalizePaymentStatus(tx.producerPaymentStatus) === 'ready') return 'Ready for Payment'
-  if (tx.agencyCommissionConfirmed && tx.reviewStatus === 'approved') return 'Approved'
+  if (tx.agencyCommissionConfirmed && tx.reviewStatus === 'approved') {
+    if (negativeCommission) {
+      return (
+        getNegativeProducerRecoveryWorkflowStatus(tx.producerCommissionAmount, tx.recoveries) ??
+        'Recovery Required'
+      )
+    }
+    return 'Approved'
+  }
   if (tx.agencyCommissionConfirmed && tx.reviewStatus === 'matched') return 'Submitted for Review'
   if (
     tx.agencyCommissionConfirmed &&
@@ -281,9 +335,13 @@ const STAGE_PHASE: Record<FinalWorkflowStage, WorkflowTimelinePhase> = {
   'Paid (Historical)': 'Payment',
   'Paid Outside ALZA Flow': 'Payment',
   'Paid via ALZA Flow Pay': 'Payment',
+  'Recovery Required': 'Recovery',
+  'Recovery Pending': 'Recovery',
+  'Partially Recovered': 'Recovery',
+  'Recovered / Settled': 'Recovery',
 }
 
-/** Timeline for drawer: Entered → … → Paid with completed / current / future. */
+/** Timeline for drawer: Entered → … → Paid (positive) or Recovery (negative). */
 export function getTransactionWorkflowTimeline(tx: {
   archived: boolean
   producerPaymentStatus: string
@@ -294,6 +352,8 @@ export function getTransactionWorkflowTimeline(tx: {
   reviewStatus: string
   reviewReturnedAt?: string | null
   reviewReturnReason?: string
+  producerCommissionAmount?: number | string | null
+  recoveries?: RecoveryApplicationInput[] | null
 }): {
   current: FinalWorkflowStage
   phases: WorkflowTimelinePhase[]
@@ -303,6 +363,7 @@ export function getTransactionWorkflowTimeline(tx: {
     state: 'completed' | 'current' | 'future'
   }>
 } {
+  const negativeCommission = hasNegativeProducerCommission(tx.producerCommissionAmount)
   const workflow = getTransactionWorkflowStatus(tx)
   const current: FinalWorkflowStage =
     workflow === 'Archived'
@@ -315,6 +376,10 @@ export function getTransactionWorkflowTimeline(tx: {
     if (stage === 'Returned for Correction') {
       return current === 'Returned for Correction'
     }
+    if (negativeCommission) {
+      return !POSITIVE_PAYOUT_WORKFLOW_STAGES.includes(stage)
+    }
+    if (isNegativeProducerRecoveryWorkflowStatus(stage)) return false
     if (isPaidWorkflowStatus(stage)) {
       if (isPaidWorkflowStatus(current)) return stage === current
       // V1 confirm path is outside ALZA Flow; keep that as the future terminal.
@@ -345,7 +410,9 @@ export function getTransactionWorkflowTimeline(tx: {
   })
   return {
     current,
-    phases: ['Entered', 'Receipt', 'Review', 'Payout', 'Payment'],
+    phases: negativeCommission
+      ? ['Entered', 'Receipt', 'Review', 'Recovery']
+      : ['Entered', 'Receipt', 'Review', 'Payout', 'Payment'],
     stages,
   }
 }
@@ -509,13 +576,9 @@ export function canConfirmProducerPaid(batch: {
   voided: boolean
   itemCount: number
   netPayment: number
+  grossCommission?: number
 }): boolean {
-  return (
-    batch.status === 'draft' &&
-    !batch.voided &&
-    batch.itemCount >= 1 &&
-    batch.netPayment >= 0
-  )
+  return canConfirmProducerPaidBatch(batch)
 }
 
 /** Live recovery statuses (CHECK: open | applied | voided). Never use pending. */
@@ -696,16 +759,24 @@ export function formatTransactionRecoverySettledLabel(
     status?: string | null
     voidedAt?: string | null
     voided_at?: string | null
+    appliedAmount?: number | string | null
+    applied_amount?: number | string | null
+    remainingAmount?: number | string | null
+    remaining_amount?: number | string | null
   }>,
 ): string | null {
   const obligation = transactionRecoveryObligation(producerCommissionAmount)
   if (obligation <= 0) return null
-  const created = sumCreatedRecoveryAmounts(recoveries)
-  if (created <= 0) return null
-  if (created + 0.009 >= obligation) {
+  const status = getNegativeProducerRecoveryWorkflowStatus(producerCommissionAmount, recoveries)
+  if (!status || status === 'Recovery Required') return null
+  const { applied } = sumRecoveryApplication(recoveries)
+  if (status === 'Recovered / Settled') {
     return `Recovered / Settled — ${formatCurrency(obligation)} of ${formatCurrency(obligation)}`
   }
-  return `Partially recovered — ${formatCurrency(created)} of ${formatCurrency(obligation)}`
+  if (status === 'Partially Recovered') {
+    return `Partially Recovered — ${formatCurrency(applied)} of ${formatCurrency(obligation)}`
+  }
+  return `Recovery Pending — ${formatCurrency(0)} of ${formatCurrency(obligation)} applied`
 }
 
 async function currentAppUserId(): Promise<string | null> {
@@ -2151,6 +2222,9 @@ export function markReadyBlockedReason(tx: CommissionTransaction): string | null
   if (!tx.agencyCommissionConfirmed) return 'Confirm agency commission receipt before Mark Ready.'
   if (tx.reviewStatus !== 'approved') return 'Approve the transaction before Mark Ready for Payment.'
   if (!isAssignableProducer(tx.producer)) return 'Assign an active producer before Mark Ready.'
+  if (tx.producerCommissionAmount < 0) {
+    return NEGATIVE_PRODUCER_RECOVERY_MARK_READY_MESSAGE
+  }
   if (!(tx.producerCommissionAmount > 0)) {
     return `Producer commission is ${formatCurrency(tx.producerCommissionAmount)}. Mark Ready requires a positive producer commission (payment batches exclude $0 / negative).`
   }
@@ -4323,6 +4397,53 @@ export async function confirmProducerPaid(input: ConfirmProducerPaidInput) {
         message: validationError,
         table: 'producer_payment_batches',
         operation: 'confirm_paid_validation',
+      },
+    }
+  }
+
+  const { data: existingBatch, error: existingBatchError } = await supabase
+    .from('producer_payment_batches')
+    .select('id, status, voided_at, net_payment, gross_commission')
+    .eq('id', input.batchId)
+    .maybeSingle()
+
+  if (existingBatchError) {
+    return {
+      error: {
+        message: existingBatchError.message,
+        table: 'producer_payment_batches',
+        operation: 'confirm_paid_fetch',
+        details: existingBatchError,
+      },
+    }
+  }
+
+  if (
+    existingBatch &&
+    isBatchSettledByRecovery({
+      status: existingBatch.status,
+      voidedAt: existingBatch.voided_at,
+      netPayment: existingBatch.net_payment,
+      grossCommission: existingBatch.gross_commission,
+    })
+  ) {
+    return {
+      error: {
+        message:
+          'This batch was fully offset by recovery (net $0). It is Settled by Recovery and does not require Confirm Paid Outside ALZA Flow.',
+        table: 'producer_payment_batches',
+        operation: 'confirm_paid_settled_by_recovery',
+      },
+    }
+  }
+
+  if (existingBatch && !(toNumber(existingBatch.net_payment) > 0.009)) {
+    return {
+      error: {
+        message:
+          'Confirm Paid Outside ALZA Flow requires a positive net producer payment. Do not record a $0 payment.',
+        table: 'producer_payment_batches',
+        operation: 'confirm_paid_zero_net',
       },
     }
   }

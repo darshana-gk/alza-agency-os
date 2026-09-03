@@ -3,7 +3,7 @@ import {
   formatActivityDetailsSummary,
   formatActivityEntityLabel,
 } from './activityPresentation'
-import { formatBatchStatusLabel, formatLabel, formatProducerPaymentMethodLabel, formatTypeLabel, type CommissionTransaction } from './commission'
+import { formatLabel, formatProducerPaymentBatchStatus, formatProducerPaymentMethodLabel, formatTypeLabel, type CommissionTransaction } from './commission'
 import {
   formatReconciliationMatchLabel,
   formatReconciliationStatus,
@@ -125,10 +125,12 @@ export const producerPaymentExportColumns: ExportColumn<{
   producer: string
   paymentDate: string | null
   netPayment: number
+  grossCommission?: number
   paymentMethod: string
   paymentReference: string
   status: string
   paymentChannel?: string | null
+  voided?: boolean
 }>[] = [
   { header: 'Batch #', value: (r) => r.batchNumber },
   { header: 'Producer', value: (r) => r.producer },
@@ -136,7 +138,7 @@ export const producerPaymentExportColumns: ExportColumn<{
   { header: 'Amount', value: (r) => r.netPayment, type: 'currency' },
   { header: 'Method', value: (r) => formatProducerPaymentMethodLabel(r.paymentMethod) },
   { header: 'Reference', value: (r) => r.paymentReference },
-  { header: 'Status', value: (r) => formatBatchStatusLabel(r.status, r.paymentChannel) },
+  { header: 'Status', value: (r) => formatProducerPaymentBatchStatus(r) },
 ]
 
 export const recoveryExportColumns: ExportColumn<{

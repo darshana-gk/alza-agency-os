@@ -23,10 +23,12 @@ import {
   formatDate,
   formatLabel,
   formatPercent,
+  formatProducerPaymentBatchStatus,
   formatProducerPaymentMethodLabel,
   formatRecoveryReceiptColumn,
   formatRecoverySettlementLabel,
   formatRecoveryStatusLabel,
+  isBatchSettledByRecovery,
   isDirectPaymentSettlement,
   isPayoutAppliedSettlement,
   isActiveFinancialTransaction,
@@ -1089,8 +1091,19 @@ export function Financials() {
     setCreateBatchOpen(false)
     setBatchNotes('')
     setSelectedReadyIds([])
+    const createdGross = result.data?.grossCommission ?? 0
+    const createdRecovery = result.data?.recoveryApplied ?? 0
+    const createdNet = result.data?.netPayment ?? 0
+    const settledByRecovery = isBatchSettledByRecovery({
+      status: 'draft',
+      voided: false,
+      grossCommission: createdGross,
+      netPayment: createdNet,
+    })
     setActionSuccess(
-      `Payment batch ${result.data?.batchNumber} created. Gross ${formatCurrency(result.data?.grossCommission ?? 0)}, recovery applied ${formatCurrency(result.data?.recoveryApplied ?? 0)}, net ${formatCurrency(result.data?.netPayment ?? 0)}. Confirm paid when payment is complete.`,
+      settledByRecovery
+        ? `Payment batch ${result.data?.batchNumber} created and Settled by Recovery. Gross ${formatCurrency(createdGross)}, recovery applied ${formatCurrency(createdRecovery)}, net ${formatCurrency(createdNet)}. No Confirm Paid Outside ALZA Flow is required.`
+        : `Payment batch ${result.data?.batchNumber} created. Gross ${formatCurrency(createdGross)}, recovery applied ${formatCurrency(createdRecovery)}, net ${formatCurrency(createdNet)}. Confirm paid when payment is complete.`,
     )
     await loadAll()
   }
@@ -2036,8 +2049,12 @@ export function Financials() {
                       <td className="whitespace-nowrap px-6 py-4 text-right text-sm font-semibold tabular-nums">{formatCurrency(row.grossCommission)}</td>
                       <td className="whitespace-nowrap px-6 py-4 text-right text-sm font-semibold tabular-nums">{formatCurrency(row.netPayment)}</td>
                       <td className="px-6 py-4">
-                        <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ring-inset ${badgeClass(row.status)}`}>
-                          {formatBatchStatusLabel(row.status, row.paymentChannel)}
+                        <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ring-inset ${
+                          isBatchSettledByRecovery(row)
+                            ? 'bg-emerald-50 text-emerald-800 ring-emerald-600/20'
+                            : badgeClass(row.status)
+                        }`}>
+                          {formatProducerPaymentBatchStatus(row)}
                         </span>
                       </td>
                       <td className="px-6 py-4 text-sm text-slate-700">
@@ -2049,6 +2066,18 @@ export function Financials() {
                             <p className="text-xs text-slate-500">
                               Ref: {row.paymentReference !== '—' ? row.paymentReference : '—'}
                             </p>
+                            <button
+                              type="button"
+                              onClick={() => setViewBatch(row)}
+                              className="text-xs font-medium text-alza-blue-700 hover:text-alza-blue-800"
+                            >
+                              View details
+                            </button>
+                          </div>
+                        ) : isBatchSettledByRecovery(row) ? (
+                          <div className="space-y-0.5">
+                            <p className="font-medium text-slate-900">Offset by recovery</p>
+                            <p className="text-xs text-slate-500">No producer payment</p>
                             <button
                               type="button"
                               onClick={() => setViewBatch(row)}
@@ -2480,7 +2509,7 @@ export function Financials() {
               </p>
               {payBatch.netPayment === 0 && (
                 <p className="pt-1 text-xs text-slate-600">
-                  Net is $0 (fully offset at batch create). Confirming paid records completion only — recoveries are not deducted again.
+                  Net is $0 (fully offset by recovery). Do not confirm a $0 payment — this batch is Settled by Recovery.
                 </p>
               )}
             </div>
@@ -2588,7 +2617,7 @@ export function Financials() {
               <p>
                 <span className="text-slate-500">Status:</span>{' '}
                 <span className="font-medium text-slate-900">
-                  {formatBatchStatusLabel(viewBatch.status, viewBatch.paymentChannel)}
+                  {formatProducerPaymentBatchStatus(viewBatch)}
                 </span>
               </p>
               <p>
@@ -2602,9 +2631,16 @@ export function Financials() {
                 </span>
               </p>
               <p>
-                <span className="text-slate-500">Net Amount Paid:</span>{' '}
+                <span className="text-slate-500">
+                  {isBatchSettledByRecovery(viewBatch) ? 'Net Amount:' : 'Net Amount Paid:'}
+                </span>{' '}
                 <span className="font-medium text-slate-900">{formatCurrency(viewBatch.netPayment)}</span>
               </p>
+              {isBatchSettledByRecovery(viewBatch) && (
+                <p className="pt-1 text-xs text-emerald-800">
+                  Settled by Recovery — no producer payment and no Confirm Paid Outside ALZA Flow.
+                </p>
+              )}
             </div>
             <div className="rounded-lg border border-slate-200 px-3 py-3 text-sm space-y-1.5">
               <p>
