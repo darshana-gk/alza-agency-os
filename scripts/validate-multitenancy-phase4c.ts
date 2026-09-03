@@ -92,6 +92,30 @@ console.log('D. notify-transaction-review tenant scoping')
       notifyReview.includes('agency_profile_id'),
     'reviewer/CSR lookups agency-scoped',
   )
+  assert(
+    notifyReview.includes('clients!transactions_client_id_fkey ( business_name )'),
+    'clients embed uses transactions_client_id_fkey (not the tenant composite FK)',
+  )
+  assert(
+    notifyReview.includes('policies!transactions_policy_id_fkey ( policy_number )'),
+    'policies embed uses transactions_policy_id_fkey (not the tenant composite FK)',
+  )
+  assert(
+    !notifyReview.includes('clients ( business_name )'),
+    'no unhinted transactions→clients embed (ambiguous after tenant FKs)',
+  )
+  assert(
+    !notifyReview.includes('policies ( policy_number )'),
+    'no unhinted transactions→policies embed (ambiguous after tenant FKs)',
+  )
+  assert(notifyReview.includes("action !== 'submitted' && action !== 'returned'"), 'submit and return share this query')
+  const commission = readFn('src/lib/commission.ts')
+  assert(commission.includes("action: 'submitted'"), 'submit invokes notify-transaction-review')
+  assert(commission.includes("action: 'returned'"), 'return invokes notify-transaction-review')
+  assert(
+    (commission.match(/notify-transaction-review/g) ?? []).length >= 2,
+    'submit and return share the same notify function',
+  )
 }
 
 console.log('E. invite-alza-user tenant scoping')
@@ -135,12 +159,39 @@ console.log('G. Source-wide Edge audit — launch-critical functions')
   assert(deferred.length === 0, `no unexplained singleton reads in launch-critical edge (${deferred.length})`)
   if (deferred.length) deferred.forEach((d) => console.error(`    ${d}`))
 
+  const ambiguousEmbeds: string[] = []
+  for (const rel of launchCritical) {
+    const src = readFn(rel)
+    if (/clients\s+\(\s*business_name/.test(src) && !/clients!/.test(src)) {
+      ambiguousEmbeds.push(`${rel}: unhinted clients embed`)
+    }
+    if (/policies\s+\(\s*policy_number/.test(src) && !/policies!/.test(src)) {
+      ambiguousEmbeds.push(`${rel}: unhinted policies embed`)
+    }
+  }
+  assert(
+    ambiguousEmbeds.length === 0,
+    `no unhinted transactions→clients/policies embeds in launch-critical edge (${ambiguousEmbeds.length})`,
+  )
+  if (ambiguousEmbeds.length) ambiguousEmbeds.forEach((d) => console.error(`    ${d}`))
+
   const functionsDir = resolve(root, 'supabase/functions')
   const allFns = readdirSync(functionsDir, { withFileTypes: true })
     .filter((d) => d.isDirectory() && d.name !== '_shared')
     .map((d) => d.name)
   assert(allFns.includes('run-reconciliation-matching'), 'matching function present')
   assert(allFns.includes('confirm-reconciliation-receipts'), 'confirm receipts function present')
+  assert(allFns.includes('notify-transaction-review'), 'review notify function present')
+
+  const allFnEmbedHits: string[] = []
+  for (const name of allFns) {
+    const rel = `supabase/functions/${name}/index.ts`
+    if (!existsSync(resolve(root, rel))) continue
+    const src = readFn(rel)
+    if (src.includes('clients ( business_name )')) allFnEmbedHits.push(`${name}: unhinted clients`)
+    if (src.includes('policies ( policy_number )')) allFnEmbedHits.push(`${name}: unhinted policies`)
+  }
+  assert(allFnEmbedHits.length === 0, `no unhinted clients/policies embeds in any edge function (${allFnEmbedHits.length})`)
 }
 
 console.log('H. Razorpay / webhook untouched in 4C')

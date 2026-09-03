@@ -210,8 +210,8 @@ Deno.serve(async (req) => {
       reviewer_user_id,
       review_return_reason,
       review_returned_at,
-      clients ( business_name ),
-      policies ( policy_number ),
+      clients!transactions_client_id_fkey ( business_name ),
+      policies!transactions_policy_id_fkey ( policy_number ),
       reviewer:users!reviewer_user_id ( id, email, full_name, role, status, archived_at, agency_profile_id )
     `,
     )
