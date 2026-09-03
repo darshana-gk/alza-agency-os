@@ -47,6 +47,7 @@ import {
   formatReviewStatusLabel,
   formatTransactionRecoverySettledLabel,
   formatTypeLabel,
+  getDrawerWorkflowSummaryBadges,
   getTransactionWorkflowStatus,
   getTransactionWorkflowTimeline,
   isCorrectionRequired,
@@ -2051,6 +2052,12 @@ export function Transactions() {
                 {(() => {
                   const timeline = getTransactionWorkflowTimeline(selected)
                   const workflow = getTransactionWorkflowStatus(selected)
+                  const summaryBadges = getDrawerWorkflowSummaryBadges({
+                    workflow,
+                    reviewStatus: selected.reviewStatus,
+                    correctionRequired,
+                    producerPaymentStatus: selected.producerPaymentStatus,
+                  })
                   return (
                     <div className="space-y-4">
                       <div className="flex flex-wrap items-center gap-2">
@@ -2081,15 +2088,17 @@ export function Transactions() {
                             reviewStatusStyles[selected.reviewStatus]
                           }`}
                         >
-                          {formatReviewStatusLabel(selected.reviewStatus, correctionRequired)}
+                          {summaryBadges.reviewLabel}
                         </span>
-                        <span
-                          className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ring-inset ${
-                            paymentStatusStyles[selected.producerPaymentStatus]
-                          }`}
-                        >
-                          {formatLabel(selected.producerPaymentStatus)}
-                        </span>
+                        {summaryBadges.showPaymentBadge && (
+                          <span
+                            className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ring-inset ${
+                              paymentStatusStyles[selected.producerPaymentStatus]
+                            }`}
+                          >
+                            {summaryBadges.paymentLabel}
+                          </span>
+                        )}
                       </div>
 
                       {correctionRequired && (

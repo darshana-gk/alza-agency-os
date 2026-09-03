@@ -17,6 +17,12 @@ import {
   type RoleInput,
 } from './permissions'
 import { validateProducerSplitPercentage } from './producerSplitValidation'
+import {
+  commissionReceiptVariance,
+  isMarkReadyBlockedByReceiptVariance,
+} from './commissionReceiptVariance'
+
+export { commissionReceiptVariance, isMarkReadyBlockedByReceiptVariance } from './commissionReceiptVariance'
 import { mapCreatedAtValue } from './createdFirstSort'
 import {
   currentPolicyPremiumFromTransactions,
@@ -192,6 +198,37 @@ export function formatReviewStatusLabel(
   if (normalized === 'matched') return 'Submitted for Review'
   if (normalized === 'approved') return 'Approved'
   return 'Expected'
+}
+
+/**
+ * Transaction drawer Workflow summary pills only.
+ * Paid Outside ALZA Flow already names the terminal payment state, so hide the
+ * redundant Paid payment pill and label review as Review Approved.
+ * Does not change DB review_status / producer_payment_status or the timeline.
+ */
+export function getDrawerWorkflowSummaryBadges(input: {
+  workflow: TransactionWorkflowStatus
+  reviewStatus: string
+  correctionRequired?: boolean
+  producerPaymentStatus: string
+}): {
+  reviewLabel: string
+  showPaymentBadge: boolean
+  paymentLabel: string
+} {
+  const paymentLabel = formatLabel(input.producerPaymentStatus)
+  if (input.workflow === 'Paid Outside ALZA Flow') {
+    return {
+      reviewLabel: 'Review Approved',
+      showPaymentBadge: false,
+      paymentLabel,
+    }
+  }
+  return {
+    reviewLabel: formatReviewStatusLabel(input.reviewStatus, Boolean(input.correctionRequired)),
+    showPaymentBadge: true,
+    paymentLabel,
+  }
 }
 
 export function getTransactionWorkflowStatus(tx: {
@@ -2097,17 +2134,14 @@ export function isAssignableProducer(producer: string | null | undefined): boole
 }
 
 export function canMarkProducerCommissionReady(tx: CommissionTransaction): boolean {
-  return (
-    !tx.voidedAt &&
-    tx.agencyCommissionConfirmed &&
-    tx.reviewStatus === 'approved' &&
-    isAssignableProducer(tx.producer) &&
-    tx.producerCommissionAmount > 0 &&
-    tx.producerPaymentStatus === 'not_ready' &&
-    !tx.paymentBatchId &&
-    !tx.archived &&
-    !tx.paidDate
-  )
+  if (tx.voidedAt || tx.archived || tx.paidDate || tx.paymentBatchId) return false
+  if (!tx.agencyCommissionConfirmed) return false
+  if (tx.reviewStatus !== 'approved') return false
+  if (!isAssignableProducer(tx.producer)) return false
+  if (!(tx.producerCommissionAmount > 0)) return false
+  if (tx.producerPaymentStatus !== 'not_ready') return false
+  if (isMarkReadyBlockedByReceiptVariance(tx)) return false
+  return true
 }
 
 /** Explain why Mark Ready is hidden for an otherwise approved transaction. */
@@ -2125,6 +2159,11 @@ export function markReadyBlockedReason(tx: CommissionTransaction): string | null
   if (tx.paymentBatchId) return 'This transaction is already in a payment batch.'
   if (tx.producerPaymentStatus !== 'not_ready') {
     return `Producer payment status is ${formatLabel(tx.producerPaymentStatus)}.`
+  }
+  const v = commissionReceiptVariance(tx)
+  if (v && v.hasVariance) {
+    const sign = v.variance > 0 ? '+' : ''
+    return `Commission receipt variance: received ${formatCurrency(v.received)} vs current expected ${formatCurrency(v.expected)} (${sign}${formatCurrency(v.variance)}). Re-confirm receipt or adjust the transaction before Mark Ready.`
   }
   return null
 }
@@ -3498,7 +3537,9 @@ export async function markProducerCommissionReady(transactionId: string) {
   const actorId = authz.profileId ?? (await currentAppUserId())
   const { data: row, error: fetchError } = await supabase
     .from('transactions')
-    .select('id, review_status, producer, producer_commission_amount, producer_payment_status, reviewer_user_id')
+    .select(
+      'id, agency_commission_confirmed, agency_commission_amount, amount_received, review_status, producer, producer_commission_amount, producer_payment_status, reviewer_user_id',
+    )
     .eq('id', transactionId)
     .maybeSingle()
 
@@ -3542,6 +3583,25 @@ export async function markProducerCommissionReady(transactionId: string) {
   const producer = (row.producer ?? '').trim()
   const paymentStatus = normalizePaymentStatus(row.producer_payment_status)
   const producerAmount = toNumber(row.producer_commission_amount)
+
+  const receiptVariance = commissionReceiptVariance({
+    agencyCommissionConfirmed: Boolean(row.agency_commission_confirmed),
+    amountReceived:
+      row.amount_received === null || row.amount_received === undefined
+        ? null
+        : toNumber(row.amount_received),
+    agencyCommissionAmount: toNumber(row.agency_commission_amount),
+  })
+  if (receiptVariance && receiptVariance.hasVariance) {
+    const sign = receiptVariance.variance > 0 ? '+' : ''
+    return {
+      error: {
+        message: `Commission receipt variance: received ${formatCurrency(receiptVariance.received)} vs current expected ${formatCurrency(receiptVariance.expected)} (${sign}${formatCurrency(receiptVariance.variance)}). Re-confirm receipt or adjust the transaction before Mark Ready.`,
+        table: 'transactions',
+        operation: 'mark_ready_variance',
+      },
+    }
+  }
 
   const { data, error } = await supabase.rpc(MARK_PRODUCER_COMMISSION_READY_RPC, {
     p_transaction_id: transactionId,

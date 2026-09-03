@@ -17,6 +17,10 @@ import {
   payoutScheduleIsPlanningOnly,
 } from '../src/lib/producerPayoutSchedule.ts'
 import { formatRecoveryReceiptColumn } from '../src/lib/recoveryReceiptColumn.ts'
+import {
+  commissionReceiptVariance,
+  isMarkReadyBlockedByReceiptVariance,
+} from '../src/lib/commissionReceiptVariance.ts'
 
 let passed = 0
 let failed = 0
@@ -57,6 +61,7 @@ const ACTIVITY_TS = readRepo('src/lib/activityPresentation.ts')
 const AGENCY_TS = readRepo('src/lib/agency.ts')
 const AGENCY_SETTINGS = readRepo('src/pages/admin/AgencySettings.tsx')
 const FINANCIALS = readRepo('src/pages/Financials.tsx')
+const TRANSACTIONS_PAGE = readRepo('src/pages/Transactions.tsx')
 const SCHEDULE_TS = readRepo('src/lib/producerPayoutSchedule.ts')
 const RECONCILE_FN = readRepo('supabase/functions/confirm-reconciliation-receipts/index.ts')
 const DASHBOARD = readRepo('src/pages/Dashboard.tsx')
@@ -83,11 +88,36 @@ const CONFIRM_METHODS = [
 ] as const
 
 function formatLabel(value: string): string {
+  if (value === 'not_ready') return 'Not Ready'
   return value
     .split(/[_\s]+/)
     .filter(Boolean)
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(' ')
+}
+
+function formatReviewStatusLabel(status: string, correctionRequired = false): string {
+  if (correctionRequired) return 'Returned for Correction'
+  if (status === 'matched') return 'Submitted for Review'
+  if (status === 'approved') return 'Approved'
+  return 'Expected'
+}
+
+function getDrawerWorkflowSummaryBadges(input: {
+  workflow: string
+  reviewStatus: string
+  correctionRequired?: boolean
+  producerPaymentStatus: string
+}): { reviewLabel: string; showPaymentBadge: boolean; paymentLabel: string } {
+  const paymentLabel = formatLabel(input.producerPaymentStatus)
+  if (input.workflow === 'Paid Outside ALZA Flow') {
+    return { reviewLabel: 'Review Approved', showPaymentBadge: false, paymentLabel }
+  }
+  return {
+    reviewLabel: formatReviewStatusLabel(input.reviewStatus, Boolean(input.correctionRequired)),
+    showPaymentBadge: true,
+    paymentLabel,
+  }
 }
 
 function formatBatchStatusLabel(status: string | null | undefined, paymentChannel?: string | null): string {
@@ -855,6 +885,48 @@ assertEq(
   'Paid Outside ALZA Flow',
   'H: paid + outside_alza_flow displays Paid Outside ALZA Flow',
 )
+{
+  const paidOutside = getDrawerWorkflowSummaryBadges({
+    workflow: 'Paid Outside ALZA Flow',
+    reviewStatus: 'approved',
+    producerPaymentStatus: 'paid',
+  })
+  assertEq(paidOutside.reviewLabel, 'Review Approved', 'H2: paid-outside drawer review badge is Review Approved')
+  assertEq(paidOutside.showPaymentBadge, false, 'H2: paid-outside drawer hides the Paid payment badge')
+  const awaiting = getDrawerWorkflowSummaryBadges({
+    workflow: 'Awaiting Receipt',
+    reviewStatus: 'expected',
+    producerPaymentStatus: 'not_ready',
+  })
+  assertEq(awaiting.reviewLabel, 'Expected', 'H2: unpaid drawer keeps Expected review badge')
+  assertEq(awaiting.showPaymentBadge, true, 'H2: unpaid drawer still shows payment badge')
+  assertEq(awaiting.paymentLabel, 'Not Ready', 'H2: unpaid drawer payment badge stays Not Ready')
+  const approved = getDrawerWorkflowSummaryBadges({
+    workflow: 'Approved',
+    reviewStatus: 'approved',
+    producerPaymentStatus: 'not_ready',
+  })
+  assertEq(approved.reviewLabel, 'Approved', 'H2: not-yet-paid Approved keeps Approved, not Review Approved')
+  assertEq(approved.showPaymentBadge, true, 'H2: not-yet-paid Approved still shows payment badge')
+  const historical = getDrawerWorkflowSummaryBadges({
+    workflow: 'Paid (Historical)',
+    reviewStatus: 'approved',
+    producerPaymentStatus: 'paid',
+  })
+  assertEq(historical.showPaymentBadge, true, 'H2: Paid (Historical) keeps the payment badge')
+  assertEq(historical.reviewLabel, 'Approved', 'H2: Paid (Historical) keeps Approved, not Review Approved')
+}
+assert(
+  COMMISSION_TS.includes("workflow === 'Paid Outside ALZA Flow'") &&
+    COMMISSION_TS.includes("reviewLabel: 'Review Approved'") &&
+    COMMISSION_TS.includes('showPaymentBadge: false') &&
+    COMMISSION_TS.includes('getDrawerWorkflowSummaryBadges') &&
+    !COMMISSION_TS.includes("review_status = 'review_approved'") &&
+    TRANSACTIONS_PAGE.includes('getDrawerWorkflowSummaryBadges') &&
+    TRANSACTIONS_PAGE.includes('summaryBadges.showPaymentBadge') &&
+    TRANSACTIONS_PAGE.includes('getTransactionWorkflowTimeline(selected)'),
+  'H2: drawer summary is display-only; timeline and DB statuses are unchanged',
+)
 assert(
   COMMISSION_TS.includes("normalizePaymentStatus(tx.producerPaymentStatus) === 'paid'") &&
     !COMMISSION_TS.includes("producerPaymentStatus === 'paid' || Boolean(tx.paidDate)") &&
@@ -974,6 +1046,62 @@ assert(
     !FINANCIALS.includes('agency_commission_receipts ( id, client_id, policy_id, client_name, policy_number )'),
   'Recoveries Receipt column uses settlement/application records, never Linked receipt or a Client URL',
 )
+
+/* ── AB. Commission receipt variance blocks Mark Ready ── */
+assert(
+  COMMISSION_TS.includes("from './commissionReceiptVariance'") &&
+    COMMISSION_TS.includes('isMarkReadyBlockedByReceiptVariance(tx)'),
+  'AB1: Mark Ready gates import the shared receipt-variance helper',
+)
+{
+  const start = COMMISSION_TS.indexOf('export function canMarkProducerCommissionReady(')
+  const end = COMMISSION_TS.indexOf('\nexport function ', start + 1)
+  const canMarkBody = end < 0 ? COMMISSION_TS.slice(start) : COMMISSION_TS.slice(start, end)
+  assert(
+    canMarkBody.includes('isMarkReadyBlockedByReceiptVariance(tx)'),
+    'AB2: canMarkProducerCommissionReady gates on receipt variance',
+  )
+}
+{
+  const start = COMMISSION_TS.indexOf('export function markReadyBlockedReason(')
+  const end = COMMISSION_TS.indexOf('\nexport function ', start + 1)
+  const blockedBody = end < 0 ? COMMISSION_TS.slice(start) : COMMISSION_TS.slice(start, end)
+  assert(
+    blockedBody.includes('commissionReceiptVariance(tx)') &&
+      blockedBody.includes('Re-confirm receipt or adjust the transaction before Mark Ready'),
+    'AB3: markReadyBlockedReason explains variance with actionable guidance',
+  )
+}
+{
+  const serverBody = functionBody(COMMISSION_TS, 'markProducerCommissionReady')
+  assert(
+    serverBody.includes('amount_received') &&
+      serverBody.includes('agency_commission_amount') &&
+      serverBody.includes('commissionReceiptVariance(') &&
+      serverBody.includes("operation: 'mark_ready_variance'") &&
+      !serverBody.includes('agency_commission_receipts') &&
+      !serverBody.includes('received_agency_commission'),
+    'AB4: server-side Mark Ready compares transactions.amount_received to agency_commission_amount',
+  )
+}
+{
+  const trx24AfterEdit = {
+    agencyCommissionConfirmed: true,
+    amountReceived: 130,
+    agencyCommissionAmount: 135,
+  }
+  const v = commissionReceiptVariance(trx24AfterEdit)
+  assert(Boolean(v && v.hasVariance && v.received === 130 && v.expected === 135), 'AB5: $130 vs $135 is a blocking variance')
+  assert(isMarkReadyBlockedByReceiptVariance(trx24AfterEdit) === true, 'AB5: Mark Ready blocked after $130 confirm then $135 edit')
+  assert(
+    isMarkReadyBlockedByReceiptVariance({
+      agencyCommissionConfirmed: true,
+      amountReceived: 130,
+      agencyCommissionAmount: 130,
+    }) === false,
+    'AB5: matching $130 received and expected does not block Mark Ready',
+  )
+}
 
 console.log(`Producer Payment V1 validation: ${passed} passed, ${failed} failed`)
 if (failed > 0) process.exit(1)
