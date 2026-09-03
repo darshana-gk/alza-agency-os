@@ -8,6 +8,12 @@
 import { createTransaction, normalizeCommissionType, todayIsoDate, type CommissionType } from './commission'
 import { createPolicy, POLICY_STATUSES, roundMoney, type PolicyStatusValue } from './directory'
 import { canManagePolicies, canManageTransactions, rejectUnlessRole, type RoleInput } from './permissions'
+import {
+  formatPolicyNumberInUseMessage,
+  lookupAgencyPolicyNumberConflict,
+  shouldEnforceAgencyPolicyNumberUniqueness,
+  type PolicyFileNumberOwner,
+} from './policyNumberUniqueness'
 import { validateProducerSplitPercentage } from './producerSplitValidation'
 import { isoDateOnly } from './transactionDateSemantics'
 import { recordActivity } from './activity'
@@ -264,11 +270,11 @@ export type RenewPolicyDeps = {
   callerAgencyId?: string
   loadSource?: (id: string) => Promise<{ data: RenewRewritePolicySnapshot | null; error: string | null }>
   loadClientAgencyId?: (clientId: string) => Promise<{ agencyProfileId: string | null; error: string | null }>
-  hasConflictingPolicyNumber?: (
-    clientId: string,
+  lookupPolicyNumberConflict?: (
+    agencyProfileId: string,
     policyNumber: string,
-    excludePolicyId: string,
-  ) => Promise<{ conflict: boolean; error: string | null }>
+    excludePolicyId?: string | null,
+  ) => Promise<{ owner: PolicyFileNumberOwner | null; error: string | null }>
   updatePolicySetup?: (
     policyId: string,
     patch: Record<string, unknown>,
@@ -292,23 +298,16 @@ async function loadClientAgencyId(clientId: string): Promise<{ agencyProfileId: 
   return { agencyProfileId: String(data.agency_profile_id ?? ''), error: null }
 }
 
-async function hasConflictingPolicyNumber(
-  clientId: string,
+async function lookupPolicyNumberConflict(
+  agencyProfileId: string,
   policyNumber: string,
-  excludePolicyId: string,
-): Promise<{ conflict: boolean; error: string | null }> {
-  const { data, error } = await supabase
-    .from('policies')
-    .select('id, policy_number')
-    .eq('client_id', clientId)
-    .is('archived_at', null)
-    .neq('id', excludePolicyId)
-  if (error) return { conflict: true, error: error.message }
-  const wanted = policyNumber.trim().toLowerCase()
-  const conflict = (data ?? []).some(
-    (row) => String(row.policy_number ?? '').trim().toLowerCase() === wanted,
-  )
-  return { conflict, error: null }
+  excludePolicyId?: string | null,
+): Promise<{ owner: PolicyFileNumberOwner | null; error: string | null }> {
+  return lookupAgencyPolicyNumberConflict({
+    agencyProfileId,
+    policyNumber,
+    excludePolicyId,
+  })
 }
 
 async function updatePolicySetup(
@@ -424,11 +423,18 @@ export async function renewPolicy(
     return { data: null, error: 'Enter the new flat agency commission amount. It is not copied from the original policy.' }
   }
 
-  const dupCheck = deps?.hasConflictingPolicyNumber ?? hasConflictingPolicyNumber
-  const dup = await dupCheck(clientId, policyNumber, sourceId)
-  if (dup.error) return { data: null, error: dup.error }
-  if (dup.conflict) {
-    return { data: null, error: 'A policy with this policy number already exists for this client.' }
+  const dupCheck = deps?.lookupPolicyNumberConflict ?? lookupPolicyNumberConflict
+  if (
+    shouldEnforceAgencyPolicyNumberUniqueness({
+      mode: 'renew',
+      currentPolicyNumber: source.data.policyNumber,
+      nextPolicyNumber: policyNumber,
+    })
+  ) {
+    const agencyId = clientAgency.agencyProfileId || source.data.agencyProfileId
+    const dup = await dupCheck(agencyId, policyNumber, sourceId)
+    if (dup.error) return { data: null, error: dup.error }
+    if (dup.owner) return { data: null, error: formatPolicyNumberInUseMessage(dup.owner) }
   }
 
   const patch = renewedSetupToPolicyPatch(setup)
@@ -728,6 +734,11 @@ export type RewritePolicyDeps = {
   loadClientAgencyId?: (clientId: string) => Promise<{ agencyProfileId: string | null; error: string | null }>
   createPolicy?: typeof createPolicy
   createTransaction?: typeof createTransaction
+  lookupPolicyNumberConflict?: (
+    agencyProfileId: string,
+    policyNumber: string,
+    excludePolicyId?: string | null,
+  ) => Promise<{ owner: PolicyFileNumberOwner | null; error: string | null }>
 }
 
 export async function rewritePolicy(
@@ -779,6 +790,20 @@ export async function rewritePolicy(
 
   if (!Number.isFinite(input.premiumAmount) || !(input.premiumAmount > 0)) {
     return { data: null, error: 'Enter the new policy premium. It is not copied from the original policy.' }
+  }
+
+  if (
+    shouldEnforceAgencyPolicyNumberUniqueness({
+      mode: 'rewrite',
+      currentPolicyNumber: source.data.policyNumber,
+      nextPolicyNumber: policyNumber,
+    })
+  ) {
+    const dupCheck = deps?.lookupPolicyNumberConflict ?? lookupPolicyNumberConflict
+    const agencyId = clientAgency.agencyProfileId || source.data.agencyProfileId
+    const dup = await dupCheck(agencyId, policyNumber)
+    if (dup.error) return { data: null, error: dup.error }
+    if (dup.owner) return { data: null, error: formatPolicyNumberInUseMessage(dup.owner) }
   }
 
   const splitChanged =

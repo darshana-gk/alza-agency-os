@@ -609,7 +609,11 @@ export function PolicyDetails() {
     })
     setSaving(false)
     if (result.error) {
-      setFormError(`RLS/query error on ${result.error.table} (${result.error.operation}): ${result.error.message}`)
+      setFormError(
+        result.error.operation === 'duplicate_check'
+          ? result.error.message
+          : `RLS/query error on ${result.error.table} (${result.error.operation}): ${result.error.message}`,
+      )
       return
     }
     setEditOpen(false)

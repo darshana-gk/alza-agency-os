@@ -1,4 +1,8 @@
 import { resolveCurrentAgencyProfileId } from './agency'
+import {
+  assertNoAgencyPolicyNumberConflict,
+  shouldEnforceAgencyPolicyNumberUniqueness,
+} from './policyNumberUniqueness'
 import { supabase } from './supabase'
 import {
   deriveCommission,
@@ -494,24 +498,22 @@ export async function createPolicy(input: CreatePolicyInput) {
   const policyNumber = input.policyNumber.trim()
   const clientId = input.clientId.trim()
 
-  const { data: existing, error: dupError } = await supabase
-    .from('policies')
-    .select('id')
-    .eq('client_id', clientId)
-    .eq('policy_number', policyNumber)
-    .is('archived_at', null)
-    .limit(1)
-
-  if (dupError) {
-    return err(dupError.message, 'policies', 'duplicate_check', dupError)
+  const { data: clientRow, error: clientError } = await supabase
+    .from('clients')
+    .select('id, agency_profile_id')
+    .eq('id', clientId)
+    .maybeSingle()
+  if (clientError) return err(clientError.message, 'clients', 'duplicate_check', clientError)
+  if (!clientRow) return err('Client was not found.', 'policies', 'validate')
+  const agencyProfileId = String(clientRow.agency_profile_id ?? '').trim()
+  if (!agencyProfileId) {
+    return err('Client is missing agency membership.', 'policies', 'duplicate_check')
   }
-  if (existing && existing.length > 0) {
-    return err(
-      'A policy with this policy number already exists for this client.',
-      'policies',
-      'duplicate_check',
-    )
-  }
+  const duplicate = await assertNoAgencyPolicyNumberConflict({
+    agencyProfileId,
+    policyNumber,
+  })
+  if (duplicate) return err(duplicate, 'policies', 'duplicate_check')
 
   // Money ledger totals live on transactions. policies.premium is a reference field on the
   // policy row (Add Policy leaves it at 0; onboarding may supply the imported value).
@@ -626,34 +628,31 @@ export async function updatePolicy(input: UpdatePolicyInput) {
 
   const { data: current, error: fetchError } = await supabase
     .from('policies')
-    .select('id, client_id, policy_number')
+    .select('id, policy_number, agency_profile_id')
     .eq('id', input.policyId)
     .maybeSingle()
 
   if (fetchError) return err(fetchError.message, 'policies', 'edit_fetch', fetchError)
   if (!current) return err('Policy not found.', 'policies', 'edit_validation')
 
-  const clientId = String(current.client_id ?? '')
   const policyNumber = input.policyNumber.trim()
-
-  if (policyNumber !== String(current.policy_number ?? '')) {
-    const { data: existing, error: dupError } = await supabase
-      .from('policies')
-      .select('id')
-      .eq('client_id', clientId)
-      .eq('policy_number', policyNumber)
-      .is('archived_at', null)
-      .neq('id', input.policyId)
-      .limit(1)
-
-    if (dupError) return err(dupError.message, 'policies', 'duplicate_check', dupError)
-    if (existing && existing.length > 0) {
-      return err(
-        'A policy with this policy number already exists for this client.',
-        'policies',
-        'duplicate_check',
-      )
+  const agencyProfileId = String(current.agency_profile_id ?? '').trim()
+  if (
+    shouldEnforceAgencyPolicyNumberUniqueness({
+      mode: 'edit',
+      currentPolicyNumber: String(current.policy_number ?? ''),
+      nextPolicyNumber: policyNumber,
+    })
+  ) {
+    if (!agencyProfileId) {
+      return err('Policy is missing agency membership.', 'policies', 'duplicate_check')
     }
+    const duplicate = await assertNoAgencyPolicyNumberConflict({
+      agencyProfileId,
+      policyNumber,
+      excludePolicyId: input.policyId,
+    })
+    if (duplicate) return err(duplicate, 'policies', 'duplicate_check')
   }
 
   const payload: Record<string, unknown> = {

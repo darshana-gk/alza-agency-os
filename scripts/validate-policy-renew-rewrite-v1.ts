@@ -29,6 +29,7 @@ import {
   type RewritePolicyInput,
 } from '../src/lib/policyRenewRewrite.ts'
 import type { CreatePolicyInput } from '../src/lib/directory.ts'
+import type { PolicyFileNumberOwner } from '../src/lib/policyNumberUniqueness.ts'
 
 let passed = 0
 let failed = 0
@@ -222,6 +223,7 @@ console.log('E. Rewrite creation + linkage (mocked writes)')
     callerAgencyId: AGENCY_A,
     loadSource: async () => ({ data: source, error: null }),
     loadClientAgencyId: async () => ({ agencyProfileId: AGENCY_A, error: null }),
+    lookupPolicyNumberConflict: async () => ({ owner: null, error: null }),
     createPolicy: async (input) => {
       createdPolicies.push(input)
       return { data: { id: 'policy-new-1' }, error: null }
@@ -269,6 +271,7 @@ console.log('F. Rewrite rejects blank number, inherited-zero premium, and cross-
     callerAgencyId: AGENCY_A,
     loadSource: async () => ({ data: source, error: null }),
     loadClientAgencyId: async () => ({ agencyProfileId: AGENCY_A, error: null }),
+    lookupPolicyNumberConflict: async () => ({ owner: null, error: null }),
     createPolicy: async () => ({ data: { id: 'should-not-create' }, error: null }),
     createTransaction: async () => ({ data: { id: 'should-not-create', transactionNumber: 'x' }, error: null }),
   }
@@ -473,7 +476,7 @@ console.log('I. Renewal keeps the same Policy File and updates current setup')
         agencyProfileId: clientId.startsWith('client-b') ? AGENCY_B : AGENCY_A,
         error: null,
       }),
-      hasConflictingPolicyNumber: async () => ({ conflict: false, error: null }),
+      lookupPolicyNumberConflict: async () => ({ owner: null, error: null }),
       freezeHistoricalPolicySnapshots: async (policyId, snapshot) => {
         callOrder.push('freeze')
         freezeCalls.push({
@@ -580,7 +583,7 @@ console.log('I. Renewal keeps the same Policy File and updates current setup')
     callerAgencyId: AGENCY_A,
     loadSource: async () => ({ data: source, error: null }),
     loadClientAgencyId: async () => ({ agencyProfileId: AGENCY_B, error: null }),
-    hasConflictingPolicyNumber: async () => ({ conflict: false, error: null }),
+    lookupPolicyNumberConflict: async () => ({ owner: null, error: null }),
     updatePolicySetup: async () => ({ error: null }),
     createTransaction: async () => ({ data: { id: 'should-not', transactionNumber: 'x' }, error: null }),
   })
@@ -709,6 +712,7 @@ console.log('L. Mid-term rewrite and rewrite at expiration create a new file, no
       callerAgencyId: AGENCY_A,
       loadSource: async () => ({ data: source, error: null }),
       loadClientAgencyId: async () => ({ agencyProfileId: AGENCY_A, error: null }),
+      lookupPolicyNumberConflict: async () => ({ owner: null, error: null }),
       createPolicy: async (policyInput) => {
         createdPolicies.push(policyInput)
         return { data: { id: 'policy-new-1' }, error: null }
@@ -785,6 +789,7 @@ console.log('M. Replacement setup edits apply only to the new file')
       callerAgencyId: AGENCY_A,
       loadSource: async () => ({ data: source, error: null }),
       loadClientAgencyId: async () => ({ agencyProfileId: AGENCY_A, error: null }),
+      lookupPolicyNumberConflict: async () => ({ owner: null, error: null }),
       createPolicy: async (policyInput) => {
         createdPolicies.push(policyInput)
         return { data: { id: 'policy-new-1' }, error: null }
@@ -848,6 +853,104 @@ console.log('N. Rewritten-away files are excluded from current/client premium to
     { policyPremium: 0, transactionPremiumSum: 7600, liveTransactionCount: 1 },
   ])
   assertEq(liveTotal, 7600, 'after excluding the replaced file, client total is the replacement only')
+}
+
+console.log('N. Agency policy-number uniqueness on renew (changed number) and rewrite')
+{
+  const source = samplePolicy()
+  const otherFile: PolicyFileNumberOwner = {
+    policyId: 'policy-other-1',
+    policyNumber: 'BHP-GL-TAKEN',
+    clientId: 'client-2',
+    clientName: 'Oak Street HVAC',
+  }
+  const freezeCalls: string[] = []
+  const createdPolicyIds: string[] = []
+
+  const sameNumber = await renewPolicy(renewInput(), {
+    bypassAuth: true,
+    skipActivity: true,
+    callerAgencyId: AGENCY_A,
+    loadSource: async () => ({ data: source, error: null }),
+    loadClientAgencyId: async () => ({ agencyProfileId: AGENCY_A, error: null }),
+    lookupPolicyNumberConflict: async () => {
+      throw new Error('same-number renew must not uniqueness-check')
+    },
+    freezeHistoricalPolicySnapshots: async () => {
+      freezeCalls.push('freeze')
+      return { error: null }
+    },
+    updatePolicySetup: async () => ({ error: null }),
+    createTransaction: async () => ({ data: { id: 'txn-ren-same', transactionNumber: 'T' }, error: null }),
+  })
+  assert(sameNumber.error === null, 'renewing with the same Policy File number is allowed')
+  assertEq(freezeCalls.join(','), 'freeze', 'same-number renew still freezes historical snapshots')
+
+  const blockedRenew = await renewPolicy(renewInput({ policyNumber: 'BHP-GL-TAKEN' }), {
+    bypassAuth: true,
+    skipActivity: true,
+    callerAgencyId: AGENCY_A,
+    loadSource: async () => ({ data: source, error: null }),
+    loadClientAgencyId: async () => ({ agencyProfileId: AGENCY_A, error: null }),
+    lookupPolicyNumberConflict: async () => ({ owner: otherFile, error: null }),
+    freezeHistoricalPolicySnapshots: async () => {
+      freezeCalls.push('should-not-freeze')
+      return { error: null }
+    },
+    updatePolicySetup: async () => ({ error: 'should-not-patch' }),
+    createTransaction: async () => ({ data: { id: 'should-not', transactionNumber: 'x' }, error: null }),
+  })
+  assert(blockedRenew.error?.includes('Oak Street HVAC'), 'changed-number renew names the existing client')
+  assert(blockedRenew.error?.includes('BHP-GL-TAKEN'), 'changed-number renew names the existing Policy File')
+  assert(blockedRenew.data === null, 'changed-number renew does not return ids on conflict')
+  assert(!freezeCalls.includes('should-not-freeze'), 'conflicting renew does not freeze historical snapshots')
+
+  const blockedRewrite = await rewritePolicy(rewriteInput({ policyNumber: 'BHP-GL-TAKEN' }), {
+    bypassAuth: true,
+    skipActivity: true,
+    callerAgencyId: AGENCY_A,
+    loadSource: async () => ({ data: source, error: null }),
+    loadClientAgencyId: async () => ({ agencyProfileId: AGENCY_A, error: null }),
+    lookupPolicyNumberConflict: async () => ({ owner: otherFile, error: null }),
+    createPolicy: async () => {
+      createdPolicyIds.push('should-not-create')
+      return { data: { id: 'should-not-create' }, error: null }
+    },
+    createTransaction: async () => ({ data: { id: 'should-not', transactionNumber: 'x' }, error: null }),
+  })
+  assert(blockedRewrite.error?.includes('Oak Street HVAC'), 'rewrite names the existing client')
+  assert(blockedRewrite.error?.includes('BHP-GL-TAKEN'), 'rewrite names the existing Policy File')
+  assertEq(createdPolicyIds.length, 0, 'conflicting rewrite does not create a Policy File')
+
+  const predecessorNumber = await rewritePolicy(rewriteInput({ policyNumber: 'BHP-GL-2026-001' }), {
+    bypassAuth: true,
+    skipActivity: true,
+    callerAgencyId: AGENCY_A,
+    loadSource: async () => ({ data: source, error: null }),
+    loadClientAgencyId: async () => ({ agencyProfileId: AGENCY_A, error: null }),
+    lookupPolicyNumberConflict: async (_agency, number) =>
+      number.trim().toLowerCase() === 'bhp-gl-2026-001'
+        ? {
+            owner: {
+              policyId: SOURCE_POLICY_ID,
+              policyNumber: source.policyNumber,
+              clientId: source.clientId,
+              clientName: source.clientName,
+            },
+            error: null,
+          }
+        : { owner: null, error: null },
+    createPolicy: async () => {
+      createdPolicyIds.push('should-not-reuse-predecessor')
+      return { data: { id: 'should-not' }, error: null }
+    },
+    createTransaction: async () => ({ data: { id: 'should-not', transactionNumber: 'x' }, error: null }),
+  })
+  assert(
+    predecessorNumber.error?.includes('Blue Harbor Plumbing LLC'),
+    'rewrite cannot reuse the predecessor Policy File number',
+  )
+  assertEq(createdPolicyIds.length, 0, 'predecessor-number rewrite does not create a file')
 }
 
 if (failed > 0) {

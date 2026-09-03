@@ -168,7 +168,11 @@ export function AddPolicyModal({
     setSaving(false)
 
     if (result.error) {
-      setError(`RLS/query error on ${result.error.table} (${result.error.operation}): ${result.error.message}`)
+      setError(
+        result.error.operation === 'duplicate_check'
+          ? result.error.message
+          : `RLS/query error on ${result.error.table} (${result.error.operation}): ${result.error.message}`,
+      )
       return
     }
 
