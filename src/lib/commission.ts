@@ -40,6 +40,7 @@ export {
   SETTLED_BY_RECOVERY_LABEL,
   canConfirmProducerPaidBatch,
   formatProducerPaymentBatchStatus,
+  formatRecoveryOutcomeLabel,
   getNegativeProducerRecoveryWorkflowStatus,
   hasNegativeProducerCommission,
   isBatchSettledByRecovery,
@@ -430,6 +431,9 @@ export const statusBadgeStyles: Record<string, string> = {
   unmatched: 'bg-orange-50 text-orange-700 ring-orange-600/20',
   open: 'bg-amber-50 text-amber-700 ring-amber-600/20',
   applied: 'bg-emerald-50 text-emerald-700 ring-emerald-600/20',
+  'recovery pending': 'bg-amber-50 text-amber-700 ring-amber-600/20',
+  'partially recovered': 'bg-orange-50 text-orange-700 ring-orange-600/20',
+  'recovered / settled': 'bg-emerald-50 text-emerald-700 ring-emerald-600/20',
   void: 'bg-slate-100 text-slate-600 ring-slate-500/20',
   voided: 'bg-slate-100 text-slate-600 ring-slate-500/20',
   cancelled: 'bg-red-50 text-red-700 ring-red-600/20',
@@ -653,27 +657,13 @@ export function normalizeRecoveryStatus(value: string | null | undefined): Recov
   return v || 'open'
 }
 
+/** DB-status label only. Customer-facing UI must use formatRecoveryOutcomeLabel. */
 export function formatRecoveryStatusLabel(status: string | null | undefined): string {
   const v = normalizeRecoveryStatus(status)
   if (v === 'open') return 'Open'
   if (v === 'applied') return 'Recovered / Settled'
   if (v === 'voided') return 'Voided'
   return formatLabel(String(v))
-}
-
-/** Business-facing recovery outcome using balances (OPEN / PARTIALLY RECOVERED / RECOVERED). */
-export function formatRecoveryOutcomeLabel(row: {
-  status?: string | null
-  applied_amount?: number | null
-  remaining_amount?: number | null
-  voided_at?: string | null
-}): string {
-  if (row.voided_at || normalizeRecoveryStatus(row.status) === 'voided') return 'Voided'
-  if (normalizeRecoveryStatus(row.status) === 'applied' || toNumber(row.remaining_amount) <= 0) {
-    return 'Recovered / Settled'
-  }
-  if (toNumber(row.applied_amount) > 0) return 'Partially Recovered'
-  return 'Open'
 }
 
 /**

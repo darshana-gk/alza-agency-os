@@ -3,7 +3,7 @@ import {
   formatActivityDetailsSummary,
   formatActivityEntityLabel,
 } from './activityPresentation'
-import { formatLabel, formatProducerPaymentBatchStatus, formatProducerPaymentMethodLabel, formatTypeLabel, type CommissionTransaction } from './commission'
+import { formatLabel, formatProducerPaymentBatchStatus, formatProducerPaymentMethodLabel, formatRecoveryOutcomeLabel, formatTypeLabel, type CommissionTransaction } from './commission'
 import {
   formatReconciliationMatchLabel,
   formatReconciliationStatus,
@@ -146,15 +146,30 @@ export const recoveryExportColumns: ExportColumn<{
   producer: string
   transactionNumber: string
   amount: number
+  appliedAmount?: number
+  remainingAmount?: number
   status: string
+  displayStatus?: string
   notes: string
   createdAt: string
+  voidedAt?: string | null
 }>[] = [
   { header: 'Recovery #', value: (r) => r.recoveryNumber ?? '' },
   { header: 'Producer', value: (r) => r.producer },
   { header: 'Transaction #', value: (r) => r.transactionNumber },
   { header: 'Amount', value: (r) => r.amount, type: 'currency' },
-  { header: 'Status', value: (r) => formatLabel(r.status) },
+  {
+    header: 'Status',
+    value: (r) =>
+      r.displayStatus ||
+      formatRecoveryOutcomeLabel({
+        status: r.status,
+        amount: r.amount,
+        appliedAmount: r.appliedAmount,
+        remainingAmount: r.remainingAmount,
+        voidedAt: r.voidedAt,
+      }),
+  },
   { header: 'Notes', value: (r) => r.notes },
   { header: 'Created Date', value: (r) => r.createdAt, type: 'datetime' },
 ]

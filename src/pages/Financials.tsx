@@ -27,7 +27,7 @@ import {
   formatProducerPaymentMethodLabel,
   formatRecoveryReceiptColumn,
   formatRecoverySettlementLabel,
-  formatRecoveryStatusLabel,
+  formatRecoveryOutcomeLabel,
   isBatchSettledByRecovery,
   isDirectPaymentSettlement,
   isPayoutAppliedSettlement,
@@ -211,6 +211,7 @@ interface Recovery {
   appliedAmount: number
   remainingAmount: number
   status: string
+  displayStatus: string
   settlementMethod: string
   notes: string
   transactionNumber: string
@@ -326,6 +327,7 @@ function mapRecovery(row: RecoveryRow, allocations: RecoveryReceiptAllocationRef
   const settlementMethod = isDirectPaymentSettlement(row.settlement_method)
     ? 'direct_payment'
     : 'next_payout'
+  const status = normalizeRecoveryStatus(row.status)
   return {
     id: row.id,
     recoveryNumber: row.recovery_number?.trim() || null,
@@ -334,7 +336,13 @@ function mapRecovery(row: RecoveryRow, allocations: RecoveryReceiptAllocationRef
     amount,
     appliedAmount,
     remainingAmount,
-    status: normalizeRecoveryStatus(row.status),
+    status,
+    displayStatus: formatRecoveryOutcomeLabel({
+      status,
+      amount,
+      applied_amount: appliedAmount,
+      remaining_amount: remainingAmount,
+    }),
     settlementMethod,
     notes: row.notes?.trim() || '—',
     transactionNumber: txn?.transaction_number?.trim() || '—',
@@ -846,7 +854,7 @@ export function Financials() {
   const statusOptions = useMemo(() => {
     if (tab === 'receipts') return [...new Set(receipts.map((r) => r.reconciliationStatus))].sort()
     if (tab === 'payments') return [...new Set(batches.map((b) => b.status))].sort()
-    return [...new Set(recoveries.map((r) => r.status))].sort()
+    return [...new Set(recoveries.map((r) => r.displayStatus))].sort()
   }, [tab, receipts, batches, recoveries])
 
   const yearOptions = useMemo(() => {
@@ -946,7 +954,7 @@ export function Financials() {
   const filteredRecoveries = useMemo(() => {
     const query = search.trim().toLowerCase()
     return recoveries.filter((row) => {
-      if (statusFilter !== ALL && row.status !== statusFilter) return false
+      if (statusFilter !== ALL && row.displayStatus !== statusFilter) return false
       if (producerFilter !== ALL && row.producer !== producerFilter) return false
       if (!matchesYearAndRange(row.createdAt)) return false
       if (!query) return true
@@ -972,7 +980,7 @@ export function Financials() {
           amount: (row) => row.amount,
           applied: (row) => row.appliedAmount,
           remaining: (row) => row.remainingAmount,
-          status: (row) => row.status,
+          status: (row) => row.displayStatus,
           settlement: (row) => row.settlementMethod,
           transaction: (row) => row.transactionNumber,
         },
@@ -1224,8 +1232,8 @@ export function Financials() {
     setRecoverySettlementMethod('next_payout')
     setActionSuccess(
       recoverySettlementMethod === 'direct_payment'
-        ? 'Recovery recorded as Open. Confirm Recovery Payment when the producer has paid the agency back. It will not reduce a future payout.'
-        : 'Recovery recorded as Open. It will reduce a future producer payout.',
+        ? 'Recovery recorded as Recovery Pending. Confirm Recovery Payment when the producer has paid the agency back. It will not reduce a future payout.'
+        : 'Recovery recorded as Recovery Pending. It will reduce a future producer payout.',
     )
     await loadAll()
   }
@@ -1622,7 +1630,7 @@ export function Financials() {
                       ? 'Paid'
                       : formatBatchStatusLabel(status)
                     : tab === 'recoveries'
-                      ? formatRecoveryStatusLabel(status)
+                      ? status
                       : formatLabel(status)}
                 </option>
               ))}
@@ -2202,8 +2210,8 @@ export function Financials() {
                         {formatCurrency(row.remainingAmount)}
                       </td>
                       <td className="px-6 py-4">
-                        <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ring-inset ${badgeClass(row.status)}`}>
-                          {formatRecoveryStatusLabel(row.status)}
+                        <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ring-inset ${badgeClass(row.displayStatus)}`}>
+                          {row.displayStatus}
                         </span>
                       </td>
                       <td className="whitespace-nowrap px-6 py-4 text-sm text-slate-700">

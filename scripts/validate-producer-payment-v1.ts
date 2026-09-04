@@ -24,6 +24,7 @@ import {
 import {
   canConfirmProducerPaidBatch,
   formatProducerPaymentBatchStatus,
+  formatRecoveryOutcomeLabel,
   getNegativeProducerRecoveryWorkflowStatus,
   isBatchSettledByRecovery,
   SETTLED_BY_RECOVERY_LABEL,
@@ -1242,6 +1243,69 @@ assert(
       FINANCIALS.includes('formatProducerPaymentBatchStatus') &&
       FINANCIALS.includes('canConfirmProducerPaid(row)'),
     'AC4: UI uses recovery-specific Mark Ready copy, application-based recovery status, and settled-by-recovery batch display',
+  )
+}
+
+{
+  assertEq(
+    formatRecoveryOutcomeLabel({
+      status: 'open',
+      amount: 565.5,
+      applied_amount: 0,
+      remaining_amount: 565.5,
+    }),
+    'Recovery Pending',
+    'A: Original 565.50 / Applied 0 / Remaining 565.50 = Recovery Pending',
+  )
+  assertEq(
+    formatRecoveryOutcomeLabel({
+      status: 'open',
+      amount: 565.5,
+      applied_amount: 540,
+      remaining_amount: 25.5,
+    }),
+    'Partially Recovered',
+    'B: Original 565.50 / Applied 540 / Remaining 25.50 = Partially Recovered',
+  )
+  assertEq(
+    formatRecoveryOutcomeLabel({
+      status: 'applied',
+      amount: 565.5,
+      applied_amount: 565.5,
+      remaining_amount: 0,
+    }),
+    'Recovered / Settled',
+    'C: Original 565.50 / Applied 565.50 / Remaining 0 = Recovered / Settled',
+  )
+  assertEq(
+    formatRecoveryOutcomeLabel({
+      status: 'applied',
+      amount: 565.5,
+      applied_amount: 565.5,
+      remaining_amount: 0,
+    }),
+    'Recovered / Settled',
+    'D: Existing fully settled recovery remains Recovered / Settled',
+  )
+  assertEq(
+    formatRecoveryOutcomeLabel({
+      status: 'open',
+      amount: 565.5,
+      applied_amount: 565.5,
+      remaining_amount: 0,
+    }),
+    'Recovered / Settled',
+    'D: remaining 0 stays Recovered / Settled even if DB status is still open',
+  )
+  assert(
+    FINANCIALS.includes('displayStatus: formatRecoveryOutcomeLabel') &&
+      FINANCIALS.includes('badgeClass(row.displayStatus)') &&
+      !FINANCIALS.includes('formatRecoveryStatusLabel(row.status)') &&
+      TRANSACTIONS_PAGE.includes('badgeClass(outcome)') &&
+      TRANSACTIONS_PAGE.includes("row.settlementMethod === 'direct_payment'") &&
+      FINANCIALS.includes('formatRecoveryReceiptColumn') &&
+      FINANCIALS.includes('isBatchSettledByRecovery'),
+    'Customer-facing recovery table/detail use derived display status; Direct Pay and Settled by Recovery stay intact',
   )
 }
 

@@ -24,6 +24,7 @@ export type RecoveryApplicationInput = {
   status?: string | null
   voidedAt?: string | null
   voided_at?: string | null
+  amount?: number | string | null
   appliedAmount?: number | string | null
   applied_amount?: number | string | null
   remainingAmount?: number | string | null
@@ -147,6 +148,25 @@ export function isNegativeProducerRecoveryWorkflowStatus(
   status: string | null | undefined,
 ): status is NegativeProducerRecoveryWorkflowStatus {
   return (NEGATIVE_PRODUCER_RECOVERY_WORKFLOW_STATUSES as readonly string[]).includes(status ?? '')
+}
+
+/**
+ * Customer-facing recovery row status from applied / remaining amounts.
+ * DB status is only used for Voided. Do not render raw open/applied.
+ */
+export function formatRecoveryOutcomeLabel(row: RecoveryApplicationInput): string {
+  if (row.voidedAt || row.voided_at || String(row.status ?? '').toLowerCase().trim() === 'voided') {
+    return 'Voided'
+  }
+  const applied = Math.round(toNumber(row.appliedAmount ?? row.applied_amount) * 100) / 100
+  const remainingSource = row.remainingAmount ?? row.remaining_amount
+  const remaining =
+    remainingSource == null || remainingSource === ''
+      ? Math.max(0, Math.round((toNumber(row.amount) - applied) * 100) / 100)
+      : Math.round(toNumber(remainingSource) * 100) / 100
+  if (remaining <= PRODUCER_PAYMENT_MONEY_TOLERANCE) return 'Recovered / Settled'
+  if (isPositiveMoney(applied)) return 'Partially Recovered'
+  return 'Recovery Pending'
 }
 
 export function hasNegativeProducerCommission(

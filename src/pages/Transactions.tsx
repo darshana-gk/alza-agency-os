@@ -2239,6 +2239,13 @@ export function Transactions() {
                         !row.voidedAt &&
                         row.remainingAmount > 0 &&
                         row.settlementMethod === 'direct_payment'
+                      const outcome = formatRecoveryOutcomeLabel({
+                        status: row.status,
+                        amount: row.amount,
+                        appliedAmount: row.appliedAmount,
+                        remainingAmount: row.remainingAmount,
+                        voidedAt: row.voidedAt,
+                      })
                       return (
                         <li key={row.id} className="rounded-lg border border-slate-200 px-3 py-2 text-sm">
                           <div className="flex items-center justify-between gap-3">
@@ -2250,13 +2257,8 @@ export function Transactions() {
                                 {formatCurrency(row.amount)}
                               </span>
                             </div>
-                            <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset ${badgeClass(row.status)}`}>
-                              {formatRecoveryOutcomeLabel({
-                                status: row.status,
-                                applied_amount: row.appliedAmount,
-                                remaining_amount: row.remainingAmount,
-                                voided_at: row.voidedAt,
-                              })}
+                            <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset ${badgeClass(outcome)}`}>
+                              {outcome}
                             </span>
                           </div>
                           <p className="mt-1 text-xs text-slate-500">
