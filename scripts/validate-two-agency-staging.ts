@@ -559,7 +559,7 @@ SELECT jsonb_build_object('reset', true) AS reset;
   assert('a_cannot_confirm_b_stmt', Boolean(aConfirmStmt.error), errMsg(aConfirmStmt.error) || 'not denied')
 
   console.log('\n== 9. Support ==')
-  const aTickets = await aOwner.from('support_conversations').select('id, agency_profile_id, subject')
+  const aTickets = await aOwner.from('support_conversations').select('id, agency_profile_id, subject, ticket_number')
   const bMsg = await bOwner.from('support_messages').insert({
     conversation_id: B_TICKET,
     sender_user_id: bOwnerUserId,
@@ -567,8 +567,8 @@ SELECT jsonb_build_object('reset', true) AS reset;
     body: '2AG-B seed ticket body',
   }).select('id').maybeSingle()
   assert('b_support_message_seed', Boolean(bMsg.data?.id) || /duplicate|already/i.test(errMsg(bMsg.error)), errMsg(bMsg.error) || String(bMsg.data?.id))
-  const bTickets = await bOwner.from('support_conversations').select('id, agency_profile_id, subject')
-  const sTickets = await support.from('support_conversations').select('id, agency_profile_id, subject')
+  const bTickets = await bOwner.from('support_conversations').select('id, agency_profile_id, subject, ticket_number')
+  const sTickets = await support.from('support_conversations').select('id, agency_profile_id, subject, ticket_number')
   assert(
     'a_tickets_own',
     (aTickets.data ?? []).every((t) => t.agency_profile_id === AGENCY_A) &&
@@ -586,6 +586,22 @@ SELECT jsonb_build_object('reset', true) AS reset;
     (sTickets.data ?? []).some((t) => t.agency_profile_id === AGENCY_A) &&
       (sTickets.data ?? []).some((t) => t.id === B_TICKET),
     `n=${sTickets.data?.length}`,
+  )
+  const ticketNumberOk = (value: unknown) => /^ALZA-\d{6}$/.test(String(value ?? ''))
+  assert(
+    'a_tickets_have_ticket_number',
+    (aTickets.data ?? []).length > 0 && (aTickets.data ?? []).every((t) => ticketNumberOk(t.ticket_number)),
+    JSON.stringify((aTickets.data ?? []).map((t) => t.ticket_number)),
+  )
+  assert(
+    'b_tickets_have_ticket_number',
+    (bTickets.data ?? []).length > 0 && (bTickets.data ?? []).every((t) => ticketNumberOk(t.ticket_number)),
+    JSON.stringify((bTickets.data ?? []).map((t) => t.ticket_number)),
+  )
+  assert(
+    'support_ticket_numbers_global',
+    (sTickets.data ?? []).every((t) => ticketNumberOk(t.ticket_number)),
+    JSON.stringify((sTickets.data ?? []).map((t) => t.ticket_number)),
   )
   const brief = await support.rpc('support_agency_brief')
   const briefRows = Array.isArray(brief.data) ? (brief.data as Array<{ id: string; agency_name: string }>) : []

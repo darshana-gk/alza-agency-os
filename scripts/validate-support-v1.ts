@@ -328,6 +328,42 @@ assert('resolve via RPC alza-only', true, 'support_resolve_conversation')
 }
 
 {
+  const ticketSql = readFileSync(
+    resolve('supabase/migrations/20260908150000_support_ticket_number.sql'),
+    'utf8',
+  )
+  const support = readFileSync(resolve('src/lib/support.ts'), 'utf8')
+  assert(
+    'ticket number migration matches Staging ALZA-###### design',
+    ticketSql.includes('CREATE SEQUENCE IF NOT EXISTS public.support_ticket_number_seq') &&
+      ticketSql.includes('GENERATED ALWAYS AS') &&
+      ticketSql.includes("'ALZA-'::text || lpad((ticket_seq)::text, 6, '0'::text)") &&
+      ticketSql.includes('ROW_NUMBER() OVER (ORDER BY created_at, id)') &&
+      ticketSql.includes("RAISE EXCEPTION 'support ticket number cannot be changed'") &&
+      ticketSql.includes('support_conversations_ticket_number_uidx') &&
+      !ticketSql.includes('DROP POLICY') &&
+      !ticketSql.includes('CREATE POLICY') &&
+      !ticketSql.includes('20260831140000'),
+    'global seq + generated ALZA-######, no RLS change',
+  )
+  assert(
+    'ticket number migration is idempotent and does not rewind the sequence',
+    ticketSql.includes('ADD COLUMN IF NOT EXISTS ticket_seq') &&
+      ticketSql.includes('AND c.ticket_seq IS NULL') &&
+      ticketSql.includes('GREATEST(COALESCE(v_seq, 0), v_max)') &&
+      ticketSql.includes('ON CONFLICT (version) DO NOTHING'),
+    'IF NOT EXISTS + NULL-only backfill + GREATEST setval',
+  )
+  assert(
+    'app selects ticket_number and searches it',
+    support.includes('ticket_number') &&
+      support.includes('ticketNumber: String(row.ticket_number') &&
+      support.includes("(r.ticketNumber ?? '').toLowerCase().includes(q)"),
+    'CONVERSATION_SELECT + search',
+  )
+}
+
+{
   const sample = (partial: Partial<SupportMessage> & Pick<SupportMessage, 'id' | 'createdAt'>): SupportMessage => ({
     conversationId: 'c',
     senderUserId: null,
