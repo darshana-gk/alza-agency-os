@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
-import { CreditCard, Loader2, RefreshCw, XCircle } from 'lucide-react'
+import { CreditCard, Loader2, RefreshCw, X, XCircle } from 'lucide-react'
 import { useAuth } from '../../lib/auth'
+import { useAgency } from '../../lib/agencyContext'
 import { canManageBilling, rolesOf } from '../../lib/permissions'
 import {
   canCancelSubscription,
@@ -42,6 +43,7 @@ const selectClass =
 
 export function SubscriptionBillingPage() {
   const { profile } = useAuth()
+  const { agency } = useAgency()
   const [searchParams] = useSearchParams()
   const canManage = canManageBilling(rolesOf(profile))
   const [loading, setLoading] = useState(true)
@@ -54,6 +56,12 @@ export function SubscriptionBillingPage() {
   const [product, setProduct] = useState<BillingProductKey>('alza_flow')
   const [userBand, setUserBand] = useState<BillingUserBandKey>('users_1_3')
   const [interval, setInterval] = useState<BillingInterval>('monthly')
+  const [waitlistOpen, setWaitlistOpen] = useState(false)
+  const [waitlistName, setWaitlistName] = useState('')
+  const [waitlistEmail, setWaitlistEmail] = useState('')
+  const [waitlistAgency, setWaitlistAgency] = useState('')
+  const [waitlistSubmitted, setWaitlistSubmitted] = useState(false)
+  const [waitlistError, setWaitlistError] = useState<string | null>(null)
   const pollRef = useRef<number | null>(null)
   const recommendedInitialized = useRef(false)
   const queryInitialized = useRef(false)
@@ -143,6 +151,7 @@ export function SubscriptionBillingPage() {
     billingUserBands('alza_flow').find((b) => b.key === recommendedBand)?.label ?? recommendedBand
   const selectedProduct = BILLING_PRODUCTS.find((p) => p.key === product)
   const isRecommendedSelection = userBand === recommendedBand && product === 'alza_flow'
+  const isFlowPay = product === 'alza_flow_pay'
   const showAnnualAdvantage =
     product === 'alza_flow' &&
     interval === 'annual' &&
@@ -224,6 +233,37 @@ export function SubscriptionBillingPage() {
     }
     setInfo('Cancellation requested. Status will refresh shortly.')
     void load()
+  }
+
+  function openFlowPayWaitlist() {
+    setWaitlistName(profile?.fullName?.trim() || '')
+    setWaitlistEmail(profile?.email?.trim() || '')
+    setWaitlistAgency(agency?.agencyName?.trim() || '')
+    setWaitlistSubmitted(false)
+    setWaitlistError(null)
+    setWaitlistOpen(true)
+  }
+
+  function closeFlowPayWaitlist() {
+    setWaitlistOpen(false)
+    setWaitlistError(null)
+  }
+
+  function handleJoinWaitlist(e: FormEvent) {
+    e.preventDefault()
+    const name = waitlistName.trim()
+    const email = waitlistEmail.trim()
+    const agencyName = waitlistAgency.trim()
+    if (!name || !email || !agencyName) {
+      setWaitlistError('Name, work email, and agency name are required.')
+      return
+    }
+    if (!email.includes('@')) {
+      setWaitlistError('Enter a valid work email.')
+      return
+    }
+    setWaitlistError(null)
+    setWaitlistSubmitted(true)
   }
 
   if (!canManage) {
@@ -344,7 +384,7 @@ export function SubscriptionBillingPage() {
                           }`}
                         >
                           {opt.label}
-                          {opt.key === 'annual' && selected ? (
+                          {opt.key === 'annual' && selected && !isFlowPay ? (
                             <span className="rounded bg-white/20 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-white">
                               Save 2 months
                             </span>
@@ -364,7 +404,9 @@ export function SubscriptionBillingPage() {
                     <span className="font-medium text-slate-700">{recommendedLabel}</span>
                   </p>
                   <p className="pt-2 leading-relaxed text-slate-400">
-                    All prices are in USD. Secure checkout by Razorpay.
+                    {isFlowPay
+                      ? 'ALZA Flow Pay is not available for purchase yet.'
+                      : 'All prices are in USD. Secure checkout by Razorpay.'}
                   </p>
                 </div>
               </aside>
@@ -387,13 +429,20 @@ export function SubscriptionBillingPage() {
                       </span>
                     ) : null}
                   </p>
-                  <p className="mt-2.5 text-base font-medium text-white/90">
-                    {quote.bandLabel}
-                    {quote.intervalLabel ? ` · ${quote.intervalLabel}` : ''}
+                  {!isFlowPay ? (
+                    <p className="mt-2.5 text-base font-medium text-white/90">
+                      {quote.bandLabel}
+                      {quote.intervalLabel ? ` · ${quote.intervalLabel}` : ''}
+                    </p>
+                  ) : null}
+                  <p className="mt-5 text-4xl font-bold tracking-tight sm:text-5xl">
+                    {isFlowPay ? 'Coming Soon' : quote.displayPrice}
                   </p>
-                  <p className="mt-5 text-4xl font-bold tabular-nums tracking-tight sm:text-5xl">
-                    {quote.displayPrice}
-                  </p>
+                  {isFlowPay ? (
+                    <p className="mt-3 text-sm font-medium text-white/85">
+                      Integrated producer payments are coming to ALZA Flow.
+                    </p>
+                  ) : null}
                   {showAnnualAdvantage && (
                     <p className="mt-2 text-sm text-white/75">
                       Equivalent to {formatUsdMoney(equivalentMonthlyFromAnnual(quote.amount!))}
@@ -445,8 +494,9 @@ export function SubscriptionBillingPage() {
                   )}
 
                   {product === 'alza_flow_pay' && (
-                    <p className="text-sm font-medium text-slate-600">
-                      ALZA Flow Pay is Coming Soon and not purchasable.
+                    <p className="text-sm leading-relaxed text-slate-600">
+                      ALZA Flow Pay will bring producer payment processing directly into ALZA Flow. Join
+                      the waitlist to be notified when it becomes available.
                     </p>
                   )}
 
@@ -468,6 +518,16 @@ export function SubscriptionBillingPage() {
                           Secure checkout by Razorpay
                         </p>
                       </>
+                    )}
+                    {primaryAction === 'flow_pay_waitlist' && (
+                      <button
+                        type="button"
+                        data-testid="flow-pay-waitlist-cta"
+                        onClick={openFlowPayWaitlist}
+                        className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-xl gradient-alza px-5 py-3.5 text-base font-semibold text-white shadow-md hover:opacity-90"
+                      >
+                        Join Flow Pay Waitlist
+                      </button>
                     )}
                     {primaryAction === 'upgrade_contact' && (
                       <Link
@@ -514,6 +574,89 @@ export function SubscriptionBillingPage() {
               </button>
             </div>
         </>
+      )}
+
+      {waitlistOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="flow-pay-waitlist-title"
+          data-testid="flow-pay-waitlist-modal"
+        >
+          <div className="relative w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-xl">
+            <button
+              type="button"
+              onClick={closeFlowPayWaitlist}
+              className="absolute right-3 top-3 rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+              aria-label="Close waitlist"
+            >
+              <X className="h-4 w-4" />
+            </button>
+            <h2 id="flow-pay-waitlist-title" className="pr-8 text-lg font-semibold text-slate-900">
+              Join the ALZA Flow Pay Waitlist
+            </h2>
+            <p className="mt-2 text-sm leading-relaxed text-slate-600">
+              Be among the first to know when integrated producer payments become available.
+            </p>
+            {waitlistSubmitted ? (
+              <div className="mt-5 space-y-4">
+                <p className="text-sm text-slate-700">
+                  Thanks for your interest. We&apos;ll notify this email when ALZA Flow Pay becomes
+                  available.
+                </p>
+                <button
+                  type="button"
+                  onClick={closeFlowPayWaitlist}
+                  className="inline-flex min-h-11 w-full items-center justify-center rounded-xl gradient-alza px-4 text-sm font-semibold text-white hover:opacity-90"
+                >
+                  Close
+                </button>
+              </div>
+            ) : (
+              <form className="mt-5 space-y-4" onSubmit={handleJoinWaitlist}>
+                <label className="block">
+                  <span className={fieldLabelClass}>Name</span>
+                  <input
+                    className={selectClass}
+                    value={waitlistName}
+                    onChange={(e) => setWaitlistName(e.target.value)}
+                    autoComplete="name"
+                    required
+                  />
+                </label>
+                <label className="block">
+                  <span className={fieldLabelClass}>Work Email</span>
+                  <input
+                    className={selectClass}
+                    type="email"
+                    value={waitlistEmail}
+                    onChange={(e) => setWaitlistEmail(e.target.value)}
+                    autoComplete="email"
+                    required
+                  />
+                </label>
+                <label className="block">
+                  <span className={fieldLabelClass}>Agency Name</span>
+                  <input
+                    className={selectClass}
+                    value={waitlistAgency}
+                    onChange={(e) => setWaitlistAgency(e.target.value)}
+                    autoComplete="organization"
+                    required
+                  />
+                </label>
+                {waitlistError && <p className="text-sm text-red-600">{waitlistError}</p>}
+                <button
+                  type="submit"
+                  className="inline-flex min-h-11 w-full items-center justify-center rounded-xl gradient-alza px-4 text-sm font-semibold text-white hover:opacity-90"
+                >
+                  Join Waitlist
+                </button>
+              </form>
+            )}
+          </div>
+        </div>
       )}
     </div>
   )

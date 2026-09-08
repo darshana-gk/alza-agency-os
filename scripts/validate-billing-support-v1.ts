@@ -81,24 +81,60 @@ console.log('A. ALZA Flow monthly + annual ×10 + savings')
   )
 }
 
-console.log('B. Flow Pay Coming Soon / not purchasable')
+console.log('B. Flow Pay Coming Soon / waitlist (no price, no checkout)')
 {
   const pay = BILLING_PRODUCTS.find((p) => p.key === 'alza_flow_pay')
   assert(pay?.comingSoon === true, 'Flow Pay coming soon')
   assert(pay?.purchasable === false, 'Flow Pay not purchasable')
-  const q = quoteBillingSelection({
-    product: 'alza_flow_pay',
-    userBand: 'users_1_3',
-    interval: 'monthly',
-  })
-  assertEq(q.checkoutEligible, false, 'Flow Pay cannot checkout')
-  assertEq(q.monthlyAmount, 499, 'Flow Pay display 499')
+  assertEq(pay?.startsAtLabel, 'Coming Soon', 'Flow Pay starts-at is Coming Soon')
+  for (const band of ['users_1_3', 'users_4_10', 'users_100_plus'] as const) {
+    for (const interval of ['monthly', 'annual'] as const) {
+      const q = quoteBillingSelection({
+        product: 'alza_flow_pay',
+        userBand: band,
+        interval,
+      })
+      assertEq(q.checkoutEligible, false, `Flow Pay ${band} ${interval} cannot checkout`)
+      assertEq(q.displayPrice, 'Coming Soon', `Flow Pay ${band} ${interval} display Coming Soon`)
+      assertEq(q.amount, null, `Flow Pay ${band} ${interval} amount hidden`)
+      assertEq(q.monthlyAmount, null, `Flow Pay ${band} ${interval} monthly hidden`)
+      assertEq(q.annualAmount, null, `Flow Pay ${band} ${interval} annual hidden`)
+      assertEq(q.contactAlza, false, `Flow Pay ${band} ${interval} not Contact ALZA`)
+      assert(!q.displayPrice.includes('$'), `Flow Pay ${band} ${interval} has no dollar price`)
+      assert(
+        q.summaryLines.includes('Integrated producer payments are coming to ALZA Flow.'),
+        `Flow Pay ${band} ${interval} waitlist summary`,
+      )
+    }
+  }
   const blocked = quoteCheckoutSelection({
     product: 'alza_flow_pay',
     userBand: 'users_1_3',
     interval: 'monthly',
   })
   assert('error' in blocked, 'Flow Pay checkout selection rejected')
+  assertEq(
+    billingCatalogPrimaryAction({
+      status: 'incomplete',
+      planKey: null,
+      product: 'alza_flow_pay',
+      checkoutEligible: true,
+      contactAlza: false,
+    }),
+    'flow_pay_waitlist',
+    'Flow Pay CTA is waitlist, not checkout',
+  )
+  assertEq(
+    billingCatalogPrimaryAction({
+      status: 'active',
+      planKey: 'flow_1_3_monthly',
+      product: 'alza_flow_pay',
+      checkoutEligible: true,
+      contactAlza: false,
+    }),
+    'flow_pay_waitlist',
+    'Flow Pay CTA remains waitlist while Flow is active',
+  )
 }
 
 console.log('C. Legacy Essential/Professional no new checkout')
@@ -302,6 +338,26 @@ console.log('G2. Legacy-active + V2 catalog visibility (no second checkout)')
   assert(page.includes('<select'), 'compact product/band selectors')
   assert(/Team Size/i.test(page), 'team size selector present')
   assert(/Coming Soon/i.test(page), 'Flow Pay Coming Soon preserved')
+  assert(page.includes('ALZA Flow Pay — Coming Soon') || page.includes("{p.comingSoon ? ' — Coming Soon' : ''}"), 'product option Coming Soon suffix')
+  assert(page.includes('Join Flow Pay Waitlist'), 'Flow Pay waitlist CTA')
+  assert(page.includes('Join the ALZA Flow Pay Waitlist'), 'waitlist modal title')
+  assert(
+    page.includes('Be among the first to know when integrated producer payments become available.'),
+    'waitlist modal body',
+  )
+  assert(
+    page.includes(
+      'ALZA Flow Pay will bring producer payment processing directly into ALZA Flow. Join',
+    ),
+    'Flow Pay waitlist product copy',
+  )
+  assert(page.includes('Integrated producer payments are coming to ALZA Flow.'), 'quote Coming Soon subtitle')
+  assert(!page.includes('ALZA Flow Pay is Coming Soon and not purchasable.'), 'old not-purchasable copy removed')
+  assert(page.includes('openFlowPayWaitlist'), 'waitlist CTA opens modal, not checkout')
+  assert(!/flow-pay-waitlist-cta[\s\S]{0,500}handleSubscribe/.test(page), 'waitlist CTA does not call handleSubscribe')
+  assert(!/handleJoinWaitlist[\s\S]{0,800}createRazorpay/.test(page), 'waitlist submit does not create subscription')
+  assert(page.includes("product !== 'alza_flow'"), 'subscribe handler rejects non-Flow products')
+  assert(page.includes("disabled={busy || processing || product === 'alza_flow_pay'}"), 'Flow Pay frequency toggle disabled')
   assert(!/band\.key === recommendedBand && \(\s*<span className="rounded-full bg-emerald-50/.test(page), 'no card-grid recommended badges')
   assert(!page.includes('choiceClass'), 'choiceClass card helper removed')
   assert(!/showSubscribe\s*&&\s*\(/.test(page), 'catalog not gated only on showSubscribe block')

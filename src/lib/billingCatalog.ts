@@ -99,7 +99,7 @@ export const BILLING_PRODUCTS: BillingProductOption[] = [
     key: 'alza_flow_pay',
     name: 'ALZA Flow Pay',
     startsAtMonthly: 499,
-    startsAtLabel: 'Starts at $499/month',
+    startsAtLabel: 'Coming Soon',
     comingSoon: true,
     purchasable: false,
   },
@@ -174,7 +174,7 @@ const FLOW_BANDS: BillingUserBandOption[] = [
   },
 ]
 
-/** Display-only Flow Pay bands — never checkoutEligible. */
+/** Display-only Flow Pay bands — never checkoutEligible; prices are not shown yet. */
 const FLOW_PAY_BANDS: BillingUserBandOption[] = [
   {
     key: 'users_1_3',
@@ -182,8 +182,8 @@ const FLOW_PAY_BANDS: BillingUserBandOption[] = [
     includedUsersMax: 3,
     checkoutEligible: false,
     customPricing: false,
-    monthly: 499,
-    annual: 4990,
+    monthly: null,
+    annual: null,
     plusPricing: false,
     contactAlza: false,
   },
@@ -193,8 +193,8 @@ const FLOW_PAY_BANDS: BillingUserBandOption[] = [
     includedUsersMax: 10,
     checkoutEligible: false,
     customPricing: false,
-    monthly: 699,
-    annual: 6990,
+    monthly: null,
+    annual: null,
     plusPricing: false,
     contactAlza: false,
   },
@@ -204,8 +204,8 @@ const FLOW_PAY_BANDS: BillingUserBandOption[] = [
     includedUsersMax: 25,
     checkoutEligible: false,
     customPricing: false,
-    monthly: 999,
-    annual: 9990,
+    monthly: null,
+    annual: null,
     plusPricing: false,
     contactAlza: false,
   },
@@ -215,8 +215,8 @@ const FLOW_PAY_BANDS: BillingUserBandOption[] = [
     includedUsersMax: 50,
     checkoutEligible: false,
     customPricing: false,
-    monthly: 1299,
-    annual: 12990,
+    monthly: null,
+    annual: null,
     plusPricing: false,
     contactAlza: false,
   },
@@ -226,8 +226,8 @@ const FLOW_PAY_BANDS: BillingUserBandOption[] = [
     includedUsersMax: 100,
     checkoutEligible: false,
     customPricing: false,
-    monthly: 1799,
-    annual: 17990,
+    monthly: null,
+    annual: null,
     plusPricing: false,
     contactAlza: false,
   },
@@ -236,11 +236,11 @@ const FLOW_PAY_BANDS: BillingUserBandOption[] = [
     label: '100+ / complex',
     includedUsersMax: null,
     checkoutEligible: false,
-    customPricing: true,
+    customPricing: false,
     monthly: null,
     annual: null,
     plusPricing: false,
-    contactAlza: true,
+    contactAlza: false,
   },
 ]
 
@@ -428,6 +428,32 @@ export function quoteBillingSelection(input: {
     band?.annual ??
     (monthlyAmount != null && !band?.contactAlza ? annualPriceFromMonthly(monthlyAmount) : null)
 
+  if (input.product === 'alza_flow_pay') {
+    return {
+      product: input.product,
+      productName,
+      userBand: input.userBand,
+      bandLabel,
+      interval: input.interval,
+      sku: null,
+      checkoutEligible: false,
+      customPricing: false,
+      plusPricing: false,
+      contactAlza: false,
+      amount: null,
+      monthlyAmount: null,
+      annualAmount: null,
+      annualListValue: null,
+      annualSavings: null,
+      displayPrice: 'Coming Soon',
+      intervalLabel: '',
+      summaryLines: [
+        'Coming Soon',
+        'Integrated producer payments are coming to ALZA Flow.',
+      ],
+    }
+  }
+
   if (!band || input.userBand === 'users_100_plus') {
     return {
       product: input.product,
@@ -448,48 +474,6 @@ export function quoteBillingSelection(input: {
       displayPrice: 'Custom pricing',
       intervalLabel: '',
       summaryLines: ['Custom pricing', 'Contact ALZA'],
-    }
-  }
-
-  if (input.product === 'alza_flow_pay') {
-    const interval = input.interval
-    const amount =
-      interval === 'annual'
-        ? annualAmount
-        : interval === 'monthly'
-          ? monthlyAmount
-          : monthlyAmount
-    const plus = plusPricing ? '+' : ''
-    return {
-      product: input.product,
-      productName,
-      userBand: input.userBand,
-      bandLabel,
-      interval,
-      sku: null,
-      checkoutEligible: false,
-      customPricing,
-      plusPricing,
-      contactAlza,
-      amount,
-      monthlyAmount,
-      annualAmount,
-      annualListValue: monthlyAmount != null ? annualListValueFromMonthly(monthlyAmount) : null,
-      annualSavings:
-        monthlyAmount != null && annualAmount != null
-          ? annualSavingsFromMonthly(monthlyAmount, annualAmount)
-          : null,
-      displayPrice: contactAlza
-        ? `${formatUsdWhole(monthlyAmount ?? 0)}${plus}/mo · Contact ALZA`
-        : amount == null
-          ? 'Coming Soon'
-          : interval === 'annual'
-            ? `${formatUsdWhole(amount)}${plus}/year`
-            : `${formatUsdWhole(amount)}${plus}/month`,
-      intervalLabel: interval === 'annual' ? 'Annual' : interval === 'monthly' ? 'Monthly' : '',
-      summaryLines: contactAlza
-        ? ['Coming Soon', 'Contact ALZA']
-        : ['Coming Soon', 'Not purchasable yet'],
     }
   }
 
@@ -722,7 +706,12 @@ export function allowsNewCheckout(
 export const BILLING_UPGRADE_CONTACT_PATH =
   '/support?category=billing_subscription&subject=Upgrade%20from%20legacy%20plan'
 
-export type BillingCatalogPrimaryAction = 'subscribe' | 'upgrade_contact' | 'contact_alza' | null
+export type BillingCatalogPrimaryAction =
+  | 'subscribe'
+  | 'upgrade_contact'
+  | 'contact_alza'
+  | 'flow_pay_waitlist'
+  | null
 
 /** Catalog stays visible; this only decides the safe primary CTA. */
 export function billingCatalogPrimaryAction(input: {
@@ -732,14 +721,15 @@ export function billingCatalogPrimaryAction(input: {
   checkoutEligible: boolean
   contactAlza: boolean
 }): BillingCatalogPrimaryAction {
+  if (input.product === 'alza_flow_pay') return 'flow_pay_waitlist'
   const legacyActive = isLegacyActiveSubscription(input.planKey, input.status)
   if (legacyActive) {
     return 'upgrade_contact'
   }
   if (!allowsNewCheckout(input.status, input.planKey)) {
-    return input.product === 'alza_flow_pay' || input.contactAlza ? 'contact_alza' : null
+    return input.contactAlza ? 'contact_alza' : null
   }
-  if (input.product === 'alza_flow_pay' || input.contactAlza) return 'contact_alza'
+  if (input.contactAlza) return 'contact_alza'
   if (input.product === 'alza_flow' && input.checkoutEligible) return 'subscribe'
   return null
 }
