@@ -445,6 +445,30 @@ console.log('G2. Legacy-active + V2 catalog visibility (no second checkout)')
   assert(page.includes('openFlowPayWaitlist'), 'waitlist CTA opens modal, not checkout')
   assert(!/flow-pay-waitlist-cta[\s\S]{0,500}handleSubscribe/.test(page), 'waitlist CTA does not call handleSubscribe')
   assert(!/handleJoinWaitlist[\s\S]{0,800}createRazorpay/.test(page), 'waitlist submit does not create subscription')
+  assert(page.includes('joinFlowPayWaitlist'), 'waitlist submit uses waitlist helper')
+  assert(page.includes('waitlistBusy'), 'waitlist double-click guard')
+  assert(page.includes("You're on the Flow Pay waitlist.") || page.includes('You&apos;re on the Flow Pay waitlist.'), 'waitlist success title')
+  assert(
+    page.includes("We'll let you know when integrated producer payments become available.") ||
+      page.includes('We&apos;ll let you know when integrated producer payments become available.'),
+    'waitlist success body',
+  )
+  const waitlistLib = readFileSync(resolve(root, 'src/lib/flowPayWaitlist.ts'), 'utf8')
+  assert(waitlistLib.includes("supabase.rpc('join_flow_pay_waitlist'"), 'waitlist RPC join_flow_pay_waitlist')
+  assert(!/createRazorpay|openRazorpay|subscription/i.test(waitlistLib), 'waitlist helper has no checkout')
+  const waitlistSql = readFileSync(
+    resolve(root, 'supabase/migrations/20260908170000_flow_pay_waitlist_v1.sql'),
+    'utf8',
+  )
+  assert(waitlistSql.includes('CREATE TABLE IF NOT EXISTS public.flow_pay_waitlist'), 'waitlist table')
+  assert(waitlistSql.includes('flow_pay_waitlist_select'), 'waitlist SELECT policy')
+  assert(waitlistSql.includes('is_alza_support()'), 'ALZA Support may read waitlist')
+  assert(waitlistSql.includes('same_agency(agency_profile_id)'), 'agency waitlist SELECT is same-agency')
+  assert(waitlistSql.includes('ON CONFLICT (agency_profile_id, (lower(btrim(work_email))))'), 'waitlist upsert on agency+email')
+  assert(waitlistSql.includes('current_user_agency_profile_id()'), 'RPC stamps agency from session')
+  assert(waitlistSql.includes('current_app_user_id()'), 'RPC stamps submitting user from session')
+  assert(!/GRANT INSERT ON TABLE public.flow_pay_waitlist TO authenticated/i.test(waitlistSql), 'no authenticated INSERT grant')
+  assert(!/create-razorpay|openRazorpay|billing_subscriptions/i.test(waitlistSql), 'waitlist migration has no payment objects')
   assert(page.includes("product !== 'alza_flow'"), 'subscribe handler rejects non-Flow products')
   assert(page.includes("disabled={busy || processing || product === 'alza_flow_pay'}"), 'Flow Pay frequency toggle disabled')
   assert(!/band\.key === recommendedBand && \(\s*<span className="rounded-full bg-emerald-50/.test(page), 'no card-grid recommended badges')

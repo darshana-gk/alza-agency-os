@@ -13,6 +13,7 @@ import {
   openRazorpaySubscriptionCheckout,
   type BillingSubscription,
 } from '../../lib/billing'
+import { joinFlowPayWaitlist } from '../../lib/flowPayWaitlist'
 import {
   ALZA_FLOW_INCLUDED_FEATURES,
   BILLING_INTERVALS,
@@ -62,6 +63,7 @@ export function SubscriptionBillingPage() {
   const [waitlistAgency, setWaitlistAgency] = useState('')
   const [waitlistSubmitted, setWaitlistSubmitted] = useState(false)
   const [waitlistError, setWaitlistError] = useState<string | null>(null)
+  const [waitlistBusy, setWaitlistBusy] = useState(false)
   const pollRef = useRef<number | null>(null)
   const recommendedInitialized = useRef(false)
   const queryInitialized = useRef(false)
@@ -251,6 +253,7 @@ export function SubscriptionBillingPage() {
   }
 
   function openFlowPayWaitlist() {
+    if (waitlistBusy) return
     setWaitlistName(profile?.fullName?.trim() || '')
     setWaitlistEmail(profile?.email?.trim() || '')
     setWaitlistAgency(agency?.agencyName?.trim() || '')
@@ -260,12 +263,14 @@ export function SubscriptionBillingPage() {
   }
 
   function closeFlowPayWaitlist() {
+    if (waitlistBusy) return
     setWaitlistOpen(false)
     setWaitlistError(null)
   }
 
-  function handleJoinWaitlist(e: FormEvent) {
+  async function handleJoinWaitlist(e: FormEvent) {
     e.preventDefault()
+    if (waitlistBusy) return
     const name = waitlistName.trim()
     const email = waitlistEmail.trim()
     const agencyName = waitlistAgency.trim()
@@ -277,7 +282,18 @@ export function SubscriptionBillingPage() {
       setWaitlistError('Enter a valid work email.')
       return
     }
+    setWaitlistBusy(true)
     setWaitlistError(null)
+    const result = await joinFlowPayWaitlist({
+      name,
+      workEmail: email,
+      agencyName,
+    })
+    setWaitlistBusy(false)
+    if (result.error) {
+      setWaitlistError(result.error)
+      return
+    }
     setWaitlistSubmitted(true)
   }
 
@@ -612,21 +628,21 @@ export function SubscriptionBillingPage() {
               Be among the first to know when integrated producer payments become available.
             </p>
             {waitlistSubmitted ? (
-              <div className="mt-5 space-y-4">
+              <div className="mt-5 space-y-2">
+                <p className="text-sm font-medium text-slate-900">You&apos;re on the Flow Pay waitlist.</p>
                 <p className="text-sm text-slate-700">
-                  Thanks for your interest. We&apos;ll notify this email when ALZA Flow Pay becomes
-                  available.
+                  We&apos;ll let you know when integrated producer payments become available.
                 </p>
                 <button
                   type="button"
                   onClick={closeFlowPayWaitlist}
-                  className="inline-flex min-h-11 w-full items-center justify-center rounded-xl gradient-alza px-4 text-sm font-semibold text-white hover:opacity-90"
+                  className="mt-3 inline-flex min-h-11 w-full items-center justify-center rounded-xl gradient-alza px-4 text-sm font-semibold text-white hover:opacity-90"
                 >
                   Close
                 </button>
               </div>
             ) : (
-              <form className="mt-5 space-y-4" onSubmit={handleJoinWaitlist}>
+              <form className="mt-5 space-y-4" onSubmit={(e) => void handleJoinWaitlist(e)}>
                 <label className="block">
                   <span className={fieldLabelClass}>Name</span>
                   <input
@@ -634,6 +650,7 @@ export function SubscriptionBillingPage() {
                     value={waitlistName}
                     onChange={(e) => setWaitlistName(e.target.value)}
                     autoComplete="name"
+                    disabled={waitlistBusy}
                     required
                   />
                 </label>
@@ -645,6 +662,7 @@ export function SubscriptionBillingPage() {
                     value={waitlistEmail}
                     onChange={(e) => setWaitlistEmail(e.target.value)}
                     autoComplete="email"
+                    disabled={waitlistBusy}
                     required
                   />
                 </label>
@@ -655,15 +673,17 @@ export function SubscriptionBillingPage() {
                     value={waitlistAgency}
                     onChange={(e) => setWaitlistAgency(e.target.value)}
                     autoComplete="organization"
+                    disabled={waitlistBusy}
                     required
                   />
                 </label>
                 {waitlistError && <p className="text-sm text-red-600">{waitlistError}</p>}
                 <button
                   type="submit"
-                  className="inline-flex min-h-11 w-full items-center justify-center rounded-xl gradient-alza px-4 text-sm font-semibold text-white hover:opacity-90"
+                  disabled={waitlistBusy}
+                  className="inline-flex min-h-11 w-full items-center justify-center rounded-xl gradient-alza px-4 text-sm font-semibold text-white hover:opacity-90 disabled:opacity-50"
                 >
-                  Join Waitlist
+                  {waitlistBusy ? 'Joining…' : 'Join Waitlist'}
                 </button>
               </form>
             )}
