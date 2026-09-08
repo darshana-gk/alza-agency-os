@@ -14,6 +14,7 @@ import {
   annualSavingsFromMonthly,
   allowsNewCheckout,
   billingCatalogPrimaryAction,
+  billingCheckoutCtaCopy,
   canCancelSubscription,
   catalogContainsPlanSecrets,
   checkoutSkuFor,
@@ -252,9 +253,22 @@ console.log('G2. Legacy-active + V2 catalog visibility (no second checkout)')
         product: 'alza_flow',
         checkoutEligible: true,
         contactAlza: false,
+        selectedUserBand: 'users_1_3',
+        selectedInterval: 'monthly',
       }),
-      'upgrade_contact',
-      `legacy ${status} CTA is upgrade_contact`,
+      'subscribe',
+      `legacy ${status} 1-3 CTA is purchase, not Upgrade / Contact ALZA`,
+    )
+    assertEq(
+      billingCheckoutCtaCopy({
+        status,
+        planKey: 'essential',
+        selectedProduct: 'alza_flow',
+        selectedUserBand: 'users_1_3',
+        selectedInterval: 'monthly',
+      }),
+      'Change Plan',
+      `legacy ${status} label is Change Plan`,
     )
   }
   assert(!isLegacyActiveSubscription('essential', 'cancelled'), 'cancelled essential not legacy-active')
@@ -329,11 +343,86 @@ console.log('G2. Legacy-active + V2 catalog visibility (no second checkout)')
     'contact_alza',
     '100+ Contact ALZA CTA',
   )
+  assertEq(
+    billingCatalogPrimaryAction({
+      status: 'active',
+      planKey: 'essential',
+      product: 'alza_flow',
+      checkoutEligible: false,
+      contactAlza: true,
+      selectedUserBand: 'users_100_plus',
+      selectedInterval: 'annual',
+    }),
+    'contact_alza',
+    '100+ stays Contact ALZA even with live legacy plan',
+  )
+  assertEq(
+    billingCheckoutCtaCopy({
+      status: 'incomplete',
+      planKey: null,
+      selectedProduct: 'alza_flow',
+      selectedUserBand: 'users_1_3',
+      selectedInterval: 'monthly',
+    }),
+    'Continue to Checkout',
+    'no current plan uses Continue to Checkout',
+  )
+  assertEq(
+    billingCatalogPrimaryAction({
+      status: 'active',
+      planKey: 'flow_1_3_monthly',
+      product: 'alza_flow',
+      checkoutEligible: true,
+      contactAlza: false,
+      selectedUserBand: 'users_1_3',
+      selectedInterval: 'monthly',
+    }),
+    null,
+    'already on selected paid plan has no purchase CTA',
+  )
+  assertEq(
+    billingCatalogPrimaryAction({
+      status: 'active',
+      planKey: 'flow_1_3_monthly',
+      product: 'alza_flow',
+      checkoutEligible: true,
+      contactAlza: false,
+      selectedUserBand: 'users_4_10',
+      selectedInterval: 'monthly',
+    }),
+    'subscribe',
+    'different paid plan uses purchase CTA',
+  )
+  assertEq(
+    billingCheckoutCtaCopy({
+      status: 'active',
+      planKey: 'flow_1_3_monthly',
+      selectedProduct: 'alza_flow',
+      selectedUserBand: 'users_4_10',
+      selectedInterval: 'monthly',
+    }),
+    'Change Plan',
+    'known paid plan change uses Change Plan',
+  )
+  assertEq(
+    billingCatalogPrimaryAction({
+      status: 'incomplete',
+      planKey: null,
+      product: 'alza_flow_pay',
+      checkoutEligible: false,
+      contactAlza: false,
+    }),
+    'flow_pay_waitlist',
+    'Flow Pay CTA remains waitlist',
+  )
 
   const page = readFileSync(resolve(root, 'src/pages/admin/SubscriptionBilling.tsx'), 'utf8')
   assert(page.includes('shouldShowBillingCatalog'), 'page uses always-show catalog helper')
   assert(page.includes('isLegacyActiveSubscription'), 'page detects legacy-active')
-  assert(page.includes('Upgrade / Contact ALZA'), 'legacy CTA label')
+  assert(page.includes('Continue to Checkout'), 'purchasable CTA Continue to Checkout')
+  assert(page.includes('Change Plan'), 'plan-change CTA Change Plan')
+  assert(!page.includes('Upgrade / Contact ALZA'), 'Upgrade / Contact ALZA removed from 1-100')
+  assert(!page.includes('Subscribe —'), 'old Subscribe — price CTA removed')
   assert(page.includes('Configure plan'), 'catalog configure heading present')
   assert(page.includes('<select'), 'compact product/band selectors')
   assert(/Team Size/i.test(page), 'team size selector present')
@@ -367,6 +456,7 @@ console.log('G2. Legacy-active + V2 catalog visibility (no second checkout)')
   assert(page.includes('billing-product-select'), 'product select test id')
   assert(page.includes('billing-user-band-select'), 'user band select test id')
   assert(page.includes('Save 2 months'), 'annual toggle save badge')
+  assert(page.includes("userBand !== 'users_100_plus'"), '100+ hides Save 2 months badge')
   assert(page.includes('from-alza-blue-800 to-alza-teal-700'), 'selected frequency filled blue/teal')
   assert(page.includes('text-white shadow-sm'), 'selected frequency white text')
   assert(page.includes('bg-white text-slate-600'), 'unselected frequency neutral')
@@ -375,7 +465,7 @@ console.log('G2. Legacy-active + V2 catalog visibility (no second checkout)')
   assert(page.includes('line-through'), 'crossed-out monthly annual value')
   assert(page.includes('ALZA_FLOW_INCLUDED_FEATURES'), 'feature checklist wired')
   assert(page.includes('2 months included'), '2 months included copy')
-  assert(page.includes('Subscribe —'), 'subscribe CTA in quote panel')
+  assert(page.includes('Continue to Checkout'), 'purchase CTA in quote panel')
   assert(page.includes('Secure checkout by Razorpay'), 'secure checkout note')
   assert(page.includes('All prices are in USD'), 'USD note in left rail')
   assert(page.includes('bg-gradient-to-br from-alza-blue-900'), 'quote brand header gradient')
@@ -548,9 +638,33 @@ console.log('K. Checkout matrix — sellable SKUs, rejects, cancelled legacy')
       product: 'alza_flow',
       checkoutEligible: true,
       contactAlza: false,
+      selectedUserBand: 'users_1_3',
+      selectedInterval: 'monthly',
     }),
-    'upgrade_contact',
-    'active legacy CTA upgrade_contact',
+    'subscribe',
+    'active legacy 1-3 uses purchase CTA',
+  )
+  assertEq(
+    billingCheckoutCtaCopy({
+      status: 'active',
+      planKey: 'essential',
+      selectedProduct: 'alza_flow',
+      selectedUserBand: 'users_1_3',
+      selectedInterval: 'monthly',
+    }),
+    'Change Plan',
+    'active legacy 1-3 label is Change Plan',
+  )
+  assertEq(
+    billingCatalogPrimaryAction({
+      status: 'incomplete',
+      planKey: null,
+      product: 'alza_flow',
+      checkoutEligible: false,
+      contactAlza: true,
+    }),
+    'contact_alza',
+    '100+ never uses purchase CTA',
   )
 
   const browser = readFileSync(resolve(root, 'src/lib/billing.ts'), 'utf8')

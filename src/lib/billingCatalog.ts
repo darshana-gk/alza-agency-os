@@ -708,10 +708,121 @@ export const BILLING_UPGRADE_CONTACT_PATH =
 
 export type BillingCatalogPrimaryAction =
   | 'subscribe'
-  | 'upgrade_contact'
   | 'contact_alza'
   | 'flow_pay_waitlist'
   | null
+
+export type BillingCheckoutCtaCopy = 'Continue to Checkout' | 'Change Plan'
+
+type KnownBillingPlanIdentity =
+  | { kind: 'legacy'; planKey: LegacyBillingPlanKey }
+  | {
+      kind: 'flow'
+      product: BillingProductKey
+      userBand: BillingUserBandKey
+      interval: BillingInterval
+    }
+
+/** Live Razorpay statuses that mean a subscription exists (not cancelled/incomplete). */
+function hasLiveSubscriptionStatus(status: string | null | undefined): boolean {
+  return canCancelSubscription(status)
+}
+
+/**
+ * Resolve the current plan only from stored billing fields.
+ * Returns null when identity cannot be determined — callers must not guess.
+ */
+export function resolveKnownBillingPlanIdentity(input: {
+  planKey?: string | null
+  productKey?: string | null
+  userBandKey?: string | null
+  billingInterval?: string | null
+}): KnownBillingPlanIdentity | null {
+  if (isLegacyBillingPlanKey(input.planKey)) {
+    return { kind: 'legacy', planKey: input.planKey }
+  }
+  const parsed = parseCheckoutSku(input.planKey)
+  const product = isBillingProductKey(input.productKey) ? input.productKey : parsed?.product ?? null
+  const userBand = isBillingUserBandKey(input.userBandKey)
+    ? input.userBandKey
+    : parsed?.userBand ?? null
+  const interval = isBillingInterval(input.billingInterval)
+    ? input.billingInterval
+    : parsed?.interval ?? null
+  if (product && userBand && interval) {
+    return { kind: 'flow', product, userBand, interval }
+  }
+  return null
+}
+
+function selectionMatchesKnownPlan(
+  identity: KnownBillingPlanIdentity,
+  selected: {
+    product: BillingProductKey
+    userBand: BillingUserBandKey
+    interval: BillingInterval | null
+  },
+): boolean {
+  if (identity.kind !== 'flow') return false
+  if (!selected.interval) return false
+  return (
+    identity.product === selected.product &&
+    identity.userBand === selected.userBand &&
+    identity.interval === selected.interval
+  )
+}
+
+/** True only when live paid status AND a known plan identity both exist. */
+export function hasReliablePaidSubscription(input: {
+  status: string | null | undefined
+  planKey?: string | null
+  productKey?: string | null
+  userBandKey?: string | null
+  billingInterval?: string | null
+}): boolean {
+  if (!hasLiveSubscriptionStatus(input.status)) return false
+  return resolveKnownBillingPlanIdentity(input) != null
+}
+
+/** True only when the agency is already on the selected Flow SKU. */
+export function hasSelectedPaidPlan(input: {
+  status: string | null | undefined
+  planKey?: string | null
+  productKey?: string | null
+  userBandKey?: string | null
+  billingInterval?: string | null
+  selectedProduct: BillingProductKey
+  selectedUserBand: BillingUserBandKey
+  selectedInterval: BillingInterval | null
+}): boolean {
+  if (!hasReliablePaidSubscription(input)) return false
+  const identity = resolveKnownBillingPlanIdentity(input)
+  if (!identity) return false
+  return selectionMatchesKnownPlan(identity, {
+    product: input.selectedProduct,
+    userBand: input.selectedUserBand,
+    interval: input.selectedInterval,
+  })
+}
+
+/**
+ * Purchase CTA copy for checkout-eligible ALZA Flow tiers.
+ * Change Plan only when a live paid plan is known and differs from the selection.
+ */
+export function billingCheckoutCtaCopy(input: {
+  status: string | null | undefined
+  planKey?: string | null
+  productKey?: string | null
+  userBandKey?: string | null
+  billingInterval?: string | null
+  selectedProduct: BillingProductKey
+  selectedUserBand: BillingUserBandKey
+  selectedInterval: BillingInterval | null
+}): BillingCheckoutCtaCopy {
+  if (!hasReliablePaidSubscription(input)) return 'Continue to Checkout'
+  if (hasSelectedPaidPlan(input)) return 'Continue to Checkout'
+  return 'Change Plan'
+}
 
 /** Catalog stays visible; this only decides the safe primary CTA. */
 export function billingCatalogPrimaryAction(input: {
@@ -720,18 +831,31 @@ export function billingCatalogPrimaryAction(input: {
   product: BillingProductKey
   checkoutEligible: boolean
   contactAlza: boolean
+  productKey?: string | null
+  userBandKey?: string | null
+  billingInterval?: string | null
+  selectedUserBand?: BillingUserBandKey
+  selectedInterval?: BillingInterval | null
 }): BillingCatalogPrimaryAction {
   if (input.product === 'alza_flow_pay') return 'flow_pay_waitlist'
-  const legacyActive = isLegacyActiveSubscription(input.planKey, input.status)
-  if (legacyActive) {
-    return 'upgrade_contact'
-  }
-  if (!allowsNewCheckout(input.status, input.planKey)) {
-    return input.contactAlza ? 'contact_alza' : null
-  }
   if (input.contactAlza) return 'contact_alza'
-  if (input.product === 'alza_flow' && input.checkoutEligible) return 'subscribe'
-  return null
+  if (input.product !== 'alza_flow' || !input.checkoutEligible) return null
+  if (
+    input.selectedUserBand &&
+    hasSelectedPaidPlan({
+      status: input.status,
+      planKey: input.planKey,
+      productKey: input.productKey,
+      userBandKey: input.userBandKey,
+      billingInterval: input.billingInterval,
+      selectedProduct: input.product,
+      selectedUserBand: input.selectedUserBand,
+      selectedInterval: input.selectedInterval ?? null,
+    })
+  ) {
+    return null
+  }
+  return 'subscribe'
 }
 
 /** V2 catalog is always shown to Owner/Admin (not gated on subscribe eligibility). */

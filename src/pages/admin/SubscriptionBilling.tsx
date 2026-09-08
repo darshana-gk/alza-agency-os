@@ -18,9 +18,9 @@ import {
   BILLING_INTERVALS,
   BILLING_PRODUCTS,
   BILLING_SUPPORT_CONTACT_PATH,
-  BILLING_UPGRADE_CONTACT_PATH,
   allowsNewCheckout,
   billingCatalogPrimaryAction,
+  billingCheckoutCtaCopy,
   billingUserBands,
   equivalentMonthlyFromAnnual,
   formatUsdMoney,
@@ -165,13 +165,28 @@ export function SubscriptionBillingPage() {
     product,
     checkoutEligible: quote.checkoutEligible,
     contactAlza: quote.contactAlza,
+    productKey: billing?.productKey,
+    userBandKey: billing?.userBandKey,
+    billingInterval: billing?.billingInterval,
+    selectedUserBand: userBand,
+    selectedInterval: interval,
+  })
+  const checkoutCta = billingCheckoutCtaCopy({
+    status,
+    planKey: billing?.planKey,
+    productKey: billing?.productKey,
+    userBandKey: billing?.userBandKey,
+    billingInterval: billing?.billingInterval,
+    selectedProduct: product,
+    selectedUserBand: userBand,
+    selectedInterval: interval,
   })
 
   async function handleSubscribe() {
     if (!allowCheckout) {
       setError(
         legacyActive
-          ? 'Online checkout is unavailable while another subscription is active. Use Upgrade / Contact ALZA.'
+          ? 'Online checkout is unavailable while another subscription is active. Cancel it before starting a new checkout.'
           : 'An active subscription already exists. Cancel it before starting a new online checkout.',
       )
       return
@@ -384,7 +399,7 @@ export function SubscriptionBillingPage() {
                           }`}
                         >
                           {opt.label}
-                          {opt.key === 'annual' && selected && !isFlowPay ? (
+                          {opt.key === 'annual' && selected && !isFlowPay && userBand !== 'users_100_plus' ? (
                             <span className="rounded bg-white/20 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-white">
                               Save 2 months
                             </span>
@@ -501,10 +516,11 @@ export function SubscriptionBillingPage() {
                   )}
 
                   <div className="space-y-2 border-t border-slate-100 pt-5">
-                    {primaryAction === 'subscribe' && allowCheckout && (
+                    {primaryAction === 'subscribe' && (
                       <>
                         <button
                           type="button"
+                          data-testid="billing-checkout-cta"
                           disabled={busy || processing}
                           onClick={() => void handleSubscribe()}
                           className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-xl gradient-alza px-5 py-3.5 text-base font-semibold text-white shadow-md hover:opacity-90 disabled:opacity-50"
@@ -512,11 +528,15 @@ export function SubscriptionBillingPage() {
                           <CreditCard className="h-5 w-5" />
                           {busy
                             ? 'Opening Checkout…'
-                            : `Subscribe — ${quote.displayPrice.replace(' / ', '/')}`}
+                            : checkoutCta === 'Change Plan'
+                              ? 'Change Plan'
+                              : 'Continue to Checkout'}
                         </button>
-                        <p className="text-center text-xs text-slate-500">
-                          Secure checkout by Razorpay
-                        </p>
+                        {allowCheckout ? (
+                          <p className="text-center text-xs text-slate-500">
+                            Secure checkout by Razorpay
+                          </p>
+                        ) : null}
                       </>
                     )}
                     {primaryAction === 'flow_pay_waitlist' && (
@@ -528,14 +548,6 @@ export function SubscriptionBillingPage() {
                       >
                         Join Flow Pay Waitlist
                       </button>
-                    )}
-                    {primaryAction === 'upgrade_contact' && (
-                      <Link
-                        to={BILLING_UPGRADE_CONTACT_PATH}
-                        className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-xl gradient-alza px-5 py-3.5 text-base font-semibold text-white shadow-md hover:opacity-90"
-                      >
-                        Upgrade / Contact ALZA
-                      </Link>
                     )}
                     {primaryAction === 'contact_alza' && (
                       <Link
