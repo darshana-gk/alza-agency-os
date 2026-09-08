@@ -280,6 +280,54 @@ assert('resolve via RPC alza-only', true, 'support_resolve_conversation')
 }
 
 {
+  const openerSql = readFileSync(
+    resolve('supabase/migrations/20260908140000_support_opener_identity_snapshot.sql'),
+    'utf8',
+  )
+  const support = readFileSync(resolve('src/lib/support.ts'), 'utf8')
+  const inbox = readFileSync(resolve('src/pages/admin/AlzaSupportInbox.tsx'), 'utf8')
+  assert(
+    'opener snapshot migration is conversation-scoped',
+    openerSql.includes('opened_by_name') &&
+      openerSql.includes('opened_by_email') &&
+      openerSql.includes('support_snapshot_opener_identity') &&
+      openerSql.includes('BEFORE INSERT') &&
+      openerSql.includes("NULLIF(btrim(u.email), '')") &&
+      !openerSql.includes('DROP POLICY') &&
+      !openerSql.includes('CREATE POLICY'),
+    'snapshot columns + trigger, no users RLS change',
+  )
+  assert(
+    'opener snapshot does not copy agency_profile.email',
+    /FROM public\.users u/i.test(openerSql) &&
+      openerSql.includes('NEW.opened_by_email := v_email') &&
+      !openerSql.includes('opened_by_email = a.email') &&
+      !openerSql.includes('NEW.opened_by_email := a.email'),
+    'users.email only',
+  )
+  assert(
+    'agency brief exposes agency email separately from opener email',
+    openerSql.includes('CREATE FUNCTION public.support_agency_brief()') &&
+      openerSql.includes('NULLIF(btrim(a.email), \'\')') &&
+      support.includes('agencyEmail: agency?.email') &&
+      support.includes('resolveSupportOpenerIdentity'),
+    'agency email via brief',
+  )
+  assert(
+    'client maps snapshot opener fields and never uses agencyEmail as contact',
+    support.includes('opened_by_name') &&
+      support.includes('opened_by_email') &&
+      support.includes('openedByEmail: (row.opened_by_email') &&
+      !support.includes('createdByEmail: agency') &&
+      inbox.includes('Agency email') &&
+      inbox.includes('Opened by') &&
+      inbox.includes('Contact email') &&
+      inbox.includes('selected.createdByEmail'),
+    'distinct Agency email / Opened by / Contact email',
+  )
+}
+
+{
   const sample = (partial: Partial<SupportMessage> & Pick<SupportMessage, 'id' | 'createdAt'>): SupportMessage => ({
     conversationId: 'c',
     senderUserId: null,

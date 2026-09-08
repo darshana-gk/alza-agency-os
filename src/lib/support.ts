@@ -31,6 +31,7 @@ export type SupportSenderType = 'agency_user' | 'alza_support'
 
 export type SupportConversation = {
   id: string
+  ticketNumber: string | null
   agencyProfileId: string
   agencyName: string | null
   agencyEmail: string | null
@@ -184,23 +185,52 @@ function firstEmbed<T>(value: T | T[] | null | undefined): T | null {
   return Array.isArray(value) ? (value[0] ?? null) : value
 }
 
+function trimDisplay(value: string | null | undefined): string | null {
+  const t = String(value ?? '').trim()
+  return t || null
+}
+
+/**
+ * Opened-by / contact-email for a ticket.
+ * Prefer immutable conversation snapshots, then a live users embed when RLS allows it.
+ * Never substitute agency_profile.email for the opener's contact email.
+ */
+export function resolveSupportOpenerIdentity(input: {
+  openedByName?: string | null
+  openedByEmail?: string | null
+  liveName?: string | null
+  liveEmail?: string | null
+}): { name: string | null; email: string | null } {
+  return {
+    name: trimDisplay(input.openedByName) || trimDisplay(input.liveName),
+    email: trimDisplay(input.openedByEmail) || trimDisplay(input.liveEmail),
+  }
+}
+
 function mapConversation(row: Record<string, unknown>): SupportConversation {
-  // Agency name is hydrated via support_agency_brief() — never rely on agency_profile embeds
+  // Agency contact is hydrated via support_agency_brief() — never rely on agency_profile embeds
   // (Phase 3B RLS blocks ALZA Support from selecting operational agency_profile rows).
   const creator = firstEmbed(
     row.creator as { full_name?: string; email?: string } | { full_name?: string; email?: string }[] | null,
   )
   const assignee = firstEmbed(row.assignee as { full_name?: string } | { full_name?: string }[] | null)
+  const opener = resolveSupportOpenerIdentity({
+    openedByName: (row.opened_by_name as string | null) ?? null,
+    openedByEmail: (row.opened_by_email as string | null) ?? null,
+    liveName: creator?.full_name ?? null,
+    liveEmail: creator?.email ?? null,
+  })
   return {
     id: String(row.id),
+    ticketNumber: String(row.ticket_number ?? '').trim() || null,
     agencyProfileId: String(row.agency_profile_id ?? ''),
     agencyName: null,
     agencyEmail: null,
     agencyPhone: null,
     agencyWebsite: null,
     createdByUserId: String(row.created_by_user_id ?? ''),
-    createdByName: creator?.full_name?.trim() || null,
-    createdByEmail: creator?.email?.trim() || null,
+    createdByName: opener.name,
+    createdByEmail: opener.email,
     category: String(row.category ?? 'other') as SupportCategory,
     subject: String(row.subject ?? ''),
     status: String(row.status ?? 'waiting_on_alza') as SupportStatus,
@@ -232,15 +262,25 @@ function mapMessage(row: Record<string, unknown>): SupportMessage {
 }
 
 const CONVERSATION_SELECT = `
-  id, agency_profile_id, created_by_user_id, category, subject, status, priority,
+  id, ticket_number, agency_profile_id, created_by_user_id, opened_by_name, opened_by_email,
+  category, subject, status, priority,
   assigned_to_user_id, last_message_preview, last_message_at, resolved_at, created_at, updated_at,
   creator:created_by_user_id ( full_name, email ),
   assignee:assigned_to_user_id ( full_name )
 `
 
+type AgencyBriefRow = {
+  id?: string
+  agency_name?: string | null
+  email?: string | null
+  phone?: string | null
+  website?: string | null
+}
+
 /**
- * Hydrate limited agency id/name via support_agency_brief() — does not reopen agency_profile RLS.
+ * Hydrate limited agency id/name/contact via support_agency_brief() — does not reopen agency_profile RLS.
  * ALZA Support receives every agency; agency users receive only their own membership.
+ * Agency email is distinct from opener contact email.
  * Returns conversations unchanged when the RPC is unavailable or returns nothing.
  */
 async function hydrateConversationAgencyNames(
@@ -249,17 +289,44 @@ async function hydrateConversationAgencyNames(
   if (conversations.length === 0) return conversations
   const { data, error } = await supabase.rpc('support_agency_brief')
   if (error || !data) return conversations
-  const nameById = new Map<string, string>()
-  for (const row of data as Array<{ id?: string; agency_name?: string | null }>) {
+  const byId = new Map<string, { name: string | null; email: string | null; phone: string | null; website: string | null }>()
+  for (const row of data as AgencyBriefRow[]) {
     const id = String(row.id ?? '').trim()
-    const name = String(row.agency_name ?? '').trim()
-    if (id && name) nameById.set(id, name)
+    if (!id) continue
+    byId.set(id, {
+      name: trimDisplay(row.agency_name),
+      email: trimDisplay(row.email),
+      phone: trimDisplay(row.phone),
+      website: trimDisplay(row.website),
+    })
   }
-  if (nameById.size === 0) return conversations
-  return conversations.map((c) => ({
-    ...c,
-    agencyName: nameById.get(c.agencyProfileId) ?? c.agencyName,
-  }))
+  if (byId.size === 0) return conversations
+  return conversations.map((c) => {
+    const agency = byId.get(c.agencyProfileId)
+    return {
+      ...c,
+      agencyName: agency?.name ?? c.agencyName,
+      agencyEmail: agency?.email ?? c.agencyEmail,
+      agencyPhone: agency?.phone ?? c.agencyPhone,
+      agencyWebsite: agency?.website ?? c.agencyWebsite,
+    }
+  })
+}
+
+async function hydrateConversationOpenerName(
+  conversation: SupportConversation,
+): Promise<SupportConversation> {
+  if (conversation.createdByName) return conversation
+  const { data, error } = await supabase.rpc('support_ticket_actor_brief', {
+    p_conversation_id: conversation.id,
+  })
+  if (error || !data) return conversation
+  const opener = (data as Array<{ id?: string; full_name?: string | null }>).find(
+    (row) => String(row.id ?? '') === conversation.createdByUserId,
+  )
+  const name = trimDisplay(opener?.full_name)
+  if (!name) return conversation
+  return { ...conversation, createdByName: name }
 }
 
 const MESSAGE_SELECT = `
@@ -338,6 +405,7 @@ export async function fetchSupportConversations(params?: {
     rows = rows.filter(
       (r) =>
         r.subject.toLowerCase().includes(q) ||
+        (r.ticketNumber ?? '').toLowerCase().includes(q) ||
         supportCategoryLabel(r.category).toLowerCase().includes(q) ||
         (r.agencyName ?? '').toLowerCase().includes(q) ||
         (r.lastMessagePreview ?? '').toLowerCase().includes(q) ||
@@ -357,10 +425,12 @@ export async function fetchSupportConversation(
     .maybeSingle()
   if (error) return { data: null, error: error.message }
   if (!data) return { data: null, error: null }
-  const [hydrated] = await hydrateConversationAgencyNames([
+  const [hydratedAgency] = await hydrateConversationAgencyNames([
     mapConversation(data as Record<string, unknown>),
   ])
-  return { data: hydrated ?? null, error: null }
+  if (!hydratedAgency) return { data: null, error: null }
+  const hydrated = await hydrateConversationOpenerName(hydratedAgency)
+  return { data: hydrated, error: null }
 }
 
 export async function fetchSupportMessages(
@@ -894,6 +964,45 @@ export function runSupportPresentationSelfChecks(): { name: string; passed: bool
         return sorted[0]?.id === '99999999-9999-4999-8999-999999999999'
       })(),
       detail: 'id desc tie-break',
+    },
+    {
+      name: 'opener snapshot preferred over live profile',
+      passed: (() => {
+        const resolved = resolveSupportOpenerIdentity({
+          openedByName: '2AG-B Owner',
+          openedByEmail: 'owner.b@example.invalid',
+          liveName: 'Renamed Later',
+          liveEmail: 'new@example.invalid',
+        })
+        return resolved.name === '2AG-B Owner' && resolved.email === 'owner.b@example.invalid'
+      })(),
+      detail: 'immutable snapshot wins',
+    },
+    {
+      name: 'opener live profile used only when snapshot missing',
+      passed: (() => {
+        const resolved = resolveSupportOpenerIdentity({
+          openedByName: null,
+          openedByEmail: null,
+          liveName: '2AG-B Owner',
+          liveEmail: 'owner.b@example.invalid',
+        })
+        return resolved.name === '2AG-B Owner' && resolved.email === 'owner.b@example.invalid'
+      })(),
+      detail: 'historical live fallback',
+    },
+    {
+      name: 'contact email does not fall back to agency email',
+      passed: (() => {
+        const resolved = resolveSupportOpenerIdentity({
+          openedByName: '2AG-B Owner',
+          openedByEmail: null,
+          liveName: null,
+          liveEmail: null,
+        })
+        return resolved.name === '2AG-B Owner' && resolved.email === null
+      })(),
+      detail: 'missing opener email stays empty',
     },
     {
       name: 'merge reply puts incoming first',

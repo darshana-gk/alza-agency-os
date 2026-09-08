@@ -281,6 +281,7 @@ export function SupportCenterPage() {
             <div>
               <h1 className="text-xl font-semibold text-slate-900">{selected.subject}</h1>
               <p className="mt-1 text-sm text-slate-500">
+                {selected.ticketNumber ? `${selected.ticketNumber} · ` : ''}
                 {supportCategoryLabel(selected.category)} · {supportPriorityLabel(selected.priority)}
               </p>
             </div>
@@ -500,7 +501,10 @@ export function SupportCenterPage() {
                 className="cursor-pointer border-t border-slate-100 hover:bg-slate-50"
                 onClick={() => openConversation(row.id)}
               >
-                <td className="px-4 py-3 font-medium text-slate-900">{row.subject}</td>
+                <td className="px-4 py-3 font-medium text-slate-900">
+                  {row.ticketNumber ? `${row.ticketNumber} · ` : ''}
+                  {row.subject}
+                </td>
                 <td className="px-4 py-3 text-slate-700">{supportCategoryLabel(row.category)}</td>
                 <td className="px-4 py-3">
                   <span
