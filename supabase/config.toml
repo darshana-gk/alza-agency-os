@@ -4,6 +4,9 @@
 [functions.invite-alza-user]
 verify_jwt = true
 
+[functions.provision-alza-customer]
+verify_jwt = true
+
 [functions.notify-transaction-review]
 verify_jwt = true
 

@@ -39,6 +39,9 @@ export function buildSidebarNavItems(nav: NavVisibility): SidebarNavItemSpec[] {
   if (nav.alzaSupportInbox) {
     items.push({ label: 'ALZA Support Inbox', path: '/admin/support-inbox', section: 'main' })
   }
+  if (nav.platformAgencies) {
+    items.push({ label: 'Agencies', path: '/admin/agencies', section: 'main' })
+  }
 
   // Owner/Admin-only onboarding belongs under Administration (not main ops nav).
   if (nav.onboardingImport) {

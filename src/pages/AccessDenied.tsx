@@ -28,6 +28,12 @@ export function AccessDeniedPage() {
         >
           Sign Out
         </button>
+        <a
+          href="mailto:support@alzabusiness.com"
+          className="mt-3 block text-center text-sm font-medium text-alza-blue-700 hover:underline"
+        >
+          Contact ALZA Support
+        </a>
       </div>
     </div>
   )

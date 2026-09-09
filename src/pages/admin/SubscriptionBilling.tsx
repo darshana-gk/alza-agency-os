@@ -5,6 +5,7 @@ import { useAuth } from '../../lib/auth'
 import { useAgency } from '../../lib/agencyContext'
 import { canManageBilling, rolesOf } from '../../lib/permissions'
 import {
+  formatBillingPlan,
   canCancelSubscription,
   cancelRazorpaySubscription,
   createRazorpaySubscription,
@@ -313,6 +314,18 @@ export function SubscriptionBillingPage() {
       <div>
         <h1 className="text-2xl font-semibold text-slate-900">Subscription &amp; Billing</h1>
         <p className="mt-1 text-sm text-slate-500">Choose your ALZA Flow plan for this agency.</p>
+        {billing?.status ? (
+          <p className="mt-2 text-sm text-slate-700">
+            Current subscription: {formatBillingPlan(billing).title}
+            {formatBillingPlan(billing).subtitle ? ` · ${formatBillingPlan(billing).subtitle}` : ''}
+            {' · '}
+            {formatBillingPlan(billing).intervalLabel}
+            {' · '}
+            {billing.status}
+          </p>
+        ) : (
+          <p className="mt-2 text-sm text-slate-500">No paid subscription yet. Choose a plan below.</p>
+        )}
       </div>
 
       {info && (

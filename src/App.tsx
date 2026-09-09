@@ -23,6 +23,7 @@ import { UsersPage } from '@/pages/admin/Users'
 import { AgencySettingsPage } from '@/pages/admin/AgencySettings'
 import { SubscriptionBillingPage } from '@/pages/admin/SubscriptionBilling'
 import { AlzaSupportInboxPage } from '@/pages/admin/AlzaSupportInbox'
+import { AgenciesPage } from '@/pages/admin/Agencies'
 import { TestSupabase } from '@/pages/TestSupabase'
 import { LoginPage } from '@/pages/Login'
 import { AccessDeniedPage } from '@/pages/AccessDenied'
@@ -189,6 +190,14 @@ function AuthenticatedApp() {
           element={
             <Guard path="/admin/support-inbox">
               <AlzaSupportInboxPage />
+            </Guard>
+          }
+        />
+        <Route
+          path="admin/agencies"
+          element={
+            <Guard path="/admin/agencies">
+              <AgenciesPage />
             </Guard>
           }
         />

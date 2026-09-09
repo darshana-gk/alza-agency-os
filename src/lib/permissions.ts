@@ -452,7 +452,11 @@ export function canAccessPath(role: RoleInput, pathname: string): boolean {
   // Pure platform support: Support Inbox only (auth/password routes are outside this gate).
   // Nav hiding alone is insufficient — deep-links to agency ops must be denied.
   if (isPurePlatformSupport(roles)) {
-    return path.startsWith('/admin/support-inbox') || path.startsWith('/support-inbox')
+    return (
+      path.startsWith('/admin/support-inbox') ||
+      path.startsWith('/support-inbox') ||
+      path.startsWith('/admin/agencies')
+    )
   }
 
   if (path.startsWith('/admin/support-inbox') || path.startsWith('/support-inbox')) {
@@ -520,6 +524,7 @@ export type NavVisibility = {
   users: boolean
   agencySettings: boolean
   subscriptionBilling: boolean
+  platformAgencies: boolean
 }
 
 export function getNavVisibility(role: RoleInput): NavVisibility {
@@ -549,6 +554,7 @@ export function getNavVisibility(role: RoleInput): NavVisibility {
     users: admin && !alzaOnly,
     agencySettings: admin && !alzaOnly,
     subscriptionBilling: admin && !alzaOnly,
+    platformAgencies: alzaOnly,
   }
 }
 

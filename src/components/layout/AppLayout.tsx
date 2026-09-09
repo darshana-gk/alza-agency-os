@@ -36,6 +36,10 @@ const pageTitles: Record<string, { title: string; subtitle?: string }> = {
     title: 'Agency Settings',
     subtitle: 'Customer workspace identity and branding',
   },
+  '/admin/agencies': {
+    title: 'Agencies',
+    subtitle: 'Provision a new ALZA Flow customer and first Owner',
+  },
   '/admin/subscription-billing': {
     title: 'Subscription & Billing',
     subtitle: 'ALZA FLOW SaaS subscription via Razorpay',

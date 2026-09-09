@@ -132,6 +132,12 @@ export function LoginPage() {
             >
               {recovering ? 'Sending reset email…' : 'Forgot password?'}
             </button>
+            <a
+              href="mailto:support@alzabusiness.com"
+              className="block w-full text-center text-sm font-medium text-slate-600 hover:underline"
+            >
+              Contact ALZA Support
+            </a>
           </form>
         </div>
 

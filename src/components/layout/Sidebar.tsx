@@ -46,6 +46,7 @@ const ICONS: Record<string, LucideIcon> = {
   '/activity': History,
   '/support': LifeBuoy,
   '/admin/support-inbox': Inbox,
+  '/admin/agencies': Building2,
   '/onboarding': Upload,
   '/integrations': Cable,
   '/admin/producers': UserCog,
