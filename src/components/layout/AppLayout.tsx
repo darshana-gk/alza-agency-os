@@ -1,8 +1,11 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Outlet, useLocation } from 'react-router-dom'
+import { Navigate, Outlet, useLocation } from 'react-router-dom'
 import { Sidebar } from './Sidebar'
 import { Header } from './Header'
 import { X } from 'lucide-react'
+import { WorkspaceActivationScreen } from '@/components/billing/WorkspaceActivationScreen'
+import { useSubscriptionAccess } from '@/lib/subscriptionAccessContext'
+import { isAllowedWhileRestricted } from '@/lib/subscriptionAccess'
 
 const pageTitles: Record<string, { title: string; subtitle?: string }> = {
   '/': { title: 'Dashboard', subtitle: 'Overview of your agency performance' },
@@ -53,7 +56,16 @@ const pageTitles: Record<string, { title: string; subtitle?: string }> = {
 export function AppLayout() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const location = useLocation()
+  const gate = useSubscriptionAccess()
+  const restricted = gate.applies && gate.state !== 'ACTIVE'
+  const allowedWhileRestricted = isAllowedWhileRestricted(location.pathname)
   const pageInfo = useMemo(() => {
+    if (restricted && !allowedWhileRestricted) {
+      return {
+        title: 'Workspace activation',
+        subtitle: 'Operational access opens after subscription setup',
+      }
+    }
     if (/^\/clients\/[^/]+$/.test(location.pathname)) {
       return { title: 'Client Details', subtitle: '360° client view' }
     }
@@ -67,7 +79,7 @@ export function AppLayout() {
       }
     }
     return pageTitles[location.pathname] ?? { title: 'ALZA Flow' }
-  }, [location.pathname])
+  }, [location.pathname, restricted, allowedWhileRestricted])
 
   useEffect(() => {
     const pageName = pageInfo.title.trim()
@@ -107,9 +119,26 @@ export function AppLayout() {
           title={pageInfo.title}
           subtitle={pageInfo.subtitle}
           onMenuClick={() => setSidebarOpen(true)}
+          hideOperationalChrome={restricted}
         />
         <main className="p-6">
-          <Outlet />
+          {gate.applies && gate.state === 'LOADING' ? (
+            <div className="mx-auto max-w-xl rounded-2xl border border-slate-200 bg-white p-8 text-sm text-slate-600 shadow-sm">
+              Checking workspace activation…
+            </div>
+          ) : restricted && !allowedWhileRestricted ? (
+            <>
+              {location.pathname !== '/' ? <Navigate to="/" replace /> : null}
+              <WorkspaceActivationScreen
+                agencyName={gate.agencyName}
+                reason={gate.state === 'ERROR' ? 'unavailable' : gate.reason}
+                checking={gate.checking}
+                onCheck={gate.refresh}
+              />
+            </>
+          ) : (
+            <Outlet />
+          )}
         </main>
       </div>
     </div>

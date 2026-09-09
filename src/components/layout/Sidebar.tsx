@@ -26,7 +26,8 @@ import {
 } from 'lucide-react'
 import type { NavGroup, NavItem } from '@/types'
 import { useAuth } from '@/lib/auth'
-import { getNavVisibility, rolesOf } from '@/lib/permissions'
+import { getNavVisibility, rolesOf, type NavVisibility } from '@/lib/permissions'
+import { useSubscriptionAccess } from '@/lib/subscriptionAccessContext'
 import {
   ADMIN_UMBRELLA_LABELS,
   adminGroupHasActivePath,
@@ -214,9 +215,40 @@ function AdministrationNav({ specs }: { specs: SidebarNavItemSpec[] }) {
   )
 }
 
+function restrictCustomerNav(nav: NavVisibility): NavVisibility {
+  return {
+    dashboard: false,
+    clients: false,
+    policyFiles: false,
+    transactions: false,
+    financials: false,
+    reconciliation: false,
+    reports: false,
+    activityHistory: false,
+    support: nav.support,
+    alzaSupportInbox: false,
+    onboardingImport: false,
+    integrations: false,
+    administration: false,
+    producers: false,
+    csrs: false,
+    mgas: false,
+    carriers: false,
+    users: false,
+    agencySettings: false,
+    subscriptionBilling: nav.subscriptionBilling,
+    platformAgencies: false,
+  }
+}
+
 export function Sidebar() {
   const { profile } = useAuth()
-  const nav = getNavVisibility(rolesOf(profile))
+  const gate = useSubscriptionAccess()
+  const nav = useMemo(() => {
+    const full = getNavVisibility(rolesOf(profile))
+    if (gate.applies && gate.state !== 'ACTIVE') return restrictCustomerNav(full)
+    return full
+  }, [profile, gate.applies, gate.state])
 
   const { mainNav, adminSpecs, billingItem } = useMemo(() => {
     const specs = buildSidebarNavItems(nav)

@@ -11,6 +11,7 @@ interface HeaderProps {
   title: string
   subtitle?: string
   onMenuClick?: () => void
+  hideOperationalChrome?: boolean
 }
 
 const SEARCHABLE_PATHS = new Set([
@@ -22,7 +23,7 @@ const SEARCHABLE_PATHS = new Set([
   '/admin/mgas',
 ])
 
-export function Header({ title, subtitle, onMenuClick }: HeaderProps) {
+export function Header({ title, subtitle, onMenuClick, hideOperationalChrome = false }: HeaderProps) {
   const { profile, signOut } = useAuth()
   const { agency } = useAgency()
   const location = useLocation()
@@ -203,6 +204,7 @@ export function Header({ title, subtitle, onMenuClick }: HeaderProps) {
           </div>
         )}
 
+        {hideOperationalChrome ? null : (
         <div className="relative hidden sm:block">
           <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
           <SearchInput
@@ -216,8 +218,9 @@ export function Header({ title, subtitle, onMenuClick }: HeaderProps) {
             className="h-9 w-64 rounded-lg border border-slate-200 bg-slate-50 pl-9 pr-4 text-sm text-slate-900 placeholder:text-slate-400 focus:border-alza-blue-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-alza-blue-500/20"
           />
         </div>
+        )}
 
-        <NotificationBell />
+        {hideOperationalChrome ? null : <NotificationBell />}
 
         <div className="relative border-l border-slate-200 pl-3" ref={menuRef}>
           <button

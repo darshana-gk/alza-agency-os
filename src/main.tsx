@@ -4,6 +4,7 @@ import { BrowserRouter } from 'react-router-dom'
 import App from './App'
 import { AuthProvider } from './lib/auth'
 import { AgencyProvider } from './lib/agencyContext'
+import { SubscriptionAccessProvider } from './lib/subscriptionAccessContext'
 import './index.css'
 
 createRoot(document.getElementById('root')!).render(
@@ -11,7 +12,9 @@ createRoot(document.getElementById('root')!).render(
     <BrowserRouter>
       <AuthProvider>
         <AgencyProvider>
-          <App />
+          <SubscriptionAccessProvider>
+            <App />
+          </SubscriptionAccessProvider>
         </AgencyProvider>
       </AuthProvider>
     </BrowserRouter>
