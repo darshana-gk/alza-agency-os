@@ -438,8 +438,8 @@ export function ClientDetails() {
               producerCommissionAmount: tx.producerCommissionAmount,
               agencyNetCommission: tx.agencyNetCommission,
               policyNumber: tx.snapshotPolicyNumber || null,
-              policyEffectiveDate: tx.snapshotPolicyEffectiveDate || tx.transactionEffectiveDate,
-              policyExpirationDate: tx.snapshotPolicyExpirationDate || tx.transactionExpirationDate,
+              policyEffectiveDate: tx.snapshotPolicyEffectiveDate || null,
+              policyExpirationDate: tx.snapshotPolicyExpirationDate || null,
               producer: tx.producer,
               csr: tx.csr,
               carrier: tx.carrier,
@@ -515,7 +515,7 @@ export function ClientDetails() {
         transactionDate: tx.transactionDate,
         type: tx.type,
         amount: tx.amount,
-        policyNumber: tx.snapshotPolicyNumber || tx.policyNumber || '—',
+        policyNumber: tx.policyNumber || 'Not recorded',
       }))
 
     const row = clientRow as ClientRow

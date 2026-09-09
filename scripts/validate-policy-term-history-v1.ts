@@ -176,6 +176,14 @@ console.log('E. Display snapshots, grouping, paths, tenant isolation')
     'BHP-GL-2026-001',
     'transaction displays prefer the snapshot number',
   )
+  assertEq(
+    resolveDisplayedPolicyNumber({
+      snapshotPolicyNumber: null,
+      currentPolicyNumber: 'LIVE-POLICY',
+    }),
+    'Not recorded',
+    'null historical snapshot does not fall back to the live Policy File',
+  )
   const grouped = groupPolicyTermsByLineOfBusiness([
     { policyType: 'General Liability', policyNumber: 'BHP-GL-2026-001' },
     { policyType: 'General Liability', policyNumber: 'BHP-GL-2027-002' },
@@ -307,8 +315,8 @@ console.log('G. Expired-term Add Transaction + historical identity')
   )
   assertEq(
     nullSnapshotPrior[0]?.policyNumber,
-    '—',
-    'missing historical snapshot is not replaced with the live current policy number',
+    'Not recorded',
+    'missing historical snapshot displays Not recorded, not the live Policy File',
   )
 
   assertEq(

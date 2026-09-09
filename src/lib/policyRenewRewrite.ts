@@ -6,6 +6,7 @@
  */
 
 import { createTransaction, normalizeCommissionType, todayIsoDate, type CommissionType } from './commission'
+import { selectCurrentTermTransactions, toPolicyPremiumTxn } from './policyPremium'
 import { createPolicy, POLICY_STATUSES, roundMoney, type PolicyStatusValue } from './directory'
 import { canManagePolicies, canManageTransactions, rejectUnlessRole, type RoleInput } from './permissions'
 import {
@@ -336,18 +337,60 @@ export async function freezeHistoricalPolicySnapshots(
   const number = snapshot.policyNumber.trim()
   if (!policyId.trim() || !number) return { error: null }
 
-  const patch: Record<string, unknown> = { policy_number: number }
-  const eff = isoDateOnly(snapshot.effectiveDate)
-  const exp = isoDateOnly(snapshot.expirationDate)
-  if (eff) patch.policy_effective_date = eff
-  if (exp) patch.policy_expiration_date = exp
-
-  const { error } = await supabase
+  const { data: rows, error: fetchError } = await supabase
     .from('transactions')
-    .update(patch)
+    .select(
+      'id, transaction_type, amount, archived_at, voided_at, created_at, transaction_date, transaction_effective_date, transaction_expiration_date, policy_number, policy_effective_date, policy_expiration_date',
+    )
     .eq('policy_id', policyId)
-    .is('policy_number', null)
-  return { error: error?.message ?? null }
+    .is('archived_at', null)
+  if (fetchError) return { error: fetchError.message }
+
+  const currentIds = new Set(
+    selectCurrentTermTransactions(
+      (rows ?? []).map((row) =>
+        toPolicyPremiumTxn({
+          id: String(row.id),
+          type: String(row.transaction_type ?? ''),
+          amount: Number(row.amount ?? 0),
+          archived: false,
+          voidedAt: row.voided_at as string | null,
+          transactionDate: String(row.transaction_date ?? ''),
+          createdAt: String(row.created_at ?? ''),
+          transactionEffectiveDate: (row.transaction_effective_date as string | null) ?? null,
+          transactionExpirationDate: (row.transaction_expiration_date as string | null) ?? null,
+        }),
+      ),
+      {
+        policyEffectiveDate: snapshot.effectiveDate,
+        policyExpirationDate: snapshot.expirationDate,
+      },
+    )
+      .map((tx) => String(tx.id ?? ''))
+      .filter(Boolean),
+  )
+
+  const eff = isoDateOnly(snapshot.effectiveDate) || null
+  const exp = isoDateOnly(snapshot.expirationDate) || null
+
+  for (const row of rows ?? []) {
+    const id = String(row.id)
+    if (!currentIds.has(id)) continue
+    const numberMissing = !String(row.policy_number ?? '').trim()
+    const effMissing = !row.policy_effective_date
+    const expMissing = !row.policy_expiration_date
+    if (!numberMissing && !effMissing && !expMissing) continue
+
+    const { error } = await supabase.rpc('apply_null_transaction_policy_snapshot', {
+      p_transaction_id: id,
+      p_policy_number: numberMissing ? number : null,
+      p_policy_effective_date: effMissing ? eff : null,
+      p_policy_expiration_date: expMissing ? exp : null,
+    })
+    if (error) return { error: error.message }
+  }
+
+  return { error: null }
 }
 
 /**

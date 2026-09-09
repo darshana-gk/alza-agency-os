@@ -16,6 +16,9 @@
  * transactions yet, and is never added into live/current-term totals.
  */
 
+/** Historical transaction snapshot missing. Never a live Policy File value. */
+export const HISTORICAL_SNAPSHOT_NOT_RECORDED = 'Not recorded'
+
 export const TERM_ESTABLISHING_TYPES = ['new_policy_premium', 'renewal_premium'] as const
 export const TERM_ADJUSTING_TYPES = [
   'endorsement_premium',
@@ -275,17 +278,17 @@ export function selectCurrentTermTransactions(
 }
 
 /**
- * Display SoT for a transaction's policy number: the create-time snapshot.
- * Fall back to the live Policy File only when no snapshot exists (legacy rows).
+ * Display SoT for a transaction's policy number: the create-time snapshot only.
+ * Missing snapshots are unknown. Never substitute the current Policy File.
  */
 export function resolveDisplayedPolicyNumber(input: {
   snapshotPolicyNumber?: string | null
   currentPolicyNumber?: string | null
 }): string {
+  void input.currentPolicyNumber
   const snapshot = String(input.snapshotPolicyNumber ?? '').trim()
-  if (snapshot) return snapshot
-  const current = String(input.currentPolicyNumber ?? '').trim()
-  return current || '—'
+  if (snapshot && snapshot !== '—' && snapshot !== HISTORICAL_SNAPSHOT_NOT_RECORDED) return snapshot
+  return HISTORICAL_SNAPSHOT_NOT_RECORDED
 }
 
 export function resolveDisplayedPolicyTerm(input: {
@@ -294,14 +297,13 @@ export function resolveDisplayedPolicyTerm(input: {
   currentEffectiveDate?: string | null
   currentExpirationDate?: string | null
 }): { effectiveDate: string; expirationDate: string } {
+  void input.currentEffectiveDate
+  void input.currentExpirationDate
   const snapEff = isoDate(input.snapshotEffectiveDate)
   const snapExp = isoDate(input.snapshotExpirationDate)
-  if (snapEff || snapExp) {
-    return { effectiveDate: snapEff, expirationDate: snapExp }
-  }
   return {
-    effectiveDate: isoDate(input.currentEffectiveDate),
-    expirationDate: isoDate(input.currentExpirationDate),
+    effectiveDate: snapEff || HISTORICAL_SNAPSHOT_NOT_RECORDED,
+    expirationDate: snapExp || HISTORICAL_SNAPSHOT_NOT_RECORDED,
   }
 }
 
@@ -544,10 +546,8 @@ export function listPolicyFileTerms(
     const totals = totalsFromTermSet(liveTerm)
     const isLast = index === establishing.length - 1
     const dates = resolveDisplayedPolicyTerm({
-      snapshotEffectiveDate: head.policyEffectiveDate || head.transactionEffectiveDate,
-      snapshotExpirationDate: head.policyExpirationDate || head.transactionExpirationDate,
-      currentEffectiveDate: isLast ? file.effectiveDate : null,
-      currentExpirationDate: isLast ? file.expirationDate : null,
+      snapshotEffectiveDate: head.policyEffectiveDate,
+      snapshotExpirationDate: head.policyExpirationDate,
     })
     const isCurrent = singleTerm || isLast || String(head.id ?? '') === currentId
     const termId = String(head.id ?? '').trim() || FILE_CURRENT_TERM_ID
@@ -560,7 +560,6 @@ export function listPolicyFileTerms(
         index < establishing.length - 1 ? String(establishing[index + 1]?.id ?? '') : null,
       policyNumber: resolveDisplayedPolicyNumber({
         snapshotPolicyNumber: head.policyNumber,
-        currentPolicyNumber: isCurrent ? file.policyNumber : null,
       }),
       effectiveDate: dates.effectiveDate,
       expirationDate: dates.expirationDate,
@@ -746,16 +745,13 @@ export function resolveTermTransactionPolicyNumber(input: {
   livePolicyNumber?: string | null
   isCurrentTerm: boolean
 }): string {
+  void input.livePolicyNumber
+  void input.isCurrentTerm
   const snapshot = String(input.snapshotPolicyNumber ?? '').trim()
-  if (snapshot && snapshot !== '—') return snapshot
-  if (!input.isCurrentTerm) {
-    const term = String(input.termPolicyNumber ?? '').trim()
-    return term || '—'
-  }
-  return resolveDisplayedPolicyNumber({
-    snapshotPolicyNumber: snapshot,
-    currentPolicyNumber: input.livePolicyNumber,
-  })
+  if (snapshot && snapshot !== '—' && snapshot !== HISTORICAL_SNAPSHOT_NOT_RECORDED) return snapshot
+  const term = String(input.termPolicyNumber ?? '').trim()
+  if (term && term !== '—' && term !== HISTORICAL_SNAPSHOT_NOT_RECORDED) return term
+  return HISTORICAL_SNAPSHOT_NOT_RECORDED
 }
 
 function hasLivePolicyTransactions(input: {

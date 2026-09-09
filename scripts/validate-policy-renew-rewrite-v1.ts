@@ -396,7 +396,8 @@ console.log('H. Static wiring — schema, surfaces, no new transaction type')
 
   const renewLib = readFileSync(resolve(root, 'src/lib/policyRenewRewrite.ts'), 'utf8')
   assert(renewLib.includes('freezeHistoricalPolicySnapshots'), 'renew freezes historical policy snapshots')
-  assert(renewLib.includes(".is('policy_number', null)"), 'freeze only fills rows that lack a snapshot')
+  assert(renewLib.includes('apply_null_transaction_policy_snapshot'), 'freeze uses privileged null-only snapshot RPC')
+  assert(renewLib.includes('selectCurrentTermTransactions'), 'freeze only current-term transactions')
   assert(!/freezeHistoricalPolicySnapshots[\s\S]{0,1200}producer_commission/.test(renewLib), 'freeze does not rewrite producer commission')
 
   const recon = readFileSync(resolve(root, 'src/lib/reconciliation.ts'), 'utf8')
@@ -633,8 +634,8 @@ console.log('K. Transaction history snapshots display the create-time policy num
       snapshotPolicyNumber: '  ',
       currentPolicyNumber: 'BHP-GL-2027-001',
     }),
-    'BHP-GL-2027-001',
-    'legacy rows with no snapshot still fall back to the current Policy File',
+    'Not recorded',
+    'historical rows with no snapshot display Not recorded, not the live Policy File',
   )
 
   const grouped = groupRelatedPolicyTransactions([

@@ -141,6 +141,7 @@ function normalizePolicyStatus(status: string | null): PolicyStatus {
 
 function formatDateSafe(dateStr: string): string {
   if (!dateStr || dateStr === '—') return '—'
+  if (dateStr === 'Not recorded') return dateStr
   return formatDate(dateStr)
 }
 
@@ -480,8 +481,8 @@ export function PolicyDetails() {
           producerCommissionAmount: tx.producerCommissionAmount,
           agencyNetCommission: tx.agencyNetCommission,
           policyNumber: tx.snapshotPolicyNumber || null,
-          policyEffectiveDate: tx.snapshotPolicyEffectiveDate || tx.transactionEffectiveDate,
-          policyExpirationDate: tx.snapshotPolicyExpirationDate || tx.transactionExpirationDate,
+          policyEffectiveDate: tx.snapshotPolicyEffectiveDate || null,
+          policyExpirationDate: tx.snapshotPolicyExpirationDate || null,
           producer: tx.producer,
           csr: tx.csr,
           carrier: tx.carrier,

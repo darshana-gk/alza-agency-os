@@ -1363,8 +1363,6 @@ export function mapCommissionTransaction(row: TransactionCommissionRow): Commiss
   const displayedPolicyTerm = resolveDisplayedPolicyTerm({
     snapshotEffectiveDate: row.policy_effective_date,
     snapshotExpirationDate: row.policy_expiration_date,
-    currentEffectiveDate: policy?.effective_date,
-    currentExpirationDate: policy?.expiration_date,
   })
 
   return {
@@ -1386,7 +1384,6 @@ export function mapCommissionTransaction(row: TransactionCommissionRow): Commiss
     snapshotPolicyExpirationDate: row.policy_expiration_date?.trim() || '',
     policyNumber: resolveDisplayedPolicyNumber({
       snapshotPolicyNumber: row.policy_number,
-      currentPolicyNumber: policy?.policy_number,
     }),
     policyType: policy?.policy_type?.trim() || '—',
     policyEffectiveDate: displayedPolicyTerm.effectiveDate,

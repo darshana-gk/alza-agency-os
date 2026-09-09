@@ -268,7 +268,7 @@ export async function exportProducerRevenueReport(params: {
       null,
       tx.transactionNumber || '',
       tx.clientName || '',
-      tx.policyNumber || '',
+      tx.policyNumber || 'Not recorded',
       formatTypeLabel(tx.type),
       tx.amount,
       tx.producer || '',

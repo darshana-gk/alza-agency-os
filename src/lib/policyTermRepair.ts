@@ -330,17 +330,12 @@ export async function repairHistoricalTermSnapshots(input: {
 
   const updatedIds: string[] = []
   for (const update of plan.updates) {
-    const patch: Record<string, string> = {}
-    if (update.policyNumber) patch.policy_number = update.policyNumber
-    if (update.policyEffectiveDate) patch.policy_effective_date = update.policyEffectiveDate
-    if (update.policyExpirationDate) patch.policy_expiration_date = update.policyExpirationDate
-    const { error } = await supabase
-      .from('transactions')
-      .update(patch)
-      .eq('id', update.id)
-      .eq('policy_id', policyId)
-      .in('id', termIds)
-      .is('archived_at', null)
+    const { error } = await supabase.rpc('apply_null_transaction_policy_snapshot', {
+      p_transaction_id: update.id,
+      p_policy_number: update.policyNumber ?? null,
+      p_policy_effective_date: update.policyEffectiveDate ?? null,
+      p_policy_expiration_date: update.policyExpirationDate ?? null,
+    })
     if (error) return { data: null, error: error.message }
     updatedIds.push(update.id)
   }
