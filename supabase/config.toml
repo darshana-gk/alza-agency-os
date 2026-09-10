@@ -7,6 +7,9 @@ verify_jwt = true
 [functions.provision-alza-customer]
 verify_jwt = true
 
+[functions.create-agency-signup]
+verify_jwt = false
+
 [functions.notify-transaction-review]
 verify_jwt = true
 

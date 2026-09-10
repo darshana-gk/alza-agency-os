@@ -26,6 +26,7 @@ import { AlzaSupportInboxPage } from '@/pages/admin/AlzaSupportInbox'
 import { AgenciesPage } from '@/pages/admin/Agencies'
 import { TestSupabase } from '@/pages/TestSupabase'
 import { LoginPage } from '@/pages/Login'
+import { SignupPage } from '@/pages/Signup'
 import { AccessDeniedPage } from '@/pages/AccessDenied'
 import { SetPasswordPage } from '@/pages/SetPassword'
 import { ResetPasswordPage } from '@/pages/ResetPassword'
@@ -288,6 +289,17 @@ export default function App() {
       <Routes>
         <Route path="/auth/set-password" element={<SetPasswordPage />} />
         <Route path="*" element={<Navigate to="/auth/set-password" replace />} />
+      </Routes>
+    )
+  }
+
+  // Phase 1 public self-serve signup (no auth required).
+  if (location.pathname === '/signup' || location.pathname === '/get-started') {
+    return (
+      <Routes>
+        <Route path="/signup" element={<SignupPage />} />
+        <Route path="/get-started" element={<SignupPage />} />
+        <Route path="*" element={<Navigate to="/signup" replace />} />
       </Routes>
     )
   }

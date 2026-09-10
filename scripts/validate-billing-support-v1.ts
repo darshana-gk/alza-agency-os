@@ -541,15 +541,53 @@ console.log('H. Support RBAC + Need Help routes')
   assert(canAccessPath('alza_support', '/admin/support-inbox'), 'alza inbox path')
 }
 
-console.log('I. Support/prospect files not restored on Billing V2 Preview branch')
+console.log('I. Phase 1 self-serve signup present; legacy support-assignment artifacts stay absent')
 {
-  // Difference from 69eb07e: Support assignment, notify-support-event, and the
-  // combined billing+support migration stay on launch/support-v1 / the mixed
-  // feature branch. This branch restores Billing catalog/UI only.
+  // Self-serve signup is intentional for V1 Phase 1.
+  assert(existsSync(resolve(root, 'src/pages/Signup.tsx')), 'Signup.tsx present')
   assert(
-    !existsSync(resolve(root, 'src/pages/Signup.tsx')),
-    'prospect Signup.tsx not restored',
+    existsSync(resolve(root, 'src/lib/selfServeSignup.ts')),
+    'selfServeSignup client helper present',
   )
+  assert(
+    existsSync(resolve(root, 'supabase/functions/create-agency-signup/index.ts')),
+    'create-agency-signup Edge Function present',
+  )
+  assert(
+    existsSync(
+      resolve(root, 'supabase/migrations/20260910120000_self_serve_agency_signup.sql'),
+    ),
+    'self-serve signup migration present',
+  )
+
+  const signupFn = readFileSync(
+    resolve(root, 'supabase/functions/create-agency-signup/index.ts'),
+    'utf8',
+  )
+  assert(signupFn.includes('forbidden_field'), 'signup rejects privileged client fields')
+  assert(signupFn.includes('self_serve_create_agency_owner'), 'signup uses dedicated RPC')
+  assert(signupFn.includes("role: 'owner'"), 'signup returns owner only')
+  assert(!signupFn.includes('assert_platform_support_actor'), 'signup is not Support-gated')
+
+  const signupMigration = readFileSync(
+    resolve(root, 'supabase/migrations/20260910120000_self_serve_agency_signup.sql'),
+    'utf8',
+  )
+  assert(/role,\s*status/.test(signupMigration), 'users.role insert present')
+  assert(signupMigration.includes("'owner'"), 'owner role hard-coded')
+  assert(signupMigration.includes("'incomplete'"), 'billing intent stays incomplete')
+  assert(signupMigration.includes('billing_subscriptions'), 'optional billing intent insert')
+  assert(signupMigration.includes("VALUES (v_user, 'owner')"), 'user_roles owner only')
+  assert(
+    signupMigration.includes('GRANT EXECUTE') && signupMigration.includes('TO service_role'),
+    'RPC execute granted to service_role only',
+  )
+  assert(
+    signupMigration.includes('REVOKE ALL') && signupMigration.includes('FROM anon'),
+    'RPC revoked from anon',
+  )
+
+  // Difference from 69eb07e: Support assignment / notify-support-event stay off this branch.
   assert(
     !existsSync(resolve(root, 'src/lib/agencyLifecycle.ts')),
     'agencyLifecycle not restored',
@@ -559,16 +597,13 @@ console.log('I. Support/prospect files not restored on Billing V2 Preview branch
     'notify-support-event not restored',
   )
   assert(
-    !existsSync(resolve(root, 'supabase/functions/create-agency-signup/index.ts')),
-    'create-agency-signup not restored',
-  )
-  assert(
     !existsSync(
       resolve(root, 'supabase/migrations/20260826120000_billing_v2_and_support_assignment.sql'),
     ),
     'billing+support migration not restored',
   )
 }
+
 
 console.log('J. create-subscription rejects legacy / missing secret message')
 {

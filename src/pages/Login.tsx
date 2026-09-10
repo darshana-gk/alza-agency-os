@@ -138,11 +138,17 @@ export function LoginPage() {
             >
               Contact ALZA Support
             </a>
+            <p className="pt-1 text-center text-sm text-slate-600">
+              New to ALZA Flow?{' '}
+              <a href="/signup" className="font-medium text-alza-blue-700 hover:underline">
+                Create an account
+              </a>
+            </p>
           </form>
         </div>
 
         <p className="mt-6 text-center text-xs text-slate-500">
-          Internal agency access only. Accounts are provisioned by ALZA administrators.
+          Invited teammates use the invite email. New agencies can create an account to get started.
         </p>
       </div>
     </div>

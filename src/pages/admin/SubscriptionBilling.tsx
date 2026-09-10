@@ -93,12 +93,42 @@ export function SubscriptionBillingPage() {
     setBilling(sub.data)
     setUserCount(users.count)
     if (!recommendedInitialized.current) {
-      setUserBand(recommendUserBand(users.count))
+      // Explicit purchase intent (URL or stored incomplete billing row) wins.
+      // Never let user-count recommendation overwrite an explicit selection.
+      const fromQueryProduct = searchParams.get('product')
+      const fromQueryBand = searchParams.get('userBand')
+      const fromQueryInterval = searchParams.get('interval')
+      const hasExplicitQuery =
+        isBillingProductKey(fromQueryProduct) ||
+        isBillingUserBandKey(fromQueryBand) ||
+        fromQueryInterval === 'monthly' ||
+        fromQueryInterval === 'annual'
+
+      const storedProduct = sub.data?.productKey
+      const storedBand = sub.data?.userBandKey
+      const storedInterval = sub.data?.billingInterval
+      const hasStoredIntent =
+        isBillingProductKey(storedProduct) ||
+        isBillingUserBandKey(storedBand) ||
+        storedInterval === 'monthly' ||
+        storedInterval === 'annual'
+
+      if (hasExplicitQuery) {
+        // Query effect already applied product/band/interval once.
+      } else if (hasStoredIntent) {
+        if (isBillingProductKey(storedProduct)) setProduct(storedProduct)
+        if (isBillingUserBandKey(storedBand)) setUserBand(storedBand)
+        if (storedInterval === 'monthly' || storedInterval === 'annual') {
+          setInterval(storedInterval)
+        }
+      } else {
+        setUserBand(recommendUserBand(users.count))
+      }
       recommendedInitialized.current = true
     }
     setLoading(false)
     return sub.data
-  }, [canManage])
+  }, [canManage, searchParams])
 
   useEffect(() => {
     void load()
