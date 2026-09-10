@@ -12,8 +12,6 @@ export const BILLING_CHECKOUT_SKUS = [
   'flow_11_25_annual',
   'flow_26_50_monthly',
   'flow_26_50_annual',
-  'flow_51_100_monthly',
-  'flow_51_100_annual',
 ] as const
 
 export type BillingCheckoutSku = (typeof BILLING_CHECKOUT_SKUS)[number]
@@ -23,7 +21,6 @@ export type BillingCheckoutBandKey =
   | 'users_4_10'
   | 'users_11_25'
   | 'users_26_50'
-  | 'users_51_100'
 export type BillingInterval = 'monthly' | 'annual'
 export type LegacyBillingPlanKey = 'essential' | 'professional'
 
@@ -32,7 +29,6 @@ const BAND_SKU_PART: Record<BillingCheckoutBandKey, string> = {
   users_4_10: '4_10',
   users_11_25: '11_25',
   users_26_50: '26_50',
-  users_51_100: '51_100',
 }
 
 const SKU_TO_BAND: Record<string, BillingCheckoutBandKey> = {
@@ -40,7 +36,6 @@ const SKU_TO_BAND: Record<string, BillingCheckoutBandKey> = {
   '4_10': 'users_4_10',
   '11_25': 'users_11_25',
   '26_50': 'users_26_50',
-  '51_100': 'users_51_100',
 }
 
 export function isBillingCheckoutSku(value: string | null | undefined): value is BillingCheckoutSku {
@@ -78,7 +73,7 @@ export function parseCheckoutSku(sku: string | null | undefined): {
   interval: BillingInterval
 } | null {
   const v = String(sku ?? '').trim().toLowerCase()
-  const match = /^flow_(1_3|4_10|11_25|26_50|51_100)_(monthly|annual)$/.exec(v)
+  const match = /^flow_(1_3|4_10|11_25|26_50)_(monthly|annual)$/.exec(v)
   if (!match) return null
   const userBand = SKU_TO_BAND[match[1]]
   if (!userBand) return null
@@ -107,6 +102,11 @@ export function parseCheckoutSelection(body: Record<string, unknown>):
     return { error: 'ALZA Flow Pay is Coming Soon and cannot be purchased yet.' }
   }
 
+  const bandRaw = String(body.userBand ?? body.user_band ?? '').trim().toLowerCase()
+  if (bandRaw === 'users_51_100' || bandRaw === 'users_100_plus') {
+    return { error: 'This user band requires custom pricing. Contact ALZA.' }
+  }
+
   const skuDirect = isBillingCheckoutSku(planRaw) ? planRaw : null
   if (skuDirect) {
     const parsed = parseCheckoutSku(skuDirect)
@@ -115,7 +115,7 @@ export function parseCheckoutSelection(body: Record<string, unknown>):
   }
 
   const product = productRaw === 'alza_flow' ? 'alza_flow' : null
-  const userBand = String(body.userBand ?? body.user_band ?? '').trim() as BillingCheckoutBandKey
+  const userBand = bandRaw as BillingCheckoutBandKey
   const interval = String(body.interval ?? body.billing_interval ?? '').trim() as BillingInterval
   if (
     product !== 'alza_flow' ||

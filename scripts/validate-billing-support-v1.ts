@@ -161,20 +161,28 @@ console.log('D. Band detection + Contact/Custom')
     userBand: 'users_51_100',
     interval: 'monthly',
   })
-  assert(band51.checkoutEligible, '51-100 monthly checkout eligible')
-  assertEq(band51.amount, 1499, '51-100 monthly $1499')
-  assertEq(band51.sku, 'flow_51_100_monthly', '51-100 monthly sku')
-  assert(!band51.contactAlza, '51-100 not Contact ALZA')
+  assertEq(band51.checkoutEligible, false, '51-100 monthly not checkout eligible')
+  assert(band51.contactAlza, '51-100 Contact ALZA')
+  assertEq(band51.sku, null, '51-100 monthly no sku')
+  assertEq(band51.monthlyAmount, 1499, '51-100 monthly guidance $1499')
+  assert(band51.plusPricing, '51-100 plus pricing')
+  assert(band51.displayPrice.includes('1,499'), '51-100 display shows $1,499+')
 
   const band51Annual = quoteBillingSelection({
     product: 'alza_flow',
     userBand: 'users_51_100',
     interval: 'annual',
   })
-  assert(band51Annual.checkoutEligible, '51-100 annual checkout eligible')
-  assertEq(band51Annual.amount, 14990, '51-100 annual $14990')
-  assertEq(band51Annual.sku, 'flow_51_100_annual', '51-100 annual sku')
-  assertEq(band51Annual.annualSavings, 2998, '51-100 annual savings (2 months free)')
+  assertEq(band51Annual.checkoutEligible, false, '51-100 annual not checkout eligible')
+  assert(band51Annual.contactAlza, '51-100 annual Contact ALZA')
+  assertEq(band51Annual.sku, null, '51-100 annual no sku')
+
+  const band51Checkout = quoteCheckoutSelection({
+    product: 'alza_flow',
+    userBand: 'users_51_100',
+    interval: 'monthly',
+  })
+  assert('error' in band51Checkout, '51-100 checkout selection rejected')
 
   const custom = quoteBillingSelection({
     product: 'alza_flow',
@@ -198,13 +206,13 @@ console.log('E. Razorpay secret names + no frontend secrets')
     'RAZORPAY_PLAN_FLOW_26_50_ANNUAL',
     'env name annual',
   )
-  assertEq(BILLING_CHECKOUT_SKUS.length, 10, '10 Flow checkout SKUs (incl 51-100)')
-  assert(BILLING_CHECKOUT_SKUS.includes('flow_51_100_monthly'), '51-100 monthly sku listed')
-  assert(BILLING_CHECKOUT_SKUS.includes('flow_51_100_annual'), '51-100 annual sku listed')
+  assertEq(BILLING_CHECKOUT_SKUS.length, 8, '8 Flow checkout SKUs (1-3 through 26-50)')
+  assert(!BILLING_CHECKOUT_SKUS.includes('flow_51_100_monthly' as never), '51-100 monthly sku not listed')
+  assert(!BILLING_CHECKOUT_SKUS.includes('flow_51_100_annual' as never), '51-100 annual sku not listed')
   assertEq(
-    razorpayPlanEnvName('flow_51_100_monthly'),
-    'RAZORPAY_PLAN_FLOW_51_100_MONTHLY',
-    'env name 51-100 monthly',
+    razorpayPlanEnvName('flow_1_3_monthly'),
+    'RAZORPAY_PLAN_FLOW_1_3_MONTHLY',
+    'env name monthly still correct',
   )
   const catalogSrc = readFileSync(resolve(root, 'src/lib/billingCatalog.ts'), 'utf8')
   assert(!catalogContainsPlanSecrets(catalogSrc), 'catalog has no secret values')
@@ -326,11 +334,13 @@ console.log('G2. Legacy-active + V2 catalog visibility (no second checkout)')
       status: 'cancelled',
       planKey: null,
       product: 'alza_flow',
-      checkoutEligible: true,
-      contactAlza: false,
+      checkoutEligible: false,
+      contactAlza: true,
+      selectedUserBand: 'users_51_100',
+      selectedInterval: 'monthly',
     }),
-    'subscribe',
-    '51-100 checkoutEligible cancelled CTA subscribe',
+    'contact_alza',
+    '51-100 Contact ALZA CTA',
   )
   assertEq(
     billingCatalogPrimaryAction({
@@ -572,8 +582,7 @@ console.log('J. create-subscription rejects legacy / missing secret message')
   assert(!createFn.includes('getSingletonAgency'), 'create fn does not use singleton agency')
   assert(createFn.includes('plan_secret_missing') || createFn.includes('Contact ALZA'), 'missing secret message')
   assert(!createFn.includes('body.amount'), 'browser amount not used')
-  assert(createFn.includes('users_51_100'), '51-100 included_users mapped')
-  assert(/includedUsers[\s\S]*100/.test(createFn), '51-100 soft seats = 100')
+  assert(!/users_51_100[\s\S]{0,40}\? 100/.test(createFn), '51-100 not mapped for included_users checkout')
 
   const sharedCatalog = readFileSync(
     resolve(root, 'supabase/functions/_shared/billingCatalog.ts'),
@@ -587,7 +596,14 @@ console.log('J. create-subscription rejects legacy / missing secret message')
       `secret name for ${sku}`,
     )
   }
-  assertEq(BILLING_CHECKOUT_SKUS.length, 10, '10 sellable Flow SKUs')
+  assertEq(BILLING_CHECKOUT_SKUS.length, 8, '8 sellable Flow SKUs')
+  assert(sharedCatalog.includes("users_51_100"), 'server explicitly mentions 51-100')
+  assert(
+    sharedCatalog.includes('This user band requires custom pricing. Contact ALZA.'),
+    'server rejects 51-100 / 100+ with Contact ALZA',
+  )
+  assert(!sharedCatalog.includes("'flow_51_100_monthly'"), 'server has no 51-100 monthly sku')
+  assert(!sharedCatalog.includes("'flow_51_100_annual'"), 'server has no 51-100 annual sku')
 
   const sharedBilling = readFileSync(
     resolve(root, 'supabase/functions/_shared/billing.ts'),
@@ -609,14 +625,12 @@ console.log('K. Checkout matrix — sellable SKUs, rejects, cancelled legacy')
     'users_4_10',
     'users_11_25',
     'users_26_50',
-    'users_51_100',
   ] as const
   const monthlyAmounts: Record<(typeof sellableBands)[number], number> = {
     users_1_3: 399,
     users_4_10: 599,
     users_11_25: 899,
     users_26_50: 1099,
-    users_51_100: 1499,
   }
 
   for (const band of sellableBands) {
@@ -636,6 +650,13 @@ console.log('K. Checkout matrix — sellable SKUs, rejects, cancelled legacy')
       }
     }
   }
+
+  const band51Reject = quoteCheckoutSelection({
+    product: 'alza_flow',
+    userBand: 'users_51_100',
+    interval: 'monthly',
+  })
+  assert('error' in band51Reject, '51-100 checkout rejected')
 
   const pay = quoteCheckoutSelection({
     product: 'alza_flow_pay',
