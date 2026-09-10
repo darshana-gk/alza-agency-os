@@ -27,6 +27,7 @@ import { AgenciesPage } from '@/pages/admin/Agencies'
 import { TestSupabase } from '@/pages/TestSupabase'
 import { LoginPage } from '@/pages/Login'
 import { SignupPage } from '@/pages/Signup'
+import { PricingPage } from '@/pages/Pricing'
 import { AccessDeniedPage } from '@/pages/AccessDenied'
 import { SetPasswordPage } from '@/pages/SetPassword'
 import { ResetPasswordPage } from '@/pages/ResetPassword'
@@ -293,13 +294,18 @@ export default function App() {
     )
   }
 
-  // Phase 1 public self-serve signup (no auth required).
-  if (location.pathname === '/signup' || location.pathname === '/get-started') {
+  // Phase 1–2 public purchase entry (no auth required).
+  if (
+    location.pathname === '/signup' ||
+    location.pathname === '/get-started' ||
+    location.pathname === '/pricing'
+  ) {
     return (
       <Routes>
+        <Route path="/pricing" element={<PricingPage />} />
         <Route path="/signup" element={<SignupPage />} />
         <Route path="/get-started" element={<SignupPage />} />
-        <Route path="*" element={<Navigate to="/signup" replace />} />
+        <Route path="*" element={<Navigate to="/pricing" replace />} />
       </Routes>
     )
   }

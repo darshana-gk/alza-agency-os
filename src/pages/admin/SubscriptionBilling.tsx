@@ -38,6 +38,7 @@ import {
   type BillingProductKey,
   type BillingUserBandKey,
 } from '../../lib/billingCatalog'
+import { purchaseIntentFromSearchParams, resolvePurchaseIntent } from '../../lib/purchaseIntent'
 
 const fieldLabelClass = 'mb-1.5 block text-xs font-medium uppercase tracking-wide text-slate-500'
 const selectClass =
@@ -72,6 +73,13 @@ export function SubscriptionBillingPage() {
   useEffect(() => {
     if (queryInitialized.current) return
     queryInitialized.current = true
+    const fromPlan = purchaseIntentFromSearchParams(searchParams)
+    if (fromPlan) {
+      setProduct(fromPlan.product)
+      setUserBand(fromPlan.userBand)
+      setInterval(fromPlan.interval)
+      return
+    }
     const p = searchParams.get('product')
     const b = searchParams.get('userBand')
     const i = searchParams.get('interval')
@@ -95,10 +103,12 @@ export function SubscriptionBillingPage() {
     if (!recommendedInitialized.current) {
       // Explicit purchase intent (URL or stored incomplete billing row) wins.
       // Never let user-count recommendation overwrite an explicit selection.
+      const fromPlan = purchaseIntentFromSearchParams(searchParams)
       const fromQueryProduct = searchParams.get('product')
       const fromQueryBand = searchParams.get('userBand')
       const fromQueryInterval = searchParams.get('interval')
       const hasExplicitQuery =
+        Boolean(fromPlan) ||
         isBillingProductKey(fromQueryProduct) ||
         isBillingUserBandKey(fromQueryBand) ||
         fromQueryInterval === 'monthly' ||
@@ -107,14 +117,26 @@ export function SubscriptionBillingPage() {
       const storedProduct = sub.data?.productKey
       const storedBand = sub.data?.userBandKey
       const storedInterval = sub.data?.billingInterval
+      const storedPlanKey = sub.data?.planKey
+      const storedIntent = resolvePurchaseIntent({
+        planKey: storedPlanKey,
+        product: storedProduct,
+        userBand: storedBand,
+        interval: storedInterval,
+      })
       const hasStoredIntent =
+        Boolean(storedIntent) ||
         isBillingProductKey(storedProduct) ||
         isBillingUserBandKey(storedBand) ||
         storedInterval === 'monthly' ||
         storedInterval === 'annual'
 
       if (hasExplicitQuery) {
-        // Query effect already applied product/band/interval once.
+        // Query effect already applied product/band/interval (incl. plan_key) once.
+      } else if (storedIntent) {
+        setProduct(storedIntent.product)
+        setUserBand(storedIntent.userBand)
+        setInterval(storedIntent.interval)
       } else if (hasStoredIntent) {
         if (isBillingProductKey(storedProduct)) setProduct(storedProduct)
         if (isBillingUserBandKey(storedBand)) setUserBand(storedBand)

@@ -3,12 +3,8 @@ import { Link, Navigate, useNavigate, useSearchParams } from 'react-router-dom'
 import { Zap } from 'lucide-react'
 import { useAuth } from '../lib/auth'
 import { createSelfServeAgencySignup } from '../lib/selfServeSignup'
-import {
-  isBillingProductKey,
-  isBillingUserBandKey,
-  type BillingInterval,
-  type BillingUserBandKey,
-} from '../lib/billingCatalog'
+import { purchaseIntentFromSearchParams } from '../lib/purchaseIntent'
+import { quoteBillingSelection } from '../lib/billingCatalog'
 
 export function SignupPage() {
   const { status, signIn } = useAuth()
@@ -23,29 +19,26 @@ export function SignupPage() {
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
 
-  const intent = useMemo(() => {
-    const productRaw = searchParams.get('product')
-    const bandRaw = searchParams.get('userBand') ?? searchParams.get('user_band')
-    const intervalRaw = searchParams.get('interval')
-    const planKeyRaw = searchParams.get('plan_key') ?? searchParams.get('planKey')
+  const intent = useMemo(() => purchaseIntentFromSearchParams(searchParams), [searchParams])
 
-    const product = isBillingProductKey(productRaw) ? productRaw : null
-    const userBand: BillingUserBandKey | null = isBillingUserBandKey(bandRaw) ? bandRaw : null
-    const interval =
-      intervalRaw === 'monthly' || intervalRaw === 'annual'
-        ? (intervalRaw as BillingInterval)
-        : null
-    const planKey = planKeyRaw?.trim() || null
-
-    return { product, userBand, interval, planKey }
-  }, [searchParams])
+  const intentQuote = useMemo(() => {
+    if (!intent) return null
+    return quoteBillingSelection({
+      product: intent.product,
+      userBand: intent.userBand,
+      interval: intent.interval,
+    })
+  }, [intent])
 
   useEffect(() => {
-    document.title = 'Create account Â· ALZA Flow'
+    document.title = 'Create account · ALZA Flow'
   }, [])
 
   if (status === 'authenticated') {
-    return <Navigate to="/admin/subscription-billing" replace />
+    const billingTarget = intent
+      ? `/admin/subscription-billing?plan_key=${encodeURIComponent(intent.planKey)}`
+      : '/admin/subscription-billing'
+    return <Navigate to={billingTarget} replace />
   }
 
   async function handleSubmit(e: FormEvent) {
@@ -71,10 +64,10 @@ export function SignupPage() {
       agencyName,
       email,
       password,
-      product: intent.product,
-      userBand: intent.userBand,
-      interval: intent.interval,
-      planKey: intent.planKey,
+      product: intent?.product ?? null,
+      userBand: intent?.userBand ?? null,
+      interval: intent?.interval ?? null,
+      planKey: intent?.planKey ?? null,
     })
 
     if (created.error) {
@@ -92,7 +85,11 @@ export function SignupPage() {
       return
     }
 
-    navigate('/admin/subscription-billing', { replace: true })
+    // Intent is persisted on the incomplete billing row; keep plan_key in URL as a belt-and-suspenders.
+    const billingPath = intent
+      ? `/admin/subscription-billing?plan_key=${encodeURIComponent(intent.planKey)}`
+      : '/admin/subscription-billing'
+    navigate(billingPath, { replace: true })
   }
 
   return (
@@ -117,6 +114,16 @@ export function SignupPage() {
         </div>
 
         <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+          {intentQuote ? (
+            <div className="mb-4 rounded-lg border border-alza-blue-100 bg-alza-blue-50/60 px-3 py-2 text-sm text-slate-700">
+              <p className="font-medium text-slate-900">Selected plan</p>
+              <p className="mt-0.5">
+                {intentQuote.bandLabel} · {intentQuote.intervalLabel} · {intentQuote.displayPrice}
+              </p>
+              <p className="mt-0.5 text-xs text-slate-500">{intent?.planKey}</p>
+            </div>
+          ) : null}
+
           <form onSubmit={(e) => void handleSubmit(e)} className="space-y-4">
             <label className="block">
               <span className="mb-1.5 block text-xs font-medium text-slate-500">Your name</span>
@@ -193,13 +200,18 @@ export function SignupPage() {
               disabled={loading}
               className="inline-flex h-11 w-full items-center justify-center rounded-lg gradient-alza text-sm font-medium text-white shadow-sm transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
             >
-              {loading ? 'Creating accountâ€¦' : 'Create account'}
+              {loading ? 'Creating account…' : 'Create account'}
             </button>
 
             <p className="text-center text-sm text-slate-600">
               Already have an account?{' '}
               <Link to="/" className="font-medium text-alza-blue-700 hover:underline">
                 Sign in
+              </Link>
+            </p>
+            <p className="text-center text-sm text-slate-600">
+              <Link to="/pricing" className="font-medium text-alza-blue-700 hover:underline">
+                Back to pricing
               </Link>
             </p>
           </form>

@@ -140,6 +140,10 @@ export function LoginPage() {
             </a>
             <p className="pt-1 text-center text-sm text-slate-600">
               New to ALZA Flow?{' '}
+              <a href="/pricing" className="font-medium text-alza-blue-700 hover:underline">
+                View pricing
+              </a>
+              {' · '}
               <a href="/signup" className="font-medium text-alza-blue-700 hover:underline">
                 Create an account
               </a>
