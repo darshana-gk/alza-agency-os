@@ -121,14 +121,30 @@ export async function getCallerAgency(
       error: 'Your user is not linked to an agency workspace. Contact ALZA.',
     }
   }
-  const { data, error } = await admin
+  // Prefer lifecycle when present (Staging). Production may lack the column — fall back.
+  const withLifecycle = await admin
     .from('agency_profile')
     .select('id, agency_name, email, lifecycle')
     .eq('id', id)
     .maybeSingle()
+  if (!withLifecycle.error && withLifecycle.data) {
+    return { data: withLifecycle.data, error: null }
+  }
+  if (
+    withLifecycle.error &&
+    !/lifecycle|column/i.test(withLifecycle.error.message)
+  ) {
+    return { data: null, error: withLifecycle.error.message }
+  }
+
+  const { data, error } = await admin
+    .from('agency_profile')
+    .select('id, agency_name, email')
+    .eq('id', id)
+    .maybeSingle()
   if (error) return { data: null, error: error.message }
   if (!data) return { data: null, error: 'Agency profile missing for this account.' }
-  return { data, error: null }
+  return { data: { ...data, lifecycle: null }, error: null }
 }
 
 export function agencyLifecycleAllowsBilling(
