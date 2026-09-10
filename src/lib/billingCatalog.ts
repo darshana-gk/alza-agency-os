@@ -711,11 +711,38 @@ export const BILLING_UPGRADE_CONTACT_PATH =
 
 export type BillingCatalogPrimaryAction =
   | 'subscribe'
+  | 'resume'
   | 'contact_alza'
   | 'flow_pay_waitlist'
   | null
 
-export type BillingCheckoutCtaCopy = 'Continue to Checkout' | 'Change Plan'
+export type BillingCheckoutCtaCopy = 'Continue to Checkout' | 'Change Plan' | 'Resume Payment'
+
+/**
+ * Abandoned Standard Checkout recovery: status=created with a linked Razorpay subscription.
+ * Active / cancelled / incomplete never resume.
+ */
+export function canResumeCheckout(
+  status: string | null | undefined,
+  razorpaySubscriptionId: string | null | undefined,
+): boolean {
+  const v = (status ?? '').trim().toLowerCase()
+  const sub = String(razorpaySubscriptionId ?? '').trim()
+  return v === 'created' && sub.length > 0
+}
+
+/** Plan selection may change only before a Razorpay subscription is created. */
+export function canChangePlanBeforeCheckout(status: string | null | undefined): boolean {
+  const v = (status ?? '').trim().toLowerCase()
+  return (
+    !v ||
+    v === 'incomplete' ||
+    v === 'cancelled' ||
+    v === 'canceled' ||
+    v === 'completed' ||
+    v === 'halted'
+  )
+}
 
 type KnownBillingPlanIdentity =
   | { kind: 'legacy'; planKey: LegacyBillingPlanKey }
@@ -821,7 +848,9 @@ export function billingCheckoutCtaCopy(input: {
   selectedProduct: BillingProductKey
   selectedUserBand: BillingUserBandKey
   selectedInterval: BillingInterval | null
+  razorpaySubscriptionId?: string | null
 }): BillingCheckoutCtaCopy {
+  if (canResumeCheckout(input.status, input.razorpaySubscriptionId)) return 'Resume Payment'
   if (!hasReliablePaidSubscription(input)) return 'Continue to Checkout'
   if (hasSelectedPaidPlan(input)) return 'Continue to Checkout'
   return 'Change Plan'
@@ -839,9 +868,11 @@ export function billingCatalogPrimaryAction(input: {
   billingInterval?: string | null
   selectedUserBand?: BillingUserBandKey
   selectedInterval?: BillingInterval | null
+  razorpaySubscriptionId?: string | null
 }): BillingCatalogPrimaryAction {
   if (input.product === 'alza_flow_pay') return 'flow_pay_waitlist'
   if (input.contactAlza) return 'contact_alza'
+  if (canResumeCheckout(input.status, input.razorpaySubscriptionId)) return 'resume'
   if (input.product !== 'alza_flow' || !input.checkoutEligible) return null
   if (
     input.selectedUserBand &&

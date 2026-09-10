@@ -312,6 +312,62 @@ export async function createRazorpaySubscription(input: {
   }
 }
 
+/**
+ * Resume Standard Checkout for an existing unpaid Razorpay subscription.
+ * Server returns the agency's own subscription_id — never sent from the client.
+ */
+export async function resumeRazorpayCheckout(): Promise<{
+  data: RazorpayCheckoutBootstrap | null
+  error: string | null
+}> {
+  const authz = await rejectUnlessRole(isAdminDirectoryRole)
+  if (!authz.ok) return { data: null, error: authz.message }
+
+  const { data, error } = await supabase.functions.invoke('resume-razorpay-checkout', {
+    body: {},
+  })
+  if (error) {
+    const fromBody = await readEdgeFunctionErrorMessage(error)
+    return {
+      data: null,
+      error: fromBody || error.message || 'Unable to resume checkout.',
+    }
+  }
+
+  const payload = data as {
+    ok?: boolean
+    subscriptionId?: string
+    keyId?: string
+    planKey?: string
+    agencyName?: string
+    message?: string
+  } | null
+
+  if (!payload?.ok) {
+    return {
+      data: null,
+      error: payload?.message || 'Unable to resume checkout.',
+    }
+  }
+
+  if (!payload.subscriptionId || !payload.keyId) {
+    return {
+      data: null,
+      error: 'Unable to resume checkout.',
+    }
+  }
+
+  return {
+    data: {
+      subscriptionId: payload.subscriptionId,
+      keyId: payload.keyId,
+      planKey: payload.planKey || '',
+      agencyName: payload.agencyName || 'ALZA Flow Workspace',
+    },
+    error: null,
+  }
+}
+
 export async function cancelRazorpaySubscription(): Promise<{ error: string | null }> {
   const authz = await rejectUnlessRole(isAdminDirectoryRole)
   if (!authz.ok) return { error: authz.message }

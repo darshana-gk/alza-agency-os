@@ -31,6 +31,17 @@ Deno.serve(async (req) => {
   if (!keyId) {
     return fail('misconfigured', 'RAZORPAY_KEY_ID is not set.', 500)
   }
+  // Staging safety: refuse LIVE keys when APP_URL indicates the staging frontend.
+  const appUrl = (Deno.env.get('APP_URL') ?? '').trim()
+  const stagingHost =
+    /alza-flow-staging/i.test(appUrl) || /staging/i.test(appUrl)
+  if (stagingHost && keyId.startsWith('rzp_live_')) {
+    return fail(
+      'live_key_blocked',
+      'Checkout refused: LIVE Razorpay key detected on staging. Configure TEST credentials (rzp_test_…) instead.',
+      503,
+    )
+  }
 
   let body: Record<string, unknown> = {}
   try {

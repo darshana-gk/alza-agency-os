@@ -25,6 +25,9 @@ verify_jwt = true
 [functions.cancel-razorpay-subscription]
 verify_jwt = true
 
+[functions.resume-razorpay-checkout]
+verify_jwt = true
+
 # Razorpay sends its own signature; do not require Supabase JWT.
 [functions.razorpay-webhook]
 verify_jwt = false

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
-import { Link, useSearchParams } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { CreditCard, Loader2, RefreshCw, X, XCircle } from 'lucide-react'
 import { useAuth } from '../../lib/auth'
 import { useAgency } from '../../lib/agencyContext'
@@ -12,6 +12,7 @@ import {
   fetchAgencyActiveUserCount,
   fetchBillingSubscription,
   openRazorpaySubscriptionCheckout,
+  resumeRazorpayCheckout,
   type BillingSubscription,
 } from '../../lib/billing'
 import { joinFlowPayWaitlist } from '../../lib/flowPayWaitlist'
@@ -24,6 +25,8 @@ import {
   billingCatalogPrimaryAction,
   billingCheckoutCtaCopy,
   billingUserBands,
+  canChangePlanBeforeCheckout,
+  canResumeCheckout,
   equivalentMonthlyFromAnnual,
   formatUsdMoney,
   formatUsdWhole,
@@ -47,6 +50,7 @@ const selectClass =
 export function SubscriptionBillingPage() {
   const { profile } = useAuth()
   const { agency } = useAgency()
+  const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const canManage = canManageBilling(rolesOf(profile))
   const [loading, setLoading] = useState(true)
@@ -69,6 +73,7 @@ export function SubscriptionBillingPage() {
   const pollRef = useRef<number | null>(null)
   const recommendedInitialized = useRef(false)
   const queryInitialized = useRef(false)
+  const handedOffActive = useRef(false)
 
   useEffect(() => {
     if (queryInitialized.current) return
@@ -103,16 +108,21 @@ export function SubscriptionBillingPage() {
     if (!recommendedInitialized.current) {
       // Explicit purchase intent (URL or stored incomplete billing row) wins.
       // Never let user-count recommendation overwrite an explicit selection.
+      // Once a Razorpay subscription is created, lock to the stored plan.
+      const statusNow = String(sub.data?.status ?? '').toLowerCase()
+      const planLockedNow = !canChangePlanBeforeCheckout(statusNow)
+
       const fromPlan = purchaseIntentFromSearchParams(searchParams)
       const fromQueryProduct = searchParams.get('product')
       const fromQueryBand = searchParams.get('userBand')
       const fromQueryInterval = searchParams.get('interval')
       const hasExplicitQuery =
-        Boolean(fromPlan) ||
-        isBillingProductKey(fromQueryProduct) ||
-        isBillingUserBandKey(fromQueryBand) ||
-        fromQueryInterval === 'monthly' ||
-        fromQueryInterval === 'annual'
+        !planLockedNow &&
+        (Boolean(fromPlan) ||
+          isBillingProductKey(fromQueryProduct) ||
+          isBillingUserBandKey(fromQueryBand) ||
+          fromQueryInterval === 'monthly' ||
+          fromQueryInterval === 'annual')
 
       const storedProduct = sub.data?.productKey
       const storedBand = sub.data?.userBandKey
@@ -143,7 +153,7 @@ export function SubscriptionBillingPage() {
         if (storedInterval === 'monthly' || storedInterval === 'annual') {
           setInterval(storedInterval)
         }
-      } else {
+      } else if (!planLockedNow) {
         setUserBand(recommendUserBand(users.count))
       }
       recommendedInitialized.current = true
@@ -162,6 +172,15 @@ export function SubscriptionBillingPage() {
     }
   }, [])
 
+  function handoffIfActive(next: BillingSubscription | null | undefined) {
+    const nextStatus = (next?.status ?? '').toLowerCase()
+    if (nextStatus !== 'active' || handedOffActive.current) return
+    handedOffActive.current = true
+    setProcessing(false)
+    setInfo('Your ALZA Flow workspace is active.')
+    navigate('/onboarding', { replace: true })
+  }
+
   function startProcessingPoll() {
     setProcessing(true)
     setInfo('Processing subscription… confirmation usually arrives within a minute.')
@@ -173,21 +192,23 @@ export function SubscriptionBillingPage() {
         const result = await fetchBillingSubscription()
         if (result.data) setBilling(result.data)
         const status = (result.data?.status ?? '').toLowerCase()
-        if (
-          status === 'authenticated' ||
-          status === 'active' ||
-          status === 'pending' ||
-          status === 'halted' ||
-          status === 'cancelled' ||
-          ticks >= 12
-        ) {
+        if (status === 'active') {
+          if (pollRef.current != null) window.clearInterval(pollRef.current)
+          pollRef.current = null
+          handoffIfActive(result.data)
+          return
+        }
+        if (status === 'authenticated' || status === 'pending') {
+          setInfo('Payment received. Activating your workspace…')
+        }
+        if (status === 'halted' || status === 'cancelled' || ticks >= 24) {
           if (pollRef.current != null) window.clearInterval(pollRef.current)
           pollRef.current = null
           setProcessing(false)
-          if (status === 'authenticated' || status === 'active') {
-            setInfo('Subscription confirmed.')
-          } else if (ticks >= 12) {
-            setInfo('Still confirming. Use Refresh in a moment.')
+          if (status === 'halted' || status === 'cancelled') {
+            setInfo('Payment did not complete. You can Resume Payment when ready.')
+          } else if (ticks >= 24) {
+            setInfo('Still confirming activation. Use Refresh in a moment.')
           }
         }
       })()
@@ -199,6 +220,8 @@ export function SubscriptionBillingPage() {
   const status = billing?.status ?? 'incomplete'
   const legacyActive = isLegacyActiveSubscription(billing?.planKey, status)
   const allowCheckout = allowsNewCheckout(status, billing?.planKey) && !processing
+  const canResume = canResumeCheckout(status, billing?.razorpaySubscriptionId)
+  const planLocked = !canChangePlanBeforeCheckout(status)
   const showCatalog = shouldShowBillingCatalog()
   const showCancel = canCancelSubscription(status)
   const bands = billingUserBands(product)
@@ -225,6 +248,7 @@ export function SubscriptionBillingPage() {
     billingInterval: billing?.billingInterval,
     selectedUserBand: userBand,
     selectedInterval: interval,
+    razorpaySubscriptionId: billing?.razorpaySubscriptionId,
   })
   const checkoutCta = billingCheckoutCtaCopy({
     status,
@@ -235,14 +259,53 @@ export function SubscriptionBillingPage() {
     selectedProduct: product,
     selectedUserBand: userBand,
     selectedInterval: interval,
+    razorpaySubscriptionId: billing?.razorpaySubscriptionId,
   })
+  const isActive = status.toLowerCase() === 'active'
+
+  async function openCheckoutFromBootstrap(
+    bootstrap: {
+      keyId: string
+      subscriptionId: string
+      agencyName: string
+    },
+    planName: string,
+  ) {
+    const checkout = await openRazorpaySubscriptionCheckout({
+      keyId: bootstrap.keyId,
+      subscriptionId: bootstrap.subscriptionId,
+      agencyName: bootstrap.agencyName,
+      planName,
+    })
+    setBusy(false)
+
+    if (checkout.error) {
+      setError(checkout.error)
+      void load()
+      return
+    }
+    if (checkout.dismissed) {
+      setInfo('Checkout was closed. Your subscription is saved — use Resume Payment to continue.')
+      void load()
+      return
+    }
+
+    startProcessingPoll()
+    void load()
+  }
 
   async function handleSubscribe() {
+    if (canResume) {
+      await handleResumePayment()
+      return
+    }
     if (!allowCheckout) {
       setError(
         legacyActive
           ? 'Online checkout is unavailable while another subscription is active. Cancel it before starting a new checkout.'
-          : 'An active subscription already exists. Cancel it before starting a new online checkout.',
+          : planLocked
+            ? 'A Razorpay subscription already exists for this workspace. Use Resume Payment, or cancel it before starting a new plan.'
+            : 'An active subscription already exists. Cancel it before starting a new online checkout.',
       )
       return
     }
@@ -263,27 +326,34 @@ export function SubscriptionBillingPage() {
       return
     }
 
-    const checkout = await openRazorpaySubscriptionCheckout({
-      keyId: created.data.keyId,
-      subscriptionId: created.data.subscriptionId,
-      agencyName: created.data.agencyName,
-      planName: `${quote.productName} · ${quote.bandLabel} · ${quote.intervalLabel}`,
-    })
-    setBusy(false)
+    await openCheckoutFromBootstrap(
+      created.data,
+      `${quote.productName} · ${quote.bandLabel} · ${quote.intervalLabel}`,
+    )
+  }
 
-    if (checkout.error) {
-      setError(checkout.error)
-      void load()
+  async function handleResumePayment() {
+    if (!canResume) {
+      setError('Resume Payment is only available for an unpaid checkout in progress.')
       return
     }
-    if (checkout.dismissed) {
-      setInfo('Checkout was closed. No status change until payment confirms.')
-      void load()
+    setBusy(true)
+    setError(null)
+    setInfo(null)
+    const resumed = await resumeRazorpayCheckout()
+    if (resumed.error || !resumed.data) {
+      setBusy(false)
+      setError(resumed.error ?? 'Unable to resume checkout.')
       return
     }
 
-    startProcessingPoll()
-    void load()
+    const planLabel = formatBillingPlan(billing)
+    await openCheckoutFromBootstrap(
+      resumed.data,
+      planLabel.subtitle
+        ? `${planLabel.title} · ${planLabel.subtitle} · ${planLabel.intervalLabel}`
+        : `${planLabel.title} · ${planLabel.intervalLabel}`,
+    )
   }
 
   async function handleCancel() {
@@ -416,7 +486,7 @@ export function SubscriptionBillingPage() {
                   <select
                     className={selectClass}
                     value={product}
-                    disabled={busy || processing}
+                    disabled={busy || processing || planLocked}
                     aria-label="Product"
                     data-testid="billing-product-select"
                     onChange={(e) => {
@@ -438,7 +508,7 @@ export function SubscriptionBillingPage() {
                   <select
                     className={selectClass}
                     value={userBand}
-                    disabled={busy || processing}
+                    disabled={busy || processing || planLocked}
                     aria-label="Team Size"
                     data-testid="billing-user-band-select"
                     onChange={(e) => {
@@ -469,7 +539,7 @@ export function SubscriptionBillingPage() {
                         <button
                           key={opt.key}
                           type="button"
-                          disabled={busy || processing || product === 'alza_flow_pay'}
+                          disabled={busy || processing || planLocked || product === 'alza_flow_pay'}
                           onClick={() => setInterval(opt.key)}
                           aria-pressed={selected}
                           data-selected={selected ? 'true' : 'false'}
@@ -597,25 +667,50 @@ export function SubscriptionBillingPage() {
                   )}
 
                   <div className="space-y-2 border-t border-slate-100 pt-5">
-                    {primaryAction === 'subscribe' && (
+                    {isActive && (
+                      <div className="space-y-3 rounded-xl border border-alza-teal-200 bg-alza-teal-50/70 px-4 py-4">
+                        <p className="text-sm font-semibold text-alza-teal-950">
+                          Your ALZA Flow workspace is active.
+                        </p>
+                        <Link
+                          to="/onboarding"
+                          className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-xl gradient-alza px-5 py-3.5 text-base font-semibold text-white shadow-md hover:opacity-90"
+                        >
+                          Start Onboarding
+                        </Link>
+                      </div>
+                    )}
+                    {!isActive && (primaryAction === 'subscribe' || primaryAction === 'resume') && (
                       <>
                         <button
                           type="button"
                           data-testid="billing-checkout-cta"
                           disabled={busy || processing}
-                          onClick={() => void handleSubscribe()}
+                          onClick={() =>
+                            void (primaryAction === 'resume' ? handleResumePayment() : handleSubscribe())
+                          }
                           className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-xl gradient-alza px-5 py-3.5 text-base font-semibold text-white shadow-md hover:opacity-90 disabled:opacity-50"
                         >
                           <CreditCard className="h-5 w-5" />
                           {busy
                             ? 'Opening Checkout…'
-                            : checkoutCta === 'Change Plan'
-                              ? 'Change Plan'
-                              : 'Continue to Checkout'}
+                            : primaryAction === 'resume'
+                              ? 'Resume Payment'
+                              : checkoutCta === 'Change Plan'
+                                ? 'Change Plan'
+                                : 'Continue to Checkout'}
                         </button>
-                        {allowCheckout ? (
+                        {allowCheckout || canResume ? (
                           <p className="text-center text-xs text-slate-500">
-                            Secure checkout by Razorpay
+                            {canResume
+                              ? 'Reopens your existing Razorpay checkout — no second subscription.'
+                              : 'Secure checkout by Razorpay'}
+                          </p>
+                        ) : null}
+                        {planLocked && canResume ? (
+                          <p className="text-center text-xs text-slate-500">
+                            Plan is locked while checkout is in progress. Cancel subscription to choose a
+                            different plan.
                           </p>
                         ) : null}
                       </>
