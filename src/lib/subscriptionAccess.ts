@@ -19,6 +19,11 @@ export type SubscriptionAccessDecision = {
   reason: RestrictedReason
 }
 
+export type SubscriptionAccessRefreshResult = {
+  state: SubscriptionGateState
+  reason: RestrictedReason
+}
+
 const PENDING_STATUSES = new Set([
   'created',
   'authenticated',
@@ -86,6 +91,35 @@ export function evaluateSubscriptionAccess(input: {
     return { open: false, reason: 'expired' }
   }
   return { open: true, reason: 'none' }
+}
+
+/** Map the workspace-access RPC payload (or a failed read) to gate state. */
+export function applyWorkspaceSubscriptionAccess(
+  row: {
+    access_state?: string
+    reason?: string
+    period_end_date?: string | null
+  } | null,
+  failed = false,
+): SubscriptionAccessRefreshResult {
+  if (failed || !row) {
+    return { state: 'ERROR', reason: 'unavailable' }
+  }
+  const reason = String(row.reason ?? 'other') as RestrictedReason
+  if (row.access_state === 'active' || reason === 'expired') {
+    const decision = evaluateSubscriptionAccess({
+      status: 'active',
+      currentPeriodEnd: row.period_end_date,
+    })
+    return {
+      state: decision.open ? 'ACTIVE' : 'RESTRICTED',
+      reason: decision.open ? 'none' : decision.reason,
+    }
+  }
+  return {
+    state: 'RESTRICTED',
+    reason: reason === 'unavailable' ? 'unavailable' : reason || 'other',
+  }
 }
 
 export function customerFacingRestriction(reason: RestrictedReason): {

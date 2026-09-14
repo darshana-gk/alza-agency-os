@@ -12,7 +12,7 @@ export function WorkspaceActivationScreen({
   agencyName: string | null
   reason: RestrictedReason
   checking: boolean
-  onCheck: () => Promise<void>
+  onCheck: () => Promise<unknown>
 }) {
   const { signOut } = useAuth()
   const copy = customerFacingRestriction(reason)

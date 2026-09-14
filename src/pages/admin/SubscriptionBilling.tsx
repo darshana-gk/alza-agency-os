@@ -3,6 +3,11 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { CreditCard, Loader2, RefreshCw, X, XCircle } from 'lucide-react'
 import { useAuth } from '../../lib/auth'
 import { useAgency } from '../../lib/agencyContext'
+import { useSubscriptionAccess } from '../../lib/subscriptionAccessContext'
+import {
+  billingAllowsOnboardingHandoff,
+  confirmOnboardingHandoff,
+} from '../../lib/onboardingHandoff'
 import { canManageBilling, rolesOf } from '../../lib/permissions'
 import {
   formatBillingPlan,
@@ -50,6 +55,7 @@ const selectClass =
 export function SubscriptionBillingPage() {
   const { profile } = useAuth()
   const { agency } = useAgency()
+  const gate = useSubscriptionAccess()
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const canManage = canManageBilling(rolesOf(profile))
@@ -70,10 +76,13 @@ export function SubscriptionBillingPage() {
   const [waitlistSubmitted, setWaitlistSubmitted] = useState(false)
   const [waitlistError, setWaitlistError] = useState<string | null>(null)
   const [waitlistBusy, setWaitlistBusy] = useState(false)
+  const [handoffBusy, setHandoffBusy] = useState(false)
+  const [handoffBlocked, setHandoffBlocked] = useState<string | null>(null)
   const pollRef = useRef<number | null>(null)
   const recommendedInitialized = useRef(false)
   const queryInitialized = useRef(false)
   const handedOffActive = useRef(false)
+  const handoffInFlight = useRef(false)
 
   useEffect(() => {
     if (queryInitialized.current) return
@@ -172,14 +181,39 @@ export function SubscriptionBillingPage() {
     }
   }, [])
 
-  function handoffIfActive(next: BillingSubscription | null | undefined) {
-    const nextStatus = (next?.status ?? '').toLowerCase()
-    if (nextStatus !== 'active' || handedOffActive.current) return
-    handedOffActive.current = true
-    setProcessing(false)
-    setInfo('Your ALZA Flow workspace is active.')
-    navigate('/onboarding', { replace: true })
-  }
+  const attemptOnboardingHandoff = useCallback(
+    async (billingStatus: string | null | undefined) => {
+      if (handedOffActive.current || handoffInFlight.current) return
+      if (!billingAllowsOnboardingHandoff(billingStatus)) return
+
+      handoffInFlight.current = true
+      setHandoffBusy(true)
+      try {
+        const decision = await confirmOnboardingHandoff({
+          billingStatus,
+          refreshGate: gate.refresh,
+          alreadyHandedOff: handedOffActive.current,
+        })
+        if (decision.action === 'navigate') {
+          handedOffActive.current = true
+          setHandoffBlocked(null)
+          setProcessing(false)
+          setInfo('Your ALZA Flow workspace is active.')
+          navigate(decision.path, { replace: true })
+          return
+        }
+        setProcessing(false)
+        if (decision.message) {
+          setHandoffBlocked(decision.message)
+          setInfo(decision.message)
+        }
+      } finally {
+        handoffInFlight.current = false
+        setHandoffBusy(false)
+      }
+    },
+    [gate.refresh, navigate],
+  )
 
   function startProcessingPoll() {
     setProcessing(true)
@@ -195,7 +229,7 @@ export function SubscriptionBillingPage() {
         if (status === 'active') {
           if (pollRef.current != null) window.clearInterval(pollRef.current)
           pollRef.current = null
-          handoffIfActive(result.data)
+          void attemptOnboardingHandoff(result.data?.status)
           return
         }
         if (status === 'authenticated' || status === 'pending') {
@@ -672,12 +706,18 @@ export function SubscriptionBillingPage() {
                         <p className="text-sm font-semibold text-alza-teal-950">
                           Your ALZA Flow workspace is active.
                         </p>
-                        <Link
-                          to="/onboarding"
-                          className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-xl gradient-alza px-5 py-3.5 text-base font-semibold text-white shadow-md hover:opacity-90"
+                        {handoffBlocked ? (
+                          <p className="text-sm text-slate-700">{handoffBlocked}</p>
+                        ) : null}
+                        <button
+                          type="button"
+                          data-testid="start-onboarding-cta"
+                          disabled={busy || processing || handoffBusy}
+                          onClick={() => void attemptOnboardingHandoff(status)}
+                          className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-xl gradient-alza px-5 py-3.5 text-base font-semibold text-white shadow-md hover:opacity-90 disabled:opacity-50"
                         >
-                          Start Onboarding
-                        </Link>
+                          {handoffBusy ? 'Confirming access…' : 'Start Onboarding'}
+                        </button>
                       </div>
                     )}
                     {!isActive && (primaryAction === 'subscribe' || primaryAction === 'resume') && (

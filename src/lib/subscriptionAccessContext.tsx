@@ -12,8 +12,9 @@ import { useAgency } from './agencyContext'
 import { supabase } from './supabase'
 import { isPurePlatformSupport, rolesOf } from './permissions'
 import {
-  evaluateSubscriptionAccess,
+  applyWorkspaceSubscriptionAccess,
   type RestrictedReason,
+  type SubscriptionAccessRefreshResult,
   type SubscriptionGateState,
 } from './subscriptionAccess'
 
@@ -22,7 +23,7 @@ type SubscriptionAccessValue = {
   state: SubscriptionGateState
   reason: RestrictedReason
   checking: boolean
-  refresh: () => Promise<void>
+  refresh: () => Promise<SubscriptionAccessRefreshResult>
   agencyName: string | null
 }
 
@@ -33,7 +34,7 @@ const BYPASS: SubscriptionAccessValue = {
   state: 'ACTIVE',
   reason: 'none',
   checking: false,
-  refresh: async () => undefined,
+  refresh: async () => ({ state: 'ACTIVE', reason: 'none' }),
   agencyName: null,
 }
 
@@ -51,29 +52,21 @@ export function SubscriptionAccessProvider({ children }: { children: ReactNode }
     !platformSupport &&
     Boolean(profile?.agencyProfileId || agencyProfileId)
 
-  const refresh = useCallback(async () => {
-    if (!applies) return
+  const refresh = useCallback(async (): Promise<SubscriptionAccessRefreshResult> => {
+    if (!applies) {
+      return { state: 'ACTIVE', reason: 'none' }
+    }
     setChecking(true)
     const { data, error } = await supabase.rpc('get_my_workspace_subscription_access')
+    const failed = Boolean(error || !data || typeof data !== 'object')
+    const applied = applyWorkspaceSubscriptionAccess(
+      failed ? null : (data as { access_state?: string; reason?: string; period_end_date?: string | null }),
+      failed,
+    )
     setChecking(false)
-    if (error || !data || typeof data !== 'object') {
-      setState('ERROR')
-      setReason('unavailable')
-      return
-    }
-    const row = data as { access_state?: string; reason?: string; period_end_date?: string | null }
-    const reason = String(row.reason ?? 'other') as RestrictedReason
-    if (row.access_state === 'active' || reason === 'expired') {
-      const decision = evaluateSubscriptionAccess({
-        status: 'active',
-        currentPeriodEnd: row.period_end_date,
-      })
-      setState(decision.open ? 'ACTIVE' : 'RESTRICTED')
-      setReason(decision.open ? 'none' : decision.reason)
-      return
-    }
-    setState('RESTRICTED')
-    setReason(reason === 'unavailable' ? 'unavailable' : reason || 'other')
+    setState(applied.state)
+    setReason(applied.reason)
+    return applied
   }, [applies])
 
   useEffect(() => {
