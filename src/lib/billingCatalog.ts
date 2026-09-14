@@ -731,6 +731,20 @@ export function canResumeCheckout(
   return v === 'created' && sub.length > 0
 }
 
+/** Local statuses that may call GET-only Razorpay sync when a subscription id already exists. */
+export function shouldAttemptRazorpaySync(
+  status: string | null | undefined,
+  razorpaySubscriptionId: string | null | undefined,
+): boolean {
+  const v = (status ?? '').trim().toLowerCase()
+  const sub = String(razorpaySubscriptionId ?? '').trim()
+  if (!sub) return false
+  return v === 'created' || v === 'incomplete' || v === 'pending'
+}
+
+export const RAZORPAY_SYNC_RETRY_MESSAGE =
+  'We could not confirm your subscription yet. Use Refresh to try again.'
+
 /** Plan selection may change only before a Razorpay subscription is created. */
 export function canChangePlanBeforeCheckout(status: string | null | undefined): boolean {
   const v = (status ?? '').trim().toLowerCase()

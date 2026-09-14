@@ -368,6 +368,66 @@ export async function resumeRazorpayCheckout(): Promise<{
   }
 }
 
+export interface RazorpaySyncResult {
+  synced: boolean
+  status: string
+  remoteStatus: string
+  subscriptionId: string
+  workspaceUnlock: boolean
+}
+
+/**
+ * GET-only recovery of an existing Razorpay subscription.
+ * Never sends a subscription id from the browser. Never creates a subscription.
+ */
+export async function syncRazorpaySubscription(): Promise<{
+  data: RazorpaySyncResult | null
+  error: string | null
+}> {
+  const authz = await rejectUnlessRole(isAdminDirectoryRole)
+  if (!authz.ok) return { data: null, error: authz.message }
+
+  const { data, error } = await supabase.functions.invoke('sync-razorpay-subscription', {
+    body: {},
+  })
+  if (error) {
+    const fromBody = await readEdgeFunctionErrorMessage(error)
+    return {
+      data: null,
+      error: fromBody || error.message || 'Unable to confirm subscription.',
+    }
+  }
+
+  const payload = data as {
+    ok?: boolean
+    synced?: boolean
+    status?: string
+    remoteStatus?: string
+    subscriptionId?: string
+    workspaceUnlock?: boolean
+    message?: string
+  } | null
+
+  if (!payload?.ok) {
+    return {
+      data: null,
+      error: payload?.message || 'Unable to confirm subscription.',
+    }
+  }
+
+  const status = String(payload.remoteStatus || payload.status || '').trim().toLowerCase()
+  return {
+    data: {
+      synced: payload.synced !== false,
+      status,
+      remoteStatus: status,
+      subscriptionId: String(payload.subscriptionId ?? ''),
+      workspaceUnlock: payload.workspaceUnlock === true || status === 'active',
+    },
+    error: null,
+  }
+}
+
 export async function cancelRazorpaySubscription(): Promise<{ error: string | null }> {
   const authz = await rejectUnlessRole(isAdminDirectoryRole)
   if (!authz.ok) return { error: authz.message }

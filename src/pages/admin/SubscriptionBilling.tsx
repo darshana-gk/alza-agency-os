@@ -18,6 +18,7 @@ import {
   fetchBillingSubscription,
   openRazorpaySubscriptionCheckout,
   resumeRazorpayCheckout,
+  syncRazorpaySubscription,
   type BillingSubscription,
 } from '../../lib/billing'
 import { joinFlowPayWaitlist } from '../../lib/flowPayWaitlist'
@@ -41,6 +42,8 @@ import {
   isLegacyActiveSubscription,
   quoteBillingSelection,
   recommendUserBand,
+  RAZORPAY_SYNC_RETRY_MESSAGE,
+  shouldAttemptRazorpaySync,
   shouldShowBillingCatalog,
   type BillingInterval,
   type BillingProductKey,
@@ -223,7 +226,11 @@ export function SubscriptionBillingPage() {
     pollRef.current = window.setInterval(() => {
       ticks += 1
       void (async () => {
-        const result = await fetchBillingSubscription()
+        let result = await fetchBillingSubscription()
+        if (shouldAttemptRazorpaySync(result.data?.status, result.data?.razorpaySubscriptionId)) {
+          await syncRazorpaySubscription()
+          result = await fetchBillingSubscription()
+        }
         if (result.data) setBilling(result.data)
         const status = (result.data?.status ?? '').toLowerCase()
         if (status === 'active') {
@@ -248,6 +255,21 @@ export function SubscriptionBillingPage() {
       })()
     }, 2500)
   }
+
+  const handleRefresh = useCallback(async () => {
+    setError(null)
+    const current = billing
+    if (shouldAttemptRazorpaySync(current?.status, current?.razorpaySubscriptionId)) {
+      const synced = await syncRazorpaySubscription()
+      if (synced.error) {
+        setInfo(RAZORPAY_SYNC_RETRY_MESSAGE)
+      }
+    }
+    const row = await load()
+    if (row && billingAllowsOnboardingHandoff(row.status)) {
+      void attemptOnboardingHandoff(row.status)
+    }
+  }, [attemptOnboardingHandoff, billing, load])
 
   const recommendedBand = useMemo(() => recommendUserBand(userCount), [userCount])
   const quote = quoteBillingSelection({ product, userBand, interval })
@@ -374,9 +396,30 @@ export function SubscriptionBillingPage() {
     setBusy(true)
     setError(null)
     setInfo(null)
+
+    const synced = await syncRazorpaySubscription()
+    if (synced.data?.workspaceUnlock || synced.data?.status === 'active') {
+      const row = await fetchBillingSubscription()
+      if (row.data) setBilling(row.data)
+      setBusy(false)
+      void attemptOnboardingHandoff(row.data?.status)
+      return
+    }
+
     const resumed = await resumeRazorpayCheckout()
     if (resumed.error || !resumed.data) {
       setBusy(false)
+      const alreadyActive = /already active|is active/i.test(resumed.error ?? '')
+      if (alreadyActive) {
+        setInfo(RAZORPAY_SYNC_RETRY_MESSAGE)
+        void handleRefresh()
+        return
+      }
+      if (synced.error) {
+        setInfo(RAZORPAY_SYNC_RETRY_MESSAGE)
+        setError(resumed.error ?? 'Unable to resume checkout.')
+        return
+      }
       setError(resumed.error ?? 'Unable to resume checkout.')
       return
     }
@@ -794,7 +837,7 @@ export function SubscriptionBillingPage() {
               <button
                 type="button"
                 disabled={busy || loading}
-                onClick={() => void load()}
+                onClick={() => void handleRefresh()}
                 className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-500 hover:bg-slate-50 disabled:opacity-50"
               >
                 <RefreshCw className="h-3.5 w-3.5" />
