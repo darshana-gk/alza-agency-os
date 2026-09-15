@@ -186,11 +186,41 @@ assert(DETAIL_TSX.includes('View Original Statement'), 'paste view action exists
 assert(DETAIL_TSX.includes('Download as TXT'), 'paste download-as-txt action exists')
 assert(DETAIL_TSX.includes('isPastedStatementFileName(props.statement.fileName)'), 'paste vs upload is filename-based')
 assert(
+  DETAIL_TSX.includes("window.open(signed.url, '_blank', 'noopener,noreferrer')"),
+  'View Original Statement opens the signed URL in a new tab',
+)
+assert(
+  DETAIL_TSX.includes('await fetch(signed.url)') &&
+    DETAIL_TSX.includes('await response.blob()') &&
+    DETAIL_TSX.includes('URL.createObjectURL(blob)') &&
+    DETAIL_TSX.includes('a.click()') &&
+    DETAIL_TSX.includes('a.remove()') &&
+    DETAIL_TSX.includes('URL.revokeObjectURL(objectUrl)'),
+  'Download fetches the signed URL into a blob and uses an object-URL anchor',
+)
+assert(
+  DETAIL_TSX.includes('a.download = signed.filename || props.statement.fileName'),
+  'Download filename comes from the statement file_name',
+)
+assert(
+  !DETAIL_TSX.includes('a.href = signed.url'),
+  'Download does not assign the cross-origin signed URL to the anchor href',
+)
+assert(
+  DETAIL_TSX.includes('Unable to download the original statement.') &&
+    !/mode === 'download'[\s\S]{0,800}window\.open\(signed\.url/.test(DETAIL_TSX),
+  'failed download shows an error and does not fall back to opening the Storage URL',
+)
+assert(
   DETAIL_TSX.includes(RECONCILIATION_SOURCE_NOT_RETAINED) ||
     DETAIL_TSX.includes('RECONCILIATION_SOURCE_NOT_RETAINED'),
   'unavailable source evidence is shown as a non-destructive message',
 )
 assert(!DETAIL_TSX.includes('raw_data') && !DETAIL_TSX.includes('rawData'), 'UI does not reconstruct from raw_data')
+assert(
+  DETAIL_TSX.includes('createSignedReconciliationStatementUrl(props.statement.id)'),
+  'UI still signs by statement id, not a caller-supplied path',
+)
 
 console.log('=== 6. paste filename helper ===')
 assert(isPastedStatementFileName('pasted_statement_20260915_1209.txt'), 'UAT paste filename is detected')

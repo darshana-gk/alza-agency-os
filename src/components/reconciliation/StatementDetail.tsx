@@ -78,16 +78,34 @@ export function StatementDetail(props: {
       setBusy(null)
       return
     }
-    if (mode === 'download') {
+    if (mode === 'view') {
+      window.open(signed.url, '_blank', 'noopener,noreferrer')
+      setBusy(null)
+      return
+    }
+
+    let objectUrl: string | null = null
+    try {
+      const response = await fetch(signed.url)
+      if (!response.ok) {
+        setMessage('Unable to download the original statement.')
+        return
+      }
+      const blob = await response.blob()
+      objectUrl = URL.createObjectURL(blob)
       const a = document.createElement('a')
-      a.href = signed.url
+      a.href = objectUrl
       a.download = signed.filename || props.statement.fileName
       a.rel = 'noopener noreferrer'
+      document.body.appendChild(a)
       a.click()
-    } else {
-      window.open(signed.url, '_blank', 'noopener,noreferrer')
+      a.remove()
+    } catch {
+      setMessage('Unable to download the original statement.')
+    } finally {
+      if (objectUrl) URL.revokeObjectURL(objectUrl)
+      setBusy(null)
     }
-    setBusy(null)
   }
 
   useEffect(() => {
