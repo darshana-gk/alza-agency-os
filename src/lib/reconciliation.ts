@@ -145,6 +145,7 @@ export {
   parseDelimitedStatementText,
   parseStatementFile,
   pastedStatementFileName,
+  isPastedStatementFileName,
   runStatementIntakeChecks,
   type ParsedStatementFile,
   type StatementDelimiter,
@@ -152,6 +153,14 @@ export {
 
 
 export const DUPLICATE_FILE_MESSAGE = 'This exact file has already been imported'
+
+export const RECONCILIATION_SOURCE_NOT_RETAINED =
+  'Original statement was not retained for this import.'
+
+export const RECONCILIATION_SOURCE_RETENTION_FAILED =
+  "We couldn't securely retain the source statement. The import was not completed. Please try again."
+
+export const RECONCILIATION_SOURCE_SIGNED_URL_TTL_SECONDS = 120
 
 const STATEMENT_SELECT = `
   id, agency_profile_id, carrier, mga, carrier_id, mga_id, statement_date,
@@ -932,6 +941,81 @@ async function requireOps() {
   return rejectUnlessRole(canAccessReconciliation, 'You do not have permission to access reconciliation.')
 }
 
+async function bestEffortRemoveStatementObject(storagePath: string) {
+  await supabase.storage.from(RECONCILIATION_STATEMENTS_BUCKET).remove([storagePath])
+}
+
+/** Roll back a statement created in this import. CSR cannot DELETE; Owner/Admin can. */
+async function rollbackNewStatement(statementId: string, storagePath: string) {
+  const { data: deleted, error: deleteError } = await supabase
+    .from('reconciliation_statements')
+    .delete()
+    .eq('id', statementId)
+    .select('id')
+  if (!deleteError && deleted?.length) {
+    await bestEffortRemoveStatementObject(storagePath)
+    return
+  }
+  await supabase
+    .from('reconciliation_statements')
+    .update({
+      status: 'cancelled',
+      row_count: 0,
+      file_storage_path: null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', statementId)
+}
+
+async function revertIncompleteStatement(statementId: string) {
+  await supabase
+    .from('reconciliation_statements')
+    .update({
+      status: 'cancelled',
+      row_count: 0,
+      file_storage_path: null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', statementId)
+}
+
+/** Signed URL for retained source evidence. Path is read from an RLS-visible statement only. */
+export async function createSignedReconciliationStatementUrl(statementId: string): Promise<{
+  url: string | null
+  filename: string | null
+  error: string | null
+}> {
+  const authz = await requireOps()
+  if (!authz.ok) return { url: null, filename: null, error: authz.message }
+  const id = String(statementId ?? '').trim()
+  if (!id) return { url: null, filename: null, error: 'Statement was not found.' }
+
+  const loaded = await fetchReconciliationStatement(id)
+  if (loaded.error) return { url: null, filename: null, error: loaded.error }
+  if (!loaded.data) return { url: null, filename: null, error: 'Statement was not found.' }
+
+  const path = loaded.data.fileStoragePath?.trim() || ''
+  if (!path) {
+    return {
+      url: null,
+      filename: loaded.data.fileName,
+      error: RECONCILIATION_SOURCE_NOT_RETAINED,
+    }
+  }
+
+  const { data, error } = await supabase.storage
+    .from(RECONCILIATION_STATEMENTS_BUCKET)
+    .createSignedUrl(path, RECONCILIATION_SOURCE_SIGNED_URL_TTL_SECONDS)
+  if (error || !data?.signedUrl) {
+    return {
+      url: null,
+      filename: loaded.data.fileName,
+      error: error?.message || 'Unable to create a download link.',
+    }
+  }
+  return { url: data.signedUrl, filename: loaded.data.fileName, error: null }
+}
+
 export async function fetchReconciliationStatements(): Promise<{
   data: ReconciliationStatement[]
   error: string | null
@@ -1258,8 +1342,38 @@ export async function importReconciliationStatement(input: {
 
   const fileHash = input.contentHash ?? (await hashFileSha256(input.file))
   const role = await loadCurrentAppRole()
+  const now = new Date().toISOString()
 
-  const insertPayload = {
+  const { data: existingDup } = await supabase
+    .from('reconciliation_statements')
+    .select(STATEMENT_SELECT)
+    .eq('file_hash', fileHash)
+    .eq('agency_profile_id', agencyProfileId)
+    .maybeSingle()
+
+  const existingRow = existingDup as Record<string, unknown> | null
+  const existingHasEvidence = Boolean(String(existingRow?.file_storage_path ?? '').trim())
+  const existingHasRows = Number(existingRow?.row_count ?? 0) > 0
+  if (existingRow && (existingHasEvidence || existingHasRows)) {
+    return { data: null, error: DUPLICATE_FILE_MESSAGE }
+  }
+
+  const reusedIncomplete = Boolean(existingRow && !existingHasEvidence && !existingHasRows)
+  const statementId = reusedIncomplete ? String(existingRow!.id) : crypto.randomUUID()
+  const storagePath = reconciliationStatementObjectPath(agencyProfileId, statementId, input.file.name)
+
+  const { error: uploadError } = await supabase.storage
+    .from(RECONCILIATION_STATEMENTS_BUCKET)
+    .upload(storagePath, input.file, {
+      upsert: reusedIncomplete,
+      contentType: input.file.type || 'application/octet-stream',
+    })
+  if (uploadError) {
+    return { data: null, error: RECONCILIATION_SOURCE_RETENTION_FAILED }
+  }
+
+  const persistPayload = {
+    id: statementId,
     agency_profile_id: agencyProfileId,
     carrier: input.carrier,
     mga: input.mga,
@@ -1270,59 +1384,64 @@ export async function importReconciliationStatement(input: {
     period_end: input.periodEnd,
     file_name: input.file.name,
     file_hash: fileHash,
+    file_storage_path: storagePath,
     row_count: mapped.length,
     status: 'staged',
     rounding_tolerance: input.roundingTolerance ?? 0.01,
     detect_missing: Boolean(input.detectMissing),
     uploaded_by: role.profileId,
-    updated_at: new Date().toISOString(),
+    updated_at: now,
   }
 
-  let statementId: string | null = null
-  const { data: inserted, error: insertError } = await supabase
-    .from('reconciliation_statements')
-    .insert(insertPayload)
-    .select(STATEMENT_SELECT)
-    .single()
-
-  if (insertError) {
-    const duplicate =
-      insertError.code === '23505' ||
-      insertError.message.toLowerCase().includes('file_hash') ||
-      insertError.message.toLowerCase().includes('duplicate')
-    if (duplicate) {
-      const { data: existing } = await supabase
-        .from('reconciliation_statements')
-        .select(STATEMENT_SELECT)
-        .eq('file_hash', fileHash)
-        .eq('agency_profile_id', agencyProfileId)
-        .maybeSingle()
-      if (existing && Number(existing.row_count ?? 0) === 0) {
-        statementId = String(existing.id)
-      } else {
-        return { data: null, error: DUPLICATE_FILE_MESSAGE }
-      }
-    } else {
-      return { data: null, error: insertError.message }
-    }
-  } else {
-    statementId = String(inserted.id)
-  }
-
-  if (!statementId) return { data: null, error: 'Unable to create statement.' }
-
-  const storagePath = reconciliationStatementObjectPath(agencyProfileId, statementId, input.file.name)
-  const { error: uploadError } = await supabase.storage
-    .from(RECONCILIATION_STATEMENTS_BUCKET)
-    .upload(storagePath, input.file, { upsert: true })
-  if (uploadError) {
-    // Keep the statement row; matching can still proceed without the audit file.
-    console.warn('Statement file storage upload failed:', uploadError.message)
-  } else {
-    await supabase
+  let inserted: Record<string, unknown> | null = null
+  if (reusedIncomplete) {
+    const { data: updated, error: updateError } = await supabase
       .from('reconciliation_statements')
-      .update({ file_storage_path: storagePath, updated_at: new Date().toISOString() })
+      .update({
+        carrier: persistPayload.carrier,
+        mga: persistPayload.mga,
+        carrier_id: persistPayload.carrier_id,
+        mga_id: persistPayload.mga_id,
+        statement_date: persistPayload.statement_date,
+        period_start: persistPayload.period_start,
+        period_end: persistPayload.period_end,
+        file_name: persistPayload.file_name,
+        file_storage_path: storagePath,
+        row_count: persistPayload.row_count,
+        status: 'staged',
+        rounding_tolerance: persistPayload.rounding_tolerance,
+        detect_missing: persistPayload.detect_missing,
+        uploaded_by: persistPayload.uploaded_by,
+        updated_at: now,
+      })
       .eq('id', statementId)
+      .select(STATEMENT_SELECT)
+      .single()
+    if (updateError || !updated || !String(updated.file_storage_path ?? '').trim()) {
+      await bestEffortRemoveStatementObject(storagePath)
+      return { data: null, error: RECONCILIATION_SOURCE_RETENTION_FAILED }
+    }
+    inserted = updated as Record<string, unknown>
+  } else {
+    const { data: created, error: insertError } = await supabase
+      .from('reconciliation_statements')
+      .insert(persistPayload)
+      .select(STATEMENT_SELECT)
+      .single()
+    if (insertError) {
+      await bestEffortRemoveStatementObject(storagePath)
+      const duplicate =
+        insertError.code === '23505' ||
+        insertError.message.toLowerCase().includes('file_hash') ||
+        insertError.message.toLowerCase().includes('duplicate')
+      if (duplicate) return { data: null, error: DUPLICATE_FILE_MESSAGE }
+      return { data: null, error: RECONCILIATION_SOURCE_RETENTION_FAILED }
+    }
+    if (!created || !String(created.file_storage_path ?? '').trim()) {
+      await rollbackNewStatement(statementId, storagePath)
+      return { data: null, error: RECONCILIATION_SOURCE_RETENTION_FAILED }
+    }
+    inserted = created as Record<string, unknown>
   }
 
   const payloads = mapped.map((row) => ({
@@ -1347,7 +1466,11 @@ export async function importReconciliationStatement(input: {
   for (let i = 0; i < payloads.length; i += batchSize) {
     const chunk = payloads.slice(i, i + batchSize)
     const { error: rowError } = await supabase.from('reconciliation_statement_rows').insert(chunk)
-    if (rowError) return { data: null, error: rowError.message }
+    if (rowError) {
+      if (reusedIncomplete) await revertIncompleteStatement(statementId)
+      else await rollbackNewStatement(statementId, storagePath)
+      return { data: null, error: rowError.message }
+    }
   }
 
   await recordActivity({
@@ -1361,7 +1484,7 @@ export async function importReconciliationStatement(input: {
   const matchResult = await runReconciliationMatching(statementId)
   if (matchResult.error) {
     return {
-      data: mapStatement((inserted ?? { id: statementId }) as Record<string, unknown>),
+      data: mapStatement(inserted ?? { id: statementId }),
       error: `Statement imported, but matching failed: ${matchResult.error}`,
     }
   }

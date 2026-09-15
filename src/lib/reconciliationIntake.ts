@@ -32,6 +32,10 @@ export function pastedStatementFileName(at = new Date()): string {
   return `pasted_statement_${y}${m}${d}_${h}${min}.txt`
 }
 
+export function isPastedStatementFileName(fileName: string | null | undefined): boolean {
+  return /^pasted_statement_\d{8}_\d{4}\.txt$/i.test(String(fileName ?? '').trim())
+}
+
 export type StatementDelimiter = ',' | '\t' | ';'
 
 export function detectStatementDelimiter(text: string): StatementDelimiter | null {

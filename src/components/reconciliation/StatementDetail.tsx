@@ -4,11 +4,14 @@ import { ChevronDown } from 'lucide-react'
 import { formatTypeLabel } from '../../lib/commission'
 import { reconciliationExportColumns } from '../../lib/exportDefinitions'
 import {
+  RECONCILIATION_SOURCE_NOT_RETAINED,
   computeStatementPresentationSummary,
   confirmReconciliationReceipts,
+  createSignedReconciliationStatementUrl,
   formatReconciliationMatchLabel,
   formatReconciliationStatus,
   formatSignedCurrency,
+  isPastedStatementFileName,
   isPreviouslyConfirmedSkip,
   manualMatchRow,
   openExceptions,
@@ -62,6 +65,30 @@ export function StatementDetail(props: {
   const [tolerance, setTolerance] = useState(String(props.statement.roundingTolerance))
   const [moreOpen, setMoreOpen] = useState(false)
   const navigate = useNavigate()
+  const hasSourceEvidence = Boolean(props.statement.fileStoragePath?.trim())
+  const pastedSource = isPastedStatementFileName(props.statement.fileName)
+
+  async function openSourceEvidence(mode: 'view' | 'download') {
+    setMoreOpen(false)
+    setBusy('source')
+    setMessage(null)
+    const signed = await createSignedReconciliationStatementUrl(props.statement.id)
+    if (signed.error || !signed.url) {
+      setMessage(signed.error || RECONCILIATION_SOURCE_NOT_RETAINED)
+      setBusy(null)
+      return
+    }
+    if (mode === 'download') {
+      const a = document.createElement('a')
+      a.href = signed.url
+      a.download = signed.filename || props.statement.fileName
+      a.rel = 'noopener noreferrer'
+      a.click()
+    } else {
+      window.open(signed.url, '_blank', 'noopener,noreferrer')
+    }
+    setBusy(null)
+  }
 
   useEffect(() => {
     setRowView(open.length > 0 ? 'review' : 'all')
@@ -275,6 +302,45 @@ export function StatementDetail(props: {
             </button>
             {moreOpen && (
               <div className="absolute right-0 z-20 mt-1 w-72 rounded-lg border border-slate-200 bg-white p-2 shadow-lg">
+                {hasSourceEvidence && pastedSource && (
+                  <>
+                    <button
+                      type="button"
+                      disabled={Boolean(busy)}
+                      className="block w-full rounded px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 disabled:opacity-40"
+                      onClick={() => void openSourceEvidence('view')}
+                    >
+                      View Original Statement
+                    </button>
+                    <button
+                      type="button"
+                      disabled={Boolean(busy)}
+                      className="block w-full rounded px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 disabled:opacity-40"
+                      onClick={() => void openSourceEvidence('download')}
+                    >
+                      Download as TXT
+                    </button>
+                  </>
+                )}
+                {hasSourceEvidence && !pastedSource && (
+                  <button
+                    type="button"
+                    disabled={Boolean(busy)}
+                    className="block w-full rounded px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 disabled:opacity-40"
+                    onClick={() => void openSourceEvidence('download')}
+                  >
+                    Download Original Statement
+                  </button>
+                )}
+                {!hasSourceEvidence && (
+                  <button
+                    type="button"
+                    disabled
+                    className="block w-full rounded px-3 py-2 text-left text-sm text-slate-500 disabled:opacity-60"
+                  >
+                    {RECONCILIATION_SOURCE_NOT_RETAINED}
+                  </button>
+                )}
                 <button
                   type="button"
                   disabled={Boolean(busy)}
