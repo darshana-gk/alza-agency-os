@@ -63,6 +63,46 @@ function ok(body: Record<string, unknown>, status = 200) {
   })
 }
 
+const PRODUCER_UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+
+/** Same-agency Linked Producer id from invite body. Null means "do not change/set". */
+async function resolveInviteProducerId(
+  adminClient: SupabaseClient,
+  agencyProfileId: string,
+  body: Record<string, unknown>,
+): Promise<{ ok: true; producerId: string | null } | { ok: false; response: Response }> {
+  const raw = String(body.producer_id ?? body.producerId ?? '').trim()
+  if (!raw) return { ok: true, producerId: null }
+  if (!PRODUCER_UUID_RE.test(raw)) {
+    return {
+      ok: false,
+      response: fail('invalid_producer_id', 'Linked Producer must be a valid producer directory id.'),
+    }
+  }
+  const { data, error } = await adminClient
+    .from('producers')
+    .select('id, agency_profile_id, archived_at')
+    .eq('id', raw)
+    .maybeSingle()
+  if (error) {
+    return { ok: false, response: fail('producer_lookup_failed', error.message, 500) }
+  }
+  if (!data?.id || data.archived_at) {
+    return {
+      ok: false,
+      response: fail('producer_not_found', 'Selected Linked Producer was not found (or is archived).'),
+    }
+  }
+  if (String(data.agency_profile_id ?? '') !== agencyProfileId) {
+    return {
+      ok: false,
+      response: fail('cross_agency_producer', 'Linked Producer must belong to the same agency.'),
+    }
+  }
+  return { ok: true, producerId: String(data.id) }
+}
+
 async function authorizeCaller(adminClient: SupabaseClient, authHeader: string) {
   const supabaseUrl = Deno.env.get('SUPABASE_URL') ?? ''
   const anonKey = Deno.env.get('SUPABASE_ANON_KEY') ?? ''
@@ -227,6 +267,7 @@ async function handleResend(opts: {
   }
 
   const nowIso = new Date().toISOString()
+  // Resend must not touch users.producer_id (preserve existing Linked Producer).
   const { error: touchError } = await adminClient
     .from('users')
     .update({
@@ -350,6 +391,9 @@ async function handleInvite(opts: {
   const nowIso = new Date().toISOString()
   const agencyProfileId = callerAgencyProfileId
 
+  const producerLink = await resolveInviteProducerId(adminClient, agencyProfileId, body)
+  if (!producerLink.ok) return producerLink.response
+
   const { data: existingProfile } = await adminClient
     .from('users')
     .select('id, auth_user_id')
@@ -359,9 +403,7 @@ async function handleInvite(opts: {
   let profileId: string | null = existingProfile?.id ?? null
 
   if (existingProfile) {
-    const { data: updated, error: updateError } = await adminClient
-      .from('users')
-      .update({
+    const updatePayload: Record<string, unknown> = {
         full_name: fullName,
         role,
         status,
@@ -370,7 +412,13 @@ async function handleInvite(opts: {
         invite_status: 'pending',
         archived_at: null,
         agency_profile_id: agencyProfileId,
-      })
+    }
+    if (producerLink.producerId) {
+      updatePayload.producer_id = producerLink.producerId
+    }
+    const { data: updated, error: updateError } = await adminClient
+      .from('users')
+      .update(updatePayload)
       .eq('id', existingProfile.id)
       .select('id')
       .single()
@@ -384,9 +432,7 @@ async function handleInvite(opts: {
     }
     profileId = updated.id
   } else {
-    const { data: inserted, error: insertError } = await adminClient
-      .from('users')
-      .insert({
+    const insertPayload: Record<string, unknown> = {
         full_name: fullName,
         email,
         role,
@@ -395,7 +441,13 @@ async function handleInvite(opts: {
         invited_at: nowIso,
         invite_status: 'pending',
         agency_profile_id: agencyProfileId,
-      })
+    }
+    if (producerLink.producerId) {
+      insertPayload.producer_id = producerLink.producerId
+    }
+    const { data: inserted, error: insertError } = await adminClient
+      .from('users')
+      .insert(insertPayload)
       .select('id')
       .single()
 

@@ -48,7 +48,9 @@ import {
   canManageTransactions,
   canRepairHistoricalPolicyTerm,
   isProducerBookScoped,
+  producerBookOptionsFromProfile,
   producerKeysMatch,
+  resolveProducerBookName,
   roleInputFromProfile,
 } from '../lib/permissions'
 import { supabase } from '../lib/supabase'
@@ -522,7 +524,10 @@ export function ClientDetails() {
     const clientProducer = display(row.producer)
 
     if (producerLocked) {
-      if (!producerKeysMatch(clientProducer, profile?.fullName)) {
+      const scope = resolveProducerBookName(roleInput, profile?.fullName, [clientProducer], {
+        ...producerBookOptionsFromProfile(profile),
+      })
+      if (!scope.lockedName || !producerKeysMatch(clientProducer, scope.lockedName)) {
         setClient(null)
         setNotFound(true)
         setError('You do not have permission to access this client record.')
@@ -557,7 +562,7 @@ export function ClientDetails() {
       recentTransactions,
     })
     setLoading(false)
-  }, [id, producerLocked, profile?.fullName])
+  }, [id, producerLocked, profile?.fullName, profile?.linkedProducerName, profile?.producerId, roleInput])
 
   useEffect(() => {
     void loadClient()

@@ -30,6 +30,7 @@ import {
   canManageClients,
   isProducerBookScoped,
   producerKeysMatch,
+  producerBookOptionsFromProfile,
   resolveProducerBookName,
   roleInputFromProfile,
 } from '../lib/permissions'
@@ -317,7 +318,7 @@ export function Clients() {
     if (isProducerBookScoped(roleInput)) {
       const names = [...new Set(mapped.map((c) => c.producer).filter(Boolean))]
       const scope = resolveProducerBookName(roleInput, profile?.fullName, names, {
-        linkedProducerName: profile?.linkedProducerName,
+        ...producerBookOptionsFromProfile(profile),
       })
       setProducerScopeLimitation(scope.limitation)
       const scoped = scope.lockedName
@@ -331,7 +332,7 @@ export function Clients() {
       cachedClients = mapped
     }
     setLoading(false)
-  }, [roleInput, profile?.fullName, profile?.linkedProducerName])
+  }, [roleInput, profile?.fullName, profile?.linkedProducerName, profile?.producerId])
 
   useEffect(() => {
     loadClients()

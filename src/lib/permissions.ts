@@ -208,7 +208,7 @@ export function resolveProducerBookName(
   role: RoleInput,
   fullName: string | null | undefined,
   knownProducerNames: string[],
-  options?: { linkedProducerName?: string | null },
+  options?: { linkedProducerName?: string | null; producerId?: string | null },
 ): { lockedName: string | null; limitation: string | null } {
   if (!toAppRoles(role).includes('producer')) {
     return { lockedName: null, limitation: null }
@@ -216,14 +216,19 @@ export function resolveProducerBookName(
 
   const bookScoped = isProducerBookScoped(role)
   const linked = (options?.linkedProducerName ?? '').trim()
+  const producerId = (options?.producerId ?? '').trim()
+  const hasExplicitLink = Boolean(producerId)
   const displayName = (fullName ?? '').trim()
 
   let lockedName: string | null = null
   if (linked) {
     // Prefer exact TEXT spelling from the loaded dataset when present.
     lockedName = knownProducerNames.find((p) => producerKeysMatch(p, linked)) ?? linked
+  } else if (hasExplicitLink) {
+    // Explicit users.producer_id exists but the server book name did not resolve — fail closed.
+    lockedName = null
   } else if (bookScoped) {
-    // Phase 4D: producer-only without a valid directory link → fail closed (no display-name book).
+    // Producer-only without a valid directory link → fail closed (no display-name book).
     lockedName = null
   } else if (displayName) {
     lockedName = knownProducerNames.find((p) => producerKeysMatch(p, displayName)) ?? null
@@ -236,6 +241,14 @@ export function resolveProducerBookName(
 
   if (lockedName) {
     return { lockedName, limitation: null }
+  }
+
+  if (hasExplicitLink && !linked) {
+    return {
+      lockedName: null,
+      limitation:
+        'Producer login has an explicit producer directory link that could not be resolved. Showing empty scoped results.',
+    }
   }
 
   if (!linked && !displayName) {
@@ -251,6 +264,21 @@ export function resolveProducerBookName(
     limitation: linked
       ? `Linked producer “${linked}” could not be applied to producer TEXT fields. Showing empty scoped results.`
       : `Producer login “${displayName}” does not match a linked producer directory row or producer TEXT value. Showing empty scoped results.`,
+  }
+}
+
+export function producerBookOptionsFromProfile(
+  profile:
+    | {
+        linkedProducerName?: string | null
+        producerId?: string | null
+      }
+    | null
+    | undefined,
+): { linkedProducerName: string | null; producerId: string | null } {
+  return {
+    linkedProducerName: profile?.linkedProducerName ?? null,
+    producerId: profile?.producerId ?? null,
   }
 }
 

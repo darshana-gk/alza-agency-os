@@ -34,6 +34,7 @@ import {
 import { reportDetailCsvColumns } from '../lib/exportDefinitions'
 import {
   isProducerBookScoped,
+  producerBookOptionsFromProfile,
   resolveProducerBookName,
   roleInputFromProfile,
 } from '../lib/permissions'
@@ -149,9 +150,9 @@ export function Reports() {
   const producerScope = useMemo(
     () =>
       resolveProducerBookName(roleInput, profile?.fullName, allProducerNames, {
-        linkedProducerName: profile?.linkedProducerName,
+        ...producerBookOptionsFromProfile(profile),
       }),
-    [roleInput, profile?.fullName, profile?.linkedProducerName, allProducerNames],
+    [roleInput, profile?.fullName, profile?.linkedProducerName, profile?.producerId, allProducerNames],
   )
 
   // Role lock wins over URL ?producer= — producers never inherit another producer's filter.

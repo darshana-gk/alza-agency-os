@@ -80,7 +80,18 @@ export function SetPasswordPage() {
     }
 
     // Completing password setup accepts the invite in application state.
-    await supabase.rpc('mark_current_user_invite_accepted')
+    const { error: acceptError } = await supabase.rpc('mark_current_user_invite_accepted')
+    if (acceptError) {
+      const { data: authData } = await supabase.auth.getUser()
+      const authUserId = authData.user?.id
+      if (authUserId) {
+        await supabase
+          .from('users')
+          .update({ invite_status: 'accepted' })
+          .eq('auth_user_id', authUserId)
+          .eq('invite_status', 'pending')
+      }
+    }
     setSaving(false)
 
     setSuccess('Password saved. Continuing to ALZA Flow…')

@@ -114,6 +114,7 @@ import {
   isOpsMutatorRole,
   isProducerBookScoped,
   producerKeysMatch,
+  producerBookOptionsFromProfile,
   resolveProducerBookName,
   roleInputFromProfile,
   toAppRoles,
@@ -301,7 +302,7 @@ export function Transactions() {
     } else if (isProducerBookScoped(roleInput)) {
       const names = [...new Set(data.map((tx) => tx.producer).filter((p) => p && p !== '—'))]
       const scope = resolveProducerBookName(roleInput, profile?.fullName, names, {
-        linkedProducerName: profile?.linkedProducerName,
+        ...producerBookOptionsFromProfile(profile),
       })
       setProducerScopeLimitation(scope.limitation)
       if (!scope.lockedName) {
@@ -313,7 +314,7 @@ export function Transactions() {
       setTransactions(data)
     }
     setLoading(false)
-  }, [roleInput, profile?.fullName, profile?.linkedProducerName])
+  }, [roleInput, profile?.fullName, profile?.linkedProducerName, profile?.producerId])
 
   useEffect(() => {
     loadTransactions()

@@ -87,17 +87,15 @@ interface UserRow {
   archived_at: string | null
   producer_id?: string | null
   agency_profile_id?: string | null
-  producers?: { producer_name: string | null } | { producer_name: string | null }[] | null
+  invite_status?: string | null
 }
 
-function linkedProducerNameFromRow(row: UserRow): string | null {
-  const join = row.producers
-  const name = Array.isArray(join) ? join[0]?.producer_name : join?.producer_name
-  const trimmed = (name ?? '').trim()
-  return trimmed || null
-}
+const PROFILE_SELECT_WITH_INVITE =
+  'id, auth_user_id, full_name, email, role, status, archived_at, invite_status, producer_id, agency_profile_id'
+const PROFILE_SELECT_CORE =
+  'id, auth_user_id, full_name, email, role, status, archived_at, producer_id'
 
-function mapProfile(row: UserRow, roles: AppRole[]): AppUserProfile {
+function mapProfile(row: UserRow, roles: AppRole[], linkedProducerName: string | null): AppUserProfile {
   const normalizedRoles = roles.length
     ? roles
     : toAppRoles(row.role)
@@ -112,9 +110,18 @@ function mapProfile(row: UserRow, roles: AppRole[]): AppUserProfile {
     status: (row.status ?? '').trim().toLowerCase(),
     archivedAt: row.archived_at,
     producerId: (row.producer_id ?? '').trim() || null,
-    linkedProducerName: linkedProducerNameFromRow(row),
+    linkedProducerName,
     agencyProfileId: (row.agency_profile_id ?? '').trim() || null,
   }
+}
+
+async function resolveLinkedProducerNameFromRpc(hasProducerRole: boolean): Promise<string | null> {
+  if (!hasProducerRole) return null
+  // SECURITY DEFINER RPC — Producer clients must not SELECT public.producers.
+  const { data, error } = await supabase.rpc('current_producer_name')
+  if (error) return null
+  const name = typeof data === 'string' ? data.trim() : ''
+  return name || null
 }
 
 async function loadLinkedProfile(authUserId: string): Promise<{
@@ -123,25 +130,21 @@ async function loadLinkedProfile(authUserId: string): Promise<{
 }> {
   const { data, error } = await supabase
     .from('users')
-    .select(
-      'id, auth_user_id, full_name, email, role, status, archived_at, invite_status, producer_id, agency_profile_id, producers(producer_name)',
-    )
+    .select(PROFILE_SELECT_WITH_INVITE)
     .eq('auth_user_id', authUserId)
     .maybeSingle()
 
-  let row = data as (UserRow & { invite_status?: string | null }) | null
+  let row = data as UserRow | null
   let loadError = error
 
   if (
     error &&
     (error.message.includes('invite_status') ||
-      error.message.includes('producer_id') ||
-      error.message.includes('agency_profile_id') ||
-      error.message.includes('producers'))
+      error.message.includes('agency_profile_id'))
   ) {
     const fallback = await supabase
       .from('users')
-      .select('id, auth_user_id, full_name, email, role, status, archived_at')
+      .select(PROFILE_SELECT_CORE)
       .eq('auth_user_id', authUserId)
       .maybeSingle()
     row = fallback.data as UserRow | null
@@ -173,19 +176,17 @@ async function loadLinkedProfile(authUserId: string): Promise<{
     String(row.role ?? ''),
   ])
 
-  const profile = mapProfile(row, roles)
+  const linkedProducerName = await resolveLinkedProducerNameFromRpc(roles.includes('producer'))
+  const profile = mapProfile(row, roles, linkedProducerName)
 
-  // Mark invite accepted on successful authenticated session (awaited; SECURITY DEFINER RPC).
-  if (row.invite_status === 'pending') {
-    const { error: acceptError } = await supabase.rpc('mark_current_user_invite_accepted')
-    if (acceptError) {
-      // Fallback direct update if RPC not yet deployed.
-      await supabase
-        .from('users')
-        .update({ invite_status: 'accepted' })
-        .eq('id', profile.id)
-        .eq('invite_status', 'pending')
-    }
+  // Invite acceptance is a no-op when already accepted (SECURITY DEFINER RPC).
+  const { error: acceptError } = await supabase.rpc('mark_current_user_invite_accepted')
+  if (acceptError && (row.invite_status === 'pending' || row.invite_status == null)) {
+    await supabase
+      .from('users')
+      .update({ invite_status: 'accepted' })
+      .eq('id', profile.id)
+      .eq('invite_status', 'pending')
   }
 
   if (profile.archivedAt) {

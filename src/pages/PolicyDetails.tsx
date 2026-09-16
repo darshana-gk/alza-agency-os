@@ -22,7 +22,9 @@ import {
   canManageTransactions,
   canRepairHistoricalPolicyTerm,
   isProducerBookScoped,
+  producerBookOptionsFromProfile,
   producerKeysMatch,
+  resolveProducerBookName,
   roleInputFromProfile,
 } from '../lib/permissions'
 import {
@@ -422,12 +424,17 @@ export function PolicyDetails() {
       overrideSplit: Boolean(policyRow.override_split),
     }
 
-    if (producerLocked && !producerKeysMatch(mapped.producer, profile?.fullName)) {
-      setPolicy(null)
-      setNotFound(true)
-      setError('You do not have permission to access this policy record.')
-      setLoading(false)
-      return
+    if (producerLocked) {
+      const scope = resolveProducerBookName(roleInput, profile?.fullName, [mapped.producer], {
+        ...producerBookOptionsFromProfile(profile),
+      })
+      if (!scope.lockedName || !producerKeysMatch(mapped.producer, scope.lockedName)) {
+        setPolicy(null)
+        setNotFound(true)
+        setError('You do not have permission to access this policy record.')
+        setLoading(false)
+        return
+      }
     }
 
     setPolicy(mapped)
@@ -448,7 +455,7 @@ export function PolicyDetails() {
       setLineage({ rewrittenFrom: null, rewrittenTo: [] })
     }
     setLoading(false)
-  }, [id, producerLocked, profile?.fullName])
+  }, [id, producerLocked, profile?.fullName, profile?.linkedProducerName, profile?.producerId, roleInput])
 
   useEffect(() => {
     void load()

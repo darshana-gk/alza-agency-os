@@ -44,6 +44,7 @@ import {
   isProducerBookScoped,
   isViewerRole,
   producerKeysMatch,
+  producerBookOptionsFromProfile,
   resolveProducerBookName,
   roleInputFromProfile,
   toAppRoles,
@@ -139,6 +140,7 @@ export function Dashboard() {
         email: profile?.email,
         profileId: profile?.id,
         linkedProducerName: profile?.linkedProducerName,
+        producerId: profile?.producerId,
       }),
     ])
 
@@ -153,7 +155,7 @@ export function Dashboard() {
         ]),
       ]
       const scope = resolveProducerBookName(roleInput, profile?.fullName, known, {
-        linkedProducerName: profile?.linkedProducerName,
+        ...producerBookOptionsFromProfile(profile),
       })
       setProducerScopeLimitation(scope.limitation)
       if (!scope.lockedName) {
@@ -210,7 +212,7 @@ export function Dashboard() {
       setProducerScopeLimitation(notificationsRes.producerLimitation)
     }
     setLoading(false)
-  }, [producerLocked, profile?.fullName, profile?.linkedProducerName, profile?.id, roleInput])
+  }, [producerLocked, profile?.fullName, profile?.linkedProducerName, profile?.producerId, profile?.id, roleInput])
 
   useEffect(() => {
     void load()

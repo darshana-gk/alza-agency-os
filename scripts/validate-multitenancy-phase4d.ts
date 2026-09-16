@@ -113,6 +113,17 @@ console.log('D. Producer identity linkage contract')
     linkedProducerName: 'DUMMY Payout V1 Producer',
   })
   assert(linked.lockedName === 'DUMMY Payout V1 Producer', 'linked producer book resolves')
+  const explicitUnresolved = resolveProducerBookName(
+    'producer',
+    'Phase31C UAT Producer',
+    ['Alex Morgan'],
+    { linkedProducerName: null, producerId: '2c273a9c-a180-4878-b007-6da9dfcd3ac2' },
+  )
+  assert(explicitUnresolved.lockedName === null, 'explicit producer_id without resolved name fails closed')
+  assert(
+    explicitUnresolved.limitation?.includes('explicit producer directory link') === true,
+    'unresolved explicit link uses fail-closed limitation',
+  )
 }
 
 console.log('E. Users UI + no agency-admin alza_support grant')

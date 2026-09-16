@@ -56,6 +56,7 @@ export function NotificationBell() {
       email: profile?.email,
       profileId: profile?.id,
       linkedProducerName: profile?.linkedProducerName,
+      producerId: profile?.producerId,
     })
     setItems(result.items.slice(0, 12))
     setBadgeCount(result.badgeCount)

@@ -42,6 +42,7 @@ import {
   canRepairHistoricalPolicyTerm,
   isProducerBookScoped,
   producerKeysMatch,
+  producerBookOptionsFromProfile,
   resolveProducerBookName,
   roleInputFromProfile,
 } from '../lib/permissions'
@@ -307,7 +308,7 @@ export function PolicyFiles() {
     if (isProducerBookScoped(roleInput)) {
       const names = [...new Set(mapped.map((p) => p.producer).filter((p) => p && p !== '—'))]
       const scope = resolveProducerBookName(roleInput, profile?.fullName, names, {
-        linkedProducerName: profile?.linkedProducerName,
+        ...producerBookOptionsFromProfile(profile),
       })
       setProducerScopeLimitation(scope.limitation)
       setPolicies(
@@ -320,7 +321,7 @@ export function PolicyFiles() {
       setPolicies(mapped)
     }
     setLoading(false)
-  }, [roleInput, profile?.fullName, profile?.linkedProducerName])
+  }, [roleInput, profile?.fullName, profile?.linkedProducerName, profile?.producerId])
 
   useEffect(() => {
     void loadPolicies()

@@ -224,7 +224,7 @@ export function UsersPage() {
     setLoading(true)
     setFetchError(null)
 
-    let query = supabase
+    const query = supabase
       .from('users')
       .select('id, auth_user_id, full_name, email, role, status, archived_at, invited_at, invite_status')
       .is('archived_at', null)
@@ -338,6 +338,7 @@ export function UsersPage() {
     email: string
     existingProducerId?: string | null
     forAdd?: boolean
+    preserveManualSelection?: boolean
   }) {
     const { data, error } = await fetchProducerLinkOptions()
     if (error) {
@@ -373,19 +374,48 @@ export function UsersPage() {
 
     if (params.forAdd) {
       setAddProducerOptions(data)
-      setAddProducerHint(hint)
-      setAddForm((f) => ({
-        ...f,
-        linkedProducerId: selectedId,
-        defaultSplit:
-          selectedOption?.defaultSplitPercentage != null
-            ? String(selectedOption.defaultSplitPercentage)
-            : f.defaultSplit,
-      }))
+      setAddForm((f) => {
+        if (params.preserveManualSelection && f.linkedProducerId) {
+          const kept = data.find((o) => o.id === f.linkedProducerId) ?? null
+          setAddProducerHint(
+            kept
+              ? 'Explicit producer_id link will be saved on invite.'
+              : hint,
+          )
+          return {
+            ...f,
+            defaultSplit:
+              kept?.defaultSplitPercentage != null
+                ? String(kept.defaultSplitPercentage)
+                : f.defaultSplit,
+          }
+        }
+        setAddProducerHint(hint)
+        return {
+          ...f,
+          linkedProducerId: selectedId,
+          defaultSplit:
+            selectedOption?.defaultSplitPercentage != null
+              ? String(selectedOption.defaultSplitPercentage)
+              : f.defaultSplit,
+        }
+      })
       return
     }
 
     setProducerLinkOptions(data)
+    if (params.preserveManualSelection && linkedProducerId) {
+      const kept = data.find((o) => o.id === linkedProducerId) ?? null
+      setProducerLinkHint(
+        kept
+          ? 'Explicit producer_id link will be saved on this user.'
+          : hint,
+      )
+      if (kept?.defaultSplitPercentage != null) {
+        setDefaultSplitValue(String(kept.defaultSplitPercentage))
+      }
+      return
+    }
     setProducerLinkHint(hint)
     setLinkedProducerId(selectedId)
     if (selectedOption?.defaultSplitPercentage != null) {
@@ -649,6 +679,7 @@ export function UsersPage() {
         role: primary,
         roles: inviteRoles,
         status: addForm.status,
+        producer_id: hasProducer ? addForm.linkedProducerId || null : null,
       },
     })
 
@@ -1099,6 +1130,7 @@ export function UsersPage() {
                         fullName: addForm.fullName,
                         email: addForm.email,
                         forAdd: true,
+                        preserveManualSelection: true,
                       })
                     }
                   }}
@@ -1118,6 +1150,7 @@ export function UsersPage() {
                         fullName: addForm.fullName,
                         email: addForm.email,
                         forAdd: true,
+                        preserveManualSelection: true,
                       })
                     }
                   }}
@@ -1205,6 +1238,7 @@ export function UsersPage() {
                             fullName: addForm.fullName,
                             email: addForm.email,
                             forAdd: true,
+                            preserveManualSelection: true,
                           })
                         }
                       }}
