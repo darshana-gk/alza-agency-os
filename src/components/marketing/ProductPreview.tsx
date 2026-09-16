@@ -1,7 +1,16 @@
 /** Isolated marketing chrome matching the authenticated ALZA Flow sidebar. Not interactive app chrome. */
 
 import type { ReactNode } from 'react'
-import { BarChart3, DollarSign, LayoutDashboard, Scale, Zap } from 'lucide-react'
+import {
+  BarChart3,
+  CircleDollarSign,
+  DollarSign,
+  LayoutDashboard,
+  Scale,
+  TrendingUp,
+  Wallet,
+  Zap,
+} from 'lucide-react'
 
 const NAV = [
   { label: 'Dashboard', icon: LayoutDashboard },
@@ -123,16 +132,23 @@ function Kpi({
   tone: 'blue' | 'teal' | 'violet' | 'amber'
 }) {
   const tones = {
-    blue: 'bg-alza-blue-50 text-alza-blue-600',
-    teal: 'bg-alza-teal-50 text-alza-teal-600',
-    violet: 'bg-violet-50 text-violet-600',
-    amber: 'bg-amber-50 text-amber-600',
+    blue: { wrap: 'bg-alza-blue-50 text-alza-blue-600', Icon: Wallet },
+    teal: { wrap: 'bg-alza-teal-50 text-alza-teal-600', Icon: CircleDollarSign },
+    violet: { wrap: 'bg-violet-50 text-violet-600', Icon: TrendingUp },
+    amber: { wrap: 'bg-amber-50 text-amber-600', Icon: TrendingUp },
   }
+  const { wrap, Icon } = tones[tone]
   return (
     <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
-      <p className="text-[11px] font-medium text-slate-500">{title}</p>
-      <p className="mt-1 text-base font-bold tabular-nums text-slate-900">{value}</p>
-      <span className={`mt-2 inline-flex h-6 w-6 rounded-md ${tones[tone]}`} />
+      <div className="flex items-start justify-between gap-2">
+        <div>
+          <p className="text-[11px] font-medium text-slate-500">{title}</p>
+          <p className="mt-1 text-base font-bold tabular-nums text-slate-900">{value}</p>
+        </div>
+        <span className={`inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md ${wrap}`}>
+          <Icon className="h-3.5 w-3.5" />
+        </span>
+      </div>
     </div>
   )
 }
