@@ -42,6 +42,8 @@ function read(rel: string) {
 
 const landing = read('src/pages/PublicLanding.tsx')
 const preview = read('src/components/marketing/ProductPreview.tsx')
+const talk = read('src/components/marketing/TalkToAlzaLink.tsx')
+const marketing = `${landing}\n${preview}\n${talk}`
 const app = read('src/App.tsx')
 const pricing = read('src/pages/Pricing.tsx')
 const signup = read('src/pages/Signup.tsx')
@@ -53,6 +55,8 @@ const permissions = read('src/lib/permissions.ts')
 const billing = read('src/lib/billing.ts')
 const reconciliation = read('src/lib/reconciliation.ts')
 const auth = read('src/lib/auth.tsx')
+const dashboard = read('src/pages/Dashboard.tsx')
+const financials = read('src/pages/Financials.tsx')
 
 console.log('A. Routing architecture')
 {
@@ -79,7 +83,7 @@ console.log('B. Sign-in destinations no longer dump to marketing root')
   assert(!signup.includes('to="/"'), 'Signup does not Sign in to /')
 }
 
-console.log('C. V3 copy and sections')
+console.log('C. Product-led copy and sections')
 {
   for (const needle of [
     'Know what you earned.',
@@ -88,12 +92,10 @@ console.log('C. V3 copy and sections')
     'Commission Operations for Insurance Agencies',
     'Keep your AMS. Fix your commission operations.',
     'ALZA Flow brings commission reconciliation, discrepancies, and producer commissions',
-    'See your commission operations clearly.',
-    "Commission operations shouldn't be guesswork.",
-    'Reconcile with confidence.',
-    'Find discrepancies sooner.',
-    'Keep producer commissions clear.',
-    'From statement to clarity.',
+    'Stop hunting through commission statements.',
+    "See what doesn't add up.",
+    'Know what your producers are owed.',
+    'See the commission picture clearly.',
     'Your AMS manages policies.',
     'ALZA Flow manages the commission work around them.',
     'No AMS replacement required.',
@@ -107,20 +109,19 @@ console.log('C. V3 copy and sections')
   assert(landing.includes('id="hero"'), 'hero id')
   assert(landing.includes('id="product"'), 'product id')
   assert(landing.includes('id="how-it-works"'), 'how-it-works id')
-  assert(landing.includes('id="outcomes"'), 'outcomes id')
+  assert(landing.includes('id="exceptions"'), 'exceptions id')
+  assert(landing.includes('id="producers"'), 'producers id')
+  assert(landing.includes('id="reporting"'), 'reporting id')
   assert(landing.includes('id="positioning"'), 'positioning id')
   assert((landing.match(/<header/g) ?? []).length === 1, 'exactly one header')
+  assert(!landing.includes("Commission operations shouldn't be guesswork."), 'generic V3 outcomes heading removed')
+  assert(!landing.includes('Reconcile with confidence.'), 'V3 outcome 1 removed')
+  assert(!landing.includes('From statement to clarity.'), 'numbered workflow heading removed')
+  assert(!landing.includes('See your commission operations clearly.'), 'generic V3 preview heading removed')
   assert(!landing.includes('Learn'), 'Learn nav removed')
   assert(!landing.includes('Book a Demo'), 'hero Book a Demo removed')
   assert(!landing.includes('Clip coming soon'), 'video placeholders removed')
-  assert(!landing.includes('See ALZA Flow in action'), 'old four-card heading removed')
-  assert(!landing.includes("Commission operations shouldn't live in spreadsheets."), 'old problem list heading removed')
-  assert(!landing.includes('Pricing that grows with your agency.'), 'full pricing heading removed from homepage')
   assert(!landing.includes('Plans that grow with your agency.'), 'homepage pricing CTA section removed')
-  assert(!landing.includes('Take control of your commission operations.'), 'old V1 final CTA removed')
-  assert(!landing.includes('Ready to put your commission operations in order?'), 'old V2 final CTA removed')
-  assert(!landing.includes('Know what your agency earned.'), 'old V2 hero headline removed')
-  assert(!landing.includes('See How It Works'), 'old See How It Works CTA removed')
   assert(!/\bV1\b/.test(landing), 'no customer-facing V1 copy')
   assert(!landing.includes('whole-premium'), 'no whole-premium marketing copy')
   assert(!landing.includes('billingUserBands'), 'homepage does not render catalog grid')
@@ -136,7 +137,8 @@ console.log('D. CTAs and dedicated pricing page still owns catalog')
   assert(landing.includes('PUBLIC_GET_STARTED_PATH'), 'Get Started / View Pricing use /pricing')
   assert(landing.includes('href="#product"'), 'See ALZA Flow / Product scroll on-page')
   assert(landing.includes("href: '#how-it-works'"), 'How It Works nav scrolls on-page')
-  assert(landing.includes('PUBLIC_DEMO_MAILTO'), 'Talk/Contact uses existing support email')
+  assert(landing.includes('TalkToAlzaLink'), 'Talk/Contact uses swappable TalkToAlzaLink')
+  assert(talk.includes('PUBLIC_DEMO_MAILTO'), 'TalkToAlzaLink uses existing support email')
   assert(landing.includes('View Pricing'), 'homepage has View Pricing')
   assert(pricing.includes('Get Started'), 'dedicated /pricing still has Get Started')
   assert(pricing.includes('Coming Soon'), 'dedicated /pricing still has Flow Pay Coming Soon')
@@ -151,17 +153,29 @@ console.log('D. CTAs and dedicated pricing page still owns catalog')
   assert(BILLING_CHECKOUT_SKUS.length === 8, '8 checkout SKUs')
 }
 
-console.log('E. Preview, claims, and dead-link hygiene')
+console.log('E. Product UI frames, claims, PII, and dead-link hygiene')
 {
-  assert(preview.includes('CommissionWorkspacePreview'), 'single workspace preview')
-  assert(!preview.includes('Clip coming soon'), 'preview has no clip placeholder')
+  assert(preview.includes('DashboardProductFrame'), 'dashboard frame present')
+  assert(preview.includes('ReconciliationProductFrame'), 'reconciliation frame present')
+  assert(preview.includes('ExceptionsProductFrame'), 'exceptions frame present')
+  assert(preview.includes('ProducerProductFrame'), 'producer frame present')
+  assert(landing.includes('DashboardProductFrame'), 'hero/reporting uses dashboard frame')
+  assert(landing.includes('ReconciliationProductFrame'), 'recon story uses recon frame')
+  assert(landing.includes('ExceptionsProductFrame'), 'exception story uses exception frame')
+  assert(landing.includes('ProducerProductFrame'), 'producer story uses producer frame')
+  assert(preview.includes('Matched') && preview.includes('Needs Review'), 'recon statuses from real product')
+  assert(preview.includes('Missing') && preview.includes('Underpaid') && preview.includes('Overpaid'), 'discrepancy labels from real product')
+  assert(preview.includes('Ready for Payment'), 'producer ready queue from financials')
+  assert(preview.includes('Welcome to ALZA Flow'), 'dashboard welcome banner language')
+  assert(preview.includes('from-alza-blue-900 via-alza-blue-800 to-alza-teal-900'), 'sidebar gradient matches app chrome')
+  assert(dashboard.includes('Welcome to ALZA Flow'), 'dashboard source still has welcome banner')
+  assert(dashboard.includes('Needs Attention'), 'dashboard source still has Needs Attention')
+  assert(financials.includes('Ready for Payment'), 'financials source still has Ready for Payment')
   assert(!preview.includes('<video'), 'preview does not render video')
   assert(!landing.includes('<video'), 'landing does not render video')
-  assert(landing.includes('CommissionWorkspacePreview'), 'landing uses single workspace preview')
   assert(!landing.includes('<ProductPreview'), 'old four-card component unused')
-  assert(preview.includes('Expected Commission') && preview.includes('Received Commission'), 'generic preview labels')
-  assert(preview.includes('Needs Attention') && preview.includes('Producer Commissions'), 'attention and producer tiles')
-  assert(!/\$\d/.test(preview), 'preview has no dollar amounts')
+  assert(!dashboard.includes('DashboardProductFrame'), 'authenticated dashboard not using marketing frames')
+  assert(!financials.includes('ProducerProductFrame'), 'authenticated financials not using marketing frames')
   for (const banned of [
     'SOC 2',
     'ISO 27001',
@@ -172,14 +186,20 @@ console.log('E. Preview, claims, and dead-link hygiene')
     'HawkSoft',
     'Calendly',
     'replaces your AMS',
+    'Google login',
   ]) {
-    assert(!landing.toLowerCase().includes(banned.toLowerCase()), `no invented/banned: ${banned}`)
+    assert(!marketing.toLowerCase().includes(banned.toLowerCase()), `no invented/banned: ${banned}`)
   }
+  assert(!/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i.test(marketing), 'no email addresses in marketing source')
+  assert(!/\b(alex morgan|uat|@alzabusiness\.com)\b/i.test(marketing), 'no UAT names or support inbox literals')
+  assert(!/\bPOL[-_]/i.test(marketing), 'no policy-number looking identifiers')
+  assert(!/\b(CHK|ACH|WIRE|REF)[-_]/i.test(marketing), 'no payment-reference looking identifiers')
+  assert(preview.includes('Producer A') && preview.includes('Producer B'), 'producer labels are generic')
   assert(PUBLIC_DEMO_MAILTO.startsWith('mailto:support@alzabusiness.com'), 'demo uses existing support inbox')
   assert(PUBLIC_PRICING_INQUIRY_MAILTO.startsWith('mailto:support@alzabusiness.com'), 'pricing inquiry uses existing support inbox')
   assert(landing.includes("href: '#product'"), 'Product anchor')
   assert(landing.includes("href: '#how-it-works'"), 'How It Works anchor')
-  assert(landing.includes('kind: \'route\''), 'Pricing nav is a route')
+  assert(landing.includes("kind: 'route'"), 'Pricing nav is a route')
   assert(!landing.includes('/help'), 'no dead public /help link')
   assert(!landing.includes('to="/support"'), 'no public /support login trap')
 }
