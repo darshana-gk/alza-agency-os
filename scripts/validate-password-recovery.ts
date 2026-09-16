@@ -6,9 +6,12 @@ import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import {
   MIN_PASSWORD_LENGTH,
+  PASSWORD_RECOVERY_RATE_LIMIT_COPY,
   RESET_PASSWORD_PATH,
   getRecoveryTokenHash,
+  isPasswordRecoveryRateLimitError,
   parseAuthCallbackParams,
+  passwordRecoveryRequestErrorMessage,
   passwordResetRedirectTo,
   postPasswordResetPath,
   urlIndicatesPasswordRecovery,
@@ -119,7 +122,94 @@ console.log('D. Post-reset routing')
   )
 }
 
-console.log('E. Source contracts')
+console.log('E. Recovery rate-limit copy (no Auth email is sent)')
+{
+  const friendly = PASSWORD_RECOVERY_RATE_LIMIT_COPY
+  assert(
+    passwordRecoveryRequestErrorMessage({ message: 'email rate limit exceeded' }) === friendly,
+    '1. email rate-limit message maps to friendly copy',
+  )
+  assert(
+    passwordRecoveryRequestErrorMessage({
+      message: 'email rate limit exceeded',
+      code: 'over_email_send_rate_limit',
+      status: 429,
+    }) === friendly,
+    'over_email_send_rate_limit code maps to friendly copy',
+  )
+  assert(
+    passwordRecoveryRequestErrorMessage({
+      message: 'For security purposes, you can only request this after 60 seconds.',
+      code: 'over_email_send_rate_limit',
+    }) === friendly,
+    'per-user 60s frequency maps to the same friendly copy',
+  )
+  assert(
+    !friendly.toLowerCase().includes('email rate limit exceeded'),
+    '2. raw email rate limit exceeded is not in customer copy',
+  )
+  assert(
+    passwordRecoveryRequestErrorMessage({ message: 'email rate limit exceeded' }) !==
+      'email rate limit exceeded',
+    '2. mapper does not return the raw provider message',
+  )
+  assert(
+    passwordRecoveryRequestErrorMessage({ message: 'AuthApiError: email rate limit exceeded' }) ===
+      friendly,
+    'wrapped provider message still maps',
+  )
+  const successNotice =
+    'Check your email for a password reset link. Open it once, then choose a new password.'
+  assert(
+    passwordRecoveryRequestErrorMessage(null) === '',
+    '3. success path is not an error mapping (null → empty)',
+  )
+  const login = readFileSync(resolve(process.cwd(), 'src/pages/Login.tsx'), 'utf8')
+  assert(login.includes(successNotice), '3. successful reset-request notice unchanged')
+  assert(
+    passwordRecoveryRequestErrorMessage({ message: 'Unable to validate email address: invalid format' }) ===
+      'Unable to validate email address: invalid format',
+    '4. unrelated Auth error is not remapped',
+  )
+  assert(
+    passwordRecoveryRequestErrorMessage({ message: 'Email address not authorized' }) ===
+      'Email address not authorized',
+    '4. unauthorized-address error is not remapped',
+  )
+  assert(
+    passwordRecoveryRequestErrorMessage({ message: 'Error sending recovery email' }) ===
+      'Error sending recovery email',
+    '4. generic send failure is not remapped',
+  )
+  assert(
+    !isPasswordRecoveryRateLimitError({ message: 'Invalid login credentials', status: 400 }),
+    '4. login credentials error is not treated as recovery rate-limit',
+  )
+  assert(
+    passwordRecoveryRequestErrorMessage({
+      message: 'Request rate limit reached',
+      code: 'over_request_rate_limit',
+      status: 429,
+    }) === 'Request rate limit reached',
+    '4. generic 429 / over_request_rate_limit is not remapped',
+  )
+  const thisTest = readFileSync(resolve(process.cwd(), 'scripts/validate-password-recovery.ts'), 'utf8')
+  assert(
+    !thisTest.includes(['@supabase', 'supabase-js'].join('/')),
+    '5. tests do not import supabase-js',
+  )
+  assert(
+    !thisTest.includes("from '../src/lib/" + 'supabase'),
+    '5. tests do not import the app supabase client',
+  )
+  assert(
+    !login.includes('resetPasswordForEmail') || !login.includes('setError(resetError.message)'),
+    'Login no longer displays raw resetError.message',
+  )
+  assert(login.includes('passwordRecoveryRequestErrorMessage(resetError)'), 'Login uses recovery error mapper')
+}
+
+console.log('F. Source contracts')
 {
   const root = resolve(process.cwd())
   const app = readFileSync(resolve(root, 'src/App.tsx'), 'utf8')
@@ -144,6 +234,9 @@ console.log('E. Source contracts')
   assert(recovery.includes('capturePasswordRecoveryFromLocation'), 'captures recovery before hash strip')
   assert(login.includes('Forgot password?'), 'Login has Forgot password?')
   assert(login.includes('resetPasswordForEmail'), 'Login requests recovery email')
+  assert(login.includes('passwordRecoveryRequestErrorMessage'), 'Login maps recovery errors')
+  assert(!login.includes('setError(resetError.message)'), 'Login does not surface raw resetError.message')
+  assert(recovery.includes('over_email_send_rate_limit'), 'recovery mapper knows Auth rate-limit code')
   assert(
     login.includes('redirectTo: `${window.location.origin}/auth/reset-password`'),
     'Login redirectTo is current origin reset path',

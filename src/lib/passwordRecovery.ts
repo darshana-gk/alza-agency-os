@@ -5,6 +5,39 @@ export const MIN_PASSWORD_LENGTH = 8
 
 export const RESET_PASSWORD_PATH = '/auth/reset-password'
 
+/** Shown when Auth refuses another recovery email (project-wide or per-user send limit). */
+export const PASSWORD_RECOVERY_RATE_LIMIT_COPY =
+  'Too many password reset requests were made. Please wait a few minutes and try again, or contact ALZA Support.'
+
+const EMAIL_RATE_LIMIT_CODE = 'over_email_send_rate_limit'
+const EMAIL_RATE_LIMIT_MESSAGE = 'email rate limit exceeded'
+const EMAIL_FREQUENCY_MESSAGE =
+  /^for security purposes, you can only request this after \d+ seconds\.?$/i
+
+type AuthErrorLike = {
+  message?: string | null
+  code?: string | null
+  status?: number | null
+}
+
+export function isPasswordRecoveryRateLimitError(error: AuthErrorLike | null | undefined): boolean {
+  const code = String(error?.code ?? '').trim().toLowerCase()
+  if (code === EMAIL_RATE_LIMIT_CODE) return true
+  const message = String(error?.message ?? '').trim()
+  if (message.toLowerCase().includes(EMAIL_RATE_LIMIT_MESSAGE)) return true
+  if (EMAIL_FREQUENCY_MESSAGE.test(message)) return true
+  return false
+}
+
+/** Map resetPasswordForEmail failures. Rate-limits get friendly copy; all other errors stay as returned. */
+export function passwordRecoveryRequestErrorMessage(
+  error: AuthErrorLike | null | undefined,
+): string {
+  if (!error) return ''
+  if (isPasswordRecoveryRateLimitError(error)) return PASSWORD_RECOVERY_RATE_LIMIT_COPY
+  return String(error.message ?? '').trim()
+}
+
 export const RECOVERY_PENDING_STORAGE_KEY = 'alza.passwordRecoveryPending'
 
 const NON_RECOVERY_TYPES = new Set(['signup', 'invite', 'magiclink', 'email', 'email_change'])

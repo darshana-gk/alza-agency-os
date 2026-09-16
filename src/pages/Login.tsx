@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { Zap } from 'lucide-react'
 import { useAuth } from '../lib/auth'
+import { passwordRecoveryRequestErrorMessage } from '../lib/passwordRecovery'
 import { supabase } from '../lib/supabase'
 
 export function LoginPage() {
@@ -51,7 +52,7 @@ export function LoginPage() {
     setRecovering(false)
 
     if (resetError) {
-      setError(resetError.message)
+      setError(passwordRecoveryRequestErrorMessage(resetError))
       return
     }
 
