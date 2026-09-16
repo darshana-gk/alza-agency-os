@@ -79,42 +79,58 @@ console.log('B. Sign-in destinations no longer dump to marketing root')
   assert(!signup.includes('to="/"'), 'Signup does not Sign in to /')
 }
 
-console.log('C. Required copy and sections')
+console.log('C. V2 copy and sections')
 {
   for (const needle of [
     'Know what your agency earned.',
     'Know what was paid.',
     "Know what's missing.",
     'Keep your AMS. Fix your commission operations.',
-    'See ALZA Flow in action',
-    "Commission operations shouldn't live in spreadsheets.",
+    'ALZA Flow brings your commission operations into one place',
+    'Your commission operation. One clear view.',
+    'Commission operations without the spreadsheet chase.',
+    'Reconcile faster.',
+    "Catch what doesn't add up.",
+    'Know what producers are owed.',
     'From statement to clarity.',
-    'Pricing that grows with your agency.',
-    'Take control of your commission operations.',
+    'Built for commission operations. Designed to work alongside your AMS.',
+    'Plans that grow with your agency.',
+    'Ready to put your commission operations in order?',
+    'See How It Works',
     'by ALZA Business Solutions LLP',
-    'without replacing your AMS',
-    'commission operations only',
   ]) {
     assert(landing.includes(needle), `landing has: ${needle}`)
   }
   assert(landing.includes('id="hero"'), 'hero id')
-  assert(landing.includes('id="in-action"'), 'in-action id')
-  assert(landing.includes('id="solves"'), 'solves id')
+  assert(landing.includes('id="product"'), 'product id')
   assert(landing.includes('id="how-it-works"'), 'how-it-works id')
-  assert(landing.includes('id="pricing"'), 'pricing id')
-  assert(landing.includes('id="get-started"'), 'final CTA id')
+  assert((landing.match(/<header/g) ?? []).length === 1, 'exactly one header')
+  assert(!landing.includes('Learn'), 'Learn nav removed')
+  assert(!landing.includes('Book a Demo'), 'hero Book a Demo removed')
+  assert(!landing.includes('Clip coming soon'), 'video placeholders removed')
+  assert(!landing.includes('See ALZA Flow in action'), 'old four-card heading removed')
+  assert(!landing.includes("Commission operations shouldn't live in spreadsheets."), 'old problem list heading removed')
+  assert(!landing.includes('Pricing that grows with your agency.'), 'full pricing heading removed from homepage')
+  assert(!landing.includes('Take control of your commission operations.'), 'old final CTA removed')
+  assert(!/\bV1\b/.test(landing), 'no customer-facing V1 copy')
+  assert(!landing.includes('whole-premium'), 'no whole-premium marketing copy')
+  assert(!landing.includes('billingUserBands'), 'homepage does not render catalog grid')
+  assert(!landing.includes('formatUsdWhole'), 'homepage does not display plan prices')
+  assert(!landing.includes('ALZA Flow Pay'), 'Flow Pay card not on homepage')
+  assert(!landing.includes('$399'), 'no $399 on homepage')
+  assert(!landing.includes('signupPathForPlan'), 'homepage does not start checkout SKUs')
 }
 
-console.log('D. CTAs and catalog reuse')
+console.log('D. CTAs and dedicated pricing page still owns catalog')
 {
-  assert(landing.includes('billingUserBands'), 'landing uses billingUserBands')
-  assert(landing.includes('quoteBillingSelection'), 'landing uses quoteBillingSelection')
-  assert(landing.includes('signupPathForPlan'), 'self-serve uses signupPathForPlan')
-  assert(landing.includes('PUBLIC_GET_STARTED_PATH'), 'hero Get Started uses public pricing path')
-  assert(landing.includes('PUBLIC_DEMO_MAILTO'), 'Book a Demo uses existing support email')
-  assert(landing.includes('PUBLIC_PRICING_INQUIRY_MAILTO'), '51+ uses pricing inquiry mailto')
-  assert(landing.includes('Coming Soon'), 'Flow Pay Coming Soon')
-  assert(!landing.includes('checkoutEligible &&') || landing.includes('!quote.sku || !quote.checkoutEligible'), 'self-serve disabled without sku')
+  assert(landing.includes('PUBLIC_GET_STARTED_PATH'), 'Get Started / View Pricing use /pricing')
+  assert(landing.includes('href="#how-it-works"'), 'See How It Works scrolls on-page')
+  assert(landing.includes('PUBLIC_DEMO_MAILTO'), 'Talk/Contact uses existing support email')
+  assert(landing.includes('PUBLIC_PRICING_INQUIRY_MAILTO'), 'larger-agency Talk uses existing inquiry mailto')
+  assert(landing.includes('View Pricing'), 'homepage has View Pricing')
+  assert(pricing.includes('Get Started'), 'dedicated /pricing still has Get Started')
+  assert(pricing.includes('Coming Soon'), 'dedicated /pricing still has Flow Pay Coming Soon')
+  assert(pricing.includes('Contact ALZA'), 'dedicated /pricing still has Contact ALZA')
   const bands = billingUserBands('alza_flow')
   assert(bands.filter((b) => b.checkoutEligible).length === 4, '4 self-serve bands')
   assert(bands.filter((b) => b.contactAlza).length === 2, '2 contact bands')
@@ -125,12 +141,16 @@ console.log('D. CTAs and catalog reuse')
   assert(BILLING_CHECKOUT_SKUS.length === 8, '8 checkout SKUs')
 }
 
-console.log('E. Placeholders, claims, and dead-link hygiene')
+console.log('E. Preview, claims, and dead-link hygiene')
 {
-  assert(preview.includes('videoSrc'), 'preview accepts later clips')
-  assert(preview.includes('Clip coming soon'), 'placeholder copy')
-  assert(!preview.includes('<video') || preview.includes('hasClip'), 'video only when src exists')
-  assert(!landing.includes('<video'), 'landing does not render bare video')
+  assert(preview.includes('CommissionWorkspacePreview'), 'single workspace preview')
+  assert(!preview.includes('Clip coming soon'), 'preview has no clip placeholder')
+  assert(!preview.includes('<video'), 'preview does not render video')
+  assert(!landing.includes('<video'), 'landing does not render video')
+  assert(landing.includes('CommissionWorkspacePreview'), 'landing uses single workspace preview')
+  assert(!landing.includes('<ProductPreview'), 'old four-card component unused')
+  assert(preview.includes('Expected') && preview.includes('Received'), 'generic preview labels')
+  assert(!/\$\d/.test(preview), 'preview has no dollar amounts')
   for (const banned of [
     'SOC 2',
     'ISO 27001',
@@ -144,13 +164,11 @@ console.log('E. Placeholders, claims, and dead-link hygiene')
   ]) {
     assert(!landing.toLowerCase().includes(banned.toLowerCase()), `no invented/banned: ${banned}`)
   }
-  assert(landing.includes('without replacing your AMS'), 'explicit AMS-keep claim')
   assert(PUBLIC_DEMO_MAILTO.startsWith('mailto:support@alzabusiness.com'), 'demo uses existing support inbox')
   assert(PUBLIC_PRICING_INQUIRY_MAILTO.startsWith('mailto:support@alzabusiness.com'), 'pricing inquiry uses existing support inbox')
-  assert(landing.includes("href: '#in-action'"), 'Product anchor')
+  assert(landing.includes("href: '#product'"), 'Product anchor')
   assert(landing.includes("href: '#how-it-works'"), 'How It Works anchor')
-  assert(landing.includes("href: '#pricing'"), 'Pricing anchor')
-  assert(landing.includes("href: '#solves'"), 'Learn anchor')
+  assert(landing.includes('kind: \'route\''), 'Pricing nav is a route')
   assert(!landing.includes('/help'), 'no dead public /help link')
   assert(!landing.includes('to="/support"'), 'no public /support login trap')
 }
