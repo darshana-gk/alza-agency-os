@@ -79,24 +79,27 @@ console.log('B. Sign-in destinations no longer dump to marketing root')
   assert(!signup.includes('to="/"'), 'Signup does not Sign in to /')
 }
 
-console.log('C. V2 copy and sections')
+console.log('C. V3 copy and sections')
 {
   for (const needle of [
-    'Know what your agency earned.',
+    'Know what you earned.',
     'Know what was paid.',
     "Know what's missing.",
+    'Commission Operations for Insurance Agencies',
     'Keep your AMS. Fix your commission operations.',
-    'ALZA Flow brings your commission operations into one place',
-    'Your commission operation. One clear view.',
-    'Commission operations without the spreadsheet chase.',
-    'Reconcile faster.',
-    "Catch what doesn't add up.",
-    'Know what producers are owed.',
+    'ALZA Flow brings commission reconciliation, discrepancies, and producer commissions',
+    'See your commission operations clearly.',
+    "Commission operations shouldn't be guesswork.",
+    'Reconcile with confidence.',
+    'Find discrepancies sooner.',
+    'Keep producer commissions clear.',
     'From statement to clarity.',
-    'Built for commission operations. Designed to work alongside your AMS.',
-    'Plans that grow with your agency.',
-    'Ready to put your commission operations in order?',
-    'See How It Works',
+    'Your AMS manages policies.',
+    'ALZA Flow manages the commission work around them.',
+    'No AMS replacement required.',
+    "Your commissions shouldn't require detective work.",
+    'See ALZA Flow',
+    'View Pricing',
     'by ALZA Business Solutions LLP',
   ]) {
     assert(landing.includes(needle), `landing has: ${needle}`)
@@ -104,6 +107,8 @@ console.log('C. V2 copy and sections')
   assert(landing.includes('id="hero"'), 'hero id')
   assert(landing.includes('id="product"'), 'product id')
   assert(landing.includes('id="how-it-works"'), 'how-it-works id')
+  assert(landing.includes('id="outcomes"'), 'outcomes id')
+  assert(landing.includes('id="positioning"'), 'positioning id')
   assert((landing.match(/<header/g) ?? []).length === 1, 'exactly one header')
   assert(!landing.includes('Learn'), 'Learn nav removed')
   assert(!landing.includes('Book a Demo'), 'hero Book a Demo removed')
@@ -111,7 +116,11 @@ console.log('C. V2 copy and sections')
   assert(!landing.includes('See ALZA Flow in action'), 'old four-card heading removed')
   assert(!landing.includes("Commission operations shouldn't live in spreadsheets."), 'old problem list heading removed')
   assert(!landing.includes('Pricing that grows with your agency.'), 'full pricing heading removed from homepage')
-  assert(!landing.includes('Take control of your commission operations.'), 'old final CTA removed')
+  assert(!landing.includes('Plans that grow with your agency.'), 'homepage pricing CTA section removed')
+  assert(!landing.includes('Take control of your commission operations.'), 'old V1 final CTA removed')
+  assert(!landing.includes('Ready to put your commission operations in order?'), 'old V2 final CTA removed')
+  assert(!landing.includes('Know what your agency earned.'), 'old V2 hero headline removed')
+  assert(!landing.includes('See How It Works'), 'old See How It Works CTA removed')
   assert(!/\bV1\b/.test(landing), 'no customer-facing V1 copy')
   assert(!landing.includes('whole-premium'), 'no whole-premium marketing copy')
   assert(!landing.includes('billingUserBands'), 'homepage does not render catalog grid')
@@ -119,14 +128,15 @@ console.log('C. V2 copy and sections')
   assert(!landing.includes('ALZA Flow Pay'), 'Flow Pay card not on homepage')
   assert(!landing.includes('$399'), 'no $399 on homepage')
   assert(!landing.includes('signupPathForPlan'), 'homepage does not start checkout SKUs')
+  assert(!landing.toLowerCase().includes('integrates with'), 'does not claim AMS integration')
 }
 
 console.log('D. CTAs and dedicated pricing page still owns catalog')
 {
   assert(landing.includes('PUBLIC_GET_STARTED_PATH'), 'Get Started / View Pricing use /pricing')
-  assert(landing.includes('href="#how-it-works"'), 'See How It Works scrolls on-page')
+  assert(landing.includes('href="#product"'), 'See ALZA Flow / Product scroll on-page')
+  assert(landing.includes("href: '#how-it-works'"), 'How It Works nav scrolls on-page')
   assert(landing.includes('PUBLIC_DEMO_MAILTO'), 'Talk/Contact uses existing support email')
-  assert(landing.includes('PUBLIC_PRICING_INQUIRY_MAILTO'), 'larger-agency Talk uses existing inquiry mailto')
   assert(landing.includes('View Pricing'), 'homepage has View Pricing')
   assert(pricing.includes('Get Started'), 'dedicated /pricing still has Get Started')
   assert(pricing.includes('Coming Soon'), 'dedicated /pricing still has Flow Pay Coming Soon')
@@ -149,7 +159,8 @@ console.log('E. Preview, claims, and dead-link hygiene')
   assert(!landing.includes('<video'), 'landing does not render video')
   assert(landing.includes('CommissionWorkspacePreview'), 'landing uses single workspace preview')
   assert(!landing.includes('<ProductPreview'), 'old four-card component unused')
-  assert(preview.includes('Expected') && preview.includes('Received'), 'generic preview labels')
+  assert(preview.includes('Expected Commission') && preview.includes('Received Commission'), 'generic preview labels')
+  assert(preview.includes('Needs Attention') && preview.includes('Producer Commissions'), 'attention and producer tiles')
   assert(!/\$\d/.test(preview), 'preview has no dollar amounts')
   for (const banned of [
     'SOC 2',
