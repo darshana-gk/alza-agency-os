@@ -173,7 +173,8 @@ export function ReconciliationProductFrame() {
           <SummaryPill label="Underpaid" value="1" tone="warn" />
           <SummaryPill label="Overpaid" value="1" tone="warn" />
         </div>
-        <div className="mt-4 overflow-hidden rounded-lg border border-slate-100">
+        <div className="mt-4 overflow-x-auto rounded-lg border border-slate-100">
+          <div className="min-w-[28rem]">
           <div className="grid grid-cols-4 bg-slate-50 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
             <span>Line</span>
             <span>Expected</span>
@@ -190,12 +191,13 @@ export function ReconciliationProductFrame() {
               key={row[0]}
               className="grid grid-cols-4 border-t border-slate-100 px-3 py-2 text-[12px] text-slate-700"
             >
-              <span className="font-medium">{row[0]}</span>
+              <span className="pr-2 font-medium">{row[0]}</span>
               <span className="tabular-nums">{row[1]}</span>
               <span className="tabular-nums">{row[2]}</span>
               <StatusPill label={row[3]} tone={row[4] === 'ok' ? 'ok' : 'warn'} />
             </div>
           ))}
+          </div>
         </div>
       </div>
     </MarketingAppFrame>
