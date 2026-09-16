@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react'
+import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { ArrowRight, Menu, X, Zap } from 'lucide-react'
 import {
@@ -20,40 +20,13 @@ const NAV = [
   { href: PUBLIC_GET_STARTED_PATH, label: 'Pricing', kind: 'route' as const },
 ]
 
-function ProductStory({
-  id,
-  reverse,
-  eyebrow,
-  title,
-  copy,
-  visual,
-}: {
-  id: string
-  reverse?: boolean
-  eyebrow: string
-  title: string
-  copy: string
-  visual: ReactNode
-}) {
-  return (
-    <section id={id} className="scroll-mt-24 px-4 py-14 sm:px-6 sm:py-16">
-      <div
-        className={`mx-auto grid max-w-6xl items-center gap-8 lg:grid-cols-2 lg:gap-12 ${
-          reverse ? 'lg:[&>div:first-child]:order-2' : ''
-        }`}
-      >
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-alza-blue-700">{eyebrow}</p>
-          <h2 className="mt-3 text-3xl font-bold tracking-tight text-slate-900 sm:text-[2.15rem] sm:leading-tight">
-            {title}
-          </h2>
-          <p className="mt-4 max-w-xl text-base leading-relaxed text-slate-600">{copy}</p>
-        </div>
-        <div>{visual}</div>
-      </div>
-    </section>
-  )
-}
+const OUTCOME_CHIPS = [
+  { label: 'Matched', tone: 'ok' },
+  { label: 'Needs Review', tone: 'warn' },
+  { label: 'Missing', tone: 'warn' },
+  { label: 'Underpaid', tone: 'warn' },
+  { label: 'Overpaid', tone: 'warn' },
+] as const
 
 export function PublicLandingPage() {
   const [menuOpen, setMenuOpen] = useState(false)
@@ -68,7 +41,7 @@ export function PublicLandingPage() {
   }, [])
 
   return (
-    <div className="min-h-screen scroll-smooth bg-slate-50 text-slate-900">
+    <div className="min-h-screen scroll-smooth bg-white text-slate-900">
       <a
         href="#main"
         className="absolute left-4 top-4 z-50 -translate-y-16 rounded-lg bg-white px-3 py-2 text-sm font-medium text-slate-900 shadow focus:translate-y-0"
@@ -77,7 +50,7 @@ export function PublicLandingPage() {
       </a>
 
       <header className="sticky top-0 z-40 border-b border-slate-200/70 bg-white/90 backdrop-blur">
-        <div className="mx-auto flex h-16 max-w-6xl items-center justify-between gap-4 px-4 sm:px-6">
+        <div className="mx-auto flex h-[4.25rem] max-w-7xl items-center justify-between gap-4 px-4 sm:px-6 lg:px-8">
           <a href="#hero" className="flex items-center gap-2.5" aria-label="ALZA Flow home">
             <span className="flex h-9 w-9 items-center justify-center rounded-xl gradient-alza shadow-sm">
               <Zap className="h-5 w-5 text-white" aria-hidden="true" />
@@ -158,31 +131,27 @@ export function PublicLandingPage() {
       </header>
 
       <main id="main">
-        <section id="hero" className="relative overflow-hidden px-4 pb-6 pt-14 sm:px-6 sm:pt-16">
+        <section id="hero" className="relative overflow-hidden px-4 pb-10 pt-16 sm:px-6 sm:pt-20 lg:px-8 lg:pb-4 lg:pt-24">
           <div className="pointer-events-none absolute inset-0">
-            <div className="absolute left-[12%] top-0 h-[28rem] w-[28rem] rounded-full bg-alza-blue-200/50 blur-3xl" />
-            <div className="absolute right-[8%] top-10 h-[24rem] w-[24rem] rounded-full bg-alza-teal-200/40 blur-3xl" />
+            <div className="absolute -left-24 top-0 h-[32rem] w-[32rem] rounded-full bg-alza-blue-200/45 blur-3xl" />
+            <div className="absolute right-0 top-10 h-[28rem] w-[28rem] rounded-full bg-alza-teal-200/40 blur-3xl" />
           </div>
-          <div className="relative mx-auto grid max-w-6xl items-center gap-10 lg:grid-cols-[minmax(0,0.92fr)_minmax(0,1.08fr)]">
-            <div>
+          <div className="relative mx-auto grid max-w-7xl items-center gap-12 lg:grid-cols-[minmax(0,26.5rem)_minmax(0,1fr)] lg:gap-10 xl:grid-cols-[minmax(0,28rem)_minmax(0,1fr)]">
+            <div className="lg:pb-12">
               <p className="text-xs font-semibold uppercase tracking-[0.22em] text-alza-blue-700">
                 Commission Operations for Insurance Agencies
               </p>
-              <h1 className="mt-4 text-[2.2rem] font-bold leading-[1.1] tracking-tight text-slate-900 sm:text-5xl lg:text-[3.15rem] lg:leading-[1.05]">
-                Know what you earned.
+              <h1 className="mt-5 text-[2.4rem] font-bold leading-[1.08] tracking-tight text-slate-900 sm:text-5xl lg:text-[3.35rem] lg:leading-[1.05]">
+                Take control of your
                 <br />
-                Know what was paid.
-                <br />
-                Know what's missing.
+                commission operations.
               </h1>
-              <p className="mt-5 max-w-xl text-base leading-relaxed text-slate-600 sm:text-lg">
-                ALZA Flow brings commission reconciliation, discrepancies, and producer commissions into one
-                clear workflow for insurance agencies.
+              <p className="mt-6 max-w-md text-base leading-relaxed text-slate-600 sm:text-lg">
+                Reconcile carrier and MGA statements, catch commission discrepancies, manage producer payouts,
+                and see what your agency has earned — all in one place.
               </p>
-              <p className="mt-5 text-lg font-semibold text-slate-900">
-                Keep your AMS. Fix your commission operations.
-              </p>
-              <div className="mt-8 flex flex-col gap-3 sm:flex-row">
+              <p className="mt-5 text-lg font-semibold text-slate-900">Know what came in. Catch what didn't.</p>
+              <div className="mt-9 flex flex-col gap-3 sm:flex-row">
                 <Link
                   to={PUBLIC_GET_STARTED_PATH}
                   className="inline-flex h-12 items-center justify-center rounded-xl gradient-alza px-7 text-sm font-semibold text-white shadow-sm hover:opacity-90"
@@ -194,93 +163,160 @@ export function PublicLandingPage() {
                   href="#product"
                   className="inline-flex h-12 items-center justify-center rounded-xl bg-white px-7 text-sm font-semibold text-slate-800 ring-1 ring-slate-200 hover:bg-slate-50"
                 >
-                  See ALZA Flow
+                  Explore ALZA Flow
                 </a>
               </div>
             </div>
-            <div className="lg:translate-y-6 lg:scale-[1.02]">
+            <div className="lg:-mr-6 lg:translate-y-8 xl:-mr-10">
+              <DashboardProductFrame size="hero" />
+            </div>
+          </div>
+        </section>
+
+        <section id="product" className="scroll-mt-24 bg-slate-50 px-4 py-24 sm:px-6 lg:px-8 lg:py-28">
+          <div className="mx-auto max-w-7xl">
+            <div className="mx-auto max-w-3xl text-center">
+              <h2 className="text-3xl font-bold tracking-tight text-slate-900 sm:text-4xl lg:text-[2.6rem] lg:leading-tight">
+                One place to understand your commission business.
+              </h2>
+              <p className="mt-5 text-base leading-relaxed text-slate-600 sm:text-lg">
+                From expected commissions to received payments, discrepancies, producer commissions, and
+                reporting — ALZA Flow keeps the workflow connected.
+              </p>
+            </div>
+            <div className="mx-auto mt-14 w-full max-w-6xl">
               <DashboardProductFrame />
             </div>
           </div>
         </section>
 
-        <div className="bg-white">
-          <div id="how-it-works" className="scroll-mt-24" />
-          <ProductStory
-            id="product"
-            eyebrow="Reconciliation"
-            title="Stop hunting through commission statements."
-            copy="Bring carrier and MGA commission statements into ALZA Flow and reconcile them against what your agency expected."
-            visual={<ReconciliationProductFrame />}
-          />
-        </div>
-
-        <div className="bg-slate-50">
-          <ProductStory
-            id="exceptions"
-            reverse
-            eyebrow="Needs Review"
-            title="See what doesn't add up."
-            copy="Missing, underpaid, overpaid, and unmatched commissions surface for review so your team knows exactly where attention is needed."
-            visual={<ExceptionsProductFrame />}
-          />
-        </div>
-
-        <div className="bg-white">
-          <ProductStory
-            id="producers"
-            eyebrow="Producer commissions"
-            title="Know what your producers are owed."
-            copy="Keep producer commissions, approval status, and payment activity connected to the business that generated them."
-            visual={<ProducerProductFrame />}
-          />
-        </div>
-
-        <section id="reporting" className="scroll-mt-24 bg-gradient-to-b from-alza-blue-950 to-slate-950 px-4 py-16 sm:px-6 sm:py-20">
-          <div className="mx-auto max-w-6xl">
-            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-alza-teal-300">Dashboard & reporting</p>
-            <h2 className="mt-3 max-w-3xl text-3xl font-bold tracking-tight text-white sm:text-4xl sm:leading-tight">
-              See the commission picture clearly.
+        <section
+          id="how-it-works"
+          className="scroll-mt-24 bg-gradient-to-b from-alza-blue-50 via-white to-white px-4 py-24 sm:px-6 lg:px-8 lg:py-28"
+        >
+          <div className="mx-auto max-w-7xl">
+            <p className="text-xs font-semibold uppercase tracking-[0.22em] text-alza-blue-700">Reconciliation</p>
+            <h2 className="mt-4 max-w-3xl text-3xl font-bold tracking-tight text-slate-900 sm:text-4xl lg:text-[2.6rem] lg:leading-tight">
+              Turn commission statements into answers.
             </h2>
-            <p className="mt-4 max-w-2xl text-base leading-relaxed text-slate-300">
-              Give agency owners visibility into commission revenue, producer commissions, discrepancies, and
-              payment status from one operational workspace.
+            <p className="mt-5 max-w-2xl text-base leading-relaxed text-slate-600 sm:text-lg">
+              Bring in carrier and MGA statements and compare them against what your agency expected.
             </p>
-            <div className="mt-10">
-              <DashboardProductFrame wide />
+            <div className="mt-10 flex flex-wrap gap-3">
+              {OUTCOME_CHIPS.map((chip) => (
+                <span
+                  key={chip.label}
+                  className={
+                    chip.tone === 'ok'
+                      ? 'rounded-full bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-800 ring-1 ring-inset ring-emerald-600/15'
+                      : 'rounded-full bg-orange-50 px-4 py-2 text-sm font-semibold text-orange-900 ring-1 ring-inset ring-orange-600/15'
+                  }
+                >
+                  {chip.label}
+                </span>
+              ))}
+            </div>
+            <div className="mt-14 w-full">
+              <ReconciliationProductFrame />
             </div>
           </div>
         </section>
 
-        <section id="positioning" className="scroll-mt-24 bg-white px-4 py-16 sm:px-6">
-          <div className="mx-auto grid max-w-6xl items-center gap-10 lg:grid-cols-2">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.22em] text-alza-blue-700">
-                Built for insurance agencies
-              </p>
-              <h2 className="mt-4 text-3xl font-bold tracking-tight text-slate-900 sm:text-4xl sm:leading-tight">
-                Your AMS manages policies.
-                <br />
-                ALZA Flow manages the commission work around them.
-              </h2>
-              <p className="mt-5 text-base leading-relaxed text-slate-600">
-                Keep the systems you already use. ALZA Flow gives your team a dedicated workflow for commission
-                reconciliation, discrepancies, producer commissions, and reporting.
-              </p>
-              <p className="mt-6 text-lg font-semibold text-slate-900">No AMS replacement required.</p>
+        <section id="exceptions" className="scroll-mt-24 bg-white px-4 py-24 sm:px-6 lg:px-8 lg:py-28">
+          <div className="relative mx-auto max-w-7xl lg:min-h-[38rem]">
+            <div className="lg:ml-[32%] lg:w-[68%]">
+              <ExceptionsProductFrame />
             </div>
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="rounded-2xl bg-slate-50 p-5">
-                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Your AMS</p>
-                <ul className="mt-4 space-y-2 text-sm text-slate-700">
+            <div className="mt-10 rounded-3xl bg-white p-8 shadow-[0_24px_80px_-28px_rgba(15,23,42,0.35)] ring-1 ring-slate-200 lg:absolute lg:left-0 lg:top-16 lg:mt-0 lg:w-[38%] lg:p-10">
+              <p className="text-xs font-semibold uppercase tracking-[0.22em] text-alza-blue-700">Exceptions</p>
+              <h2 className="mt-4 text-3xl font-bold tracking-tight text-slate-900 sm:text-[2.15rem] sm:leading-tight">
+                Spot the commissions that need attention.
+              </h2>
+              <p className="mt-4 text-base leading-relaxed text-slate-600">
+                ALZA Flow surfaces missing, underpaid, overpaid, and unmatched activity so your team can focus
+                on the exceptions instead of searching for them.
+              </p>
+            </div>
+          </div>
+        </section>
+
+        <section id="producers" className="scroll-mt-24 bg-alza-teal-50/40 px-4 py-24 sm:px-6 lg:px-8 lg:py-28">
+          <div className="mx-auto max-w-7xl">
+            <div className="max-w-2xl">
+              <p className="text-xs font-semibold uppercase tracking-[0.22em] text-alza-teal-800">Producer commissions</p>
+              <h2 className="mt-4 text-3xl font-bold tracking-tight text-slate-900 sm:text-4xl lg:text-[2.6rem] lg:leading-tight">
+                Producer commissions,
+                <br />
+                without the spreadsheet chase.
+              </h2>
+              <p className="mt-5 text-base leading-relaxed text-slate-600 sm:text-lg">
+                Track producer commissions, approval status, and payment activity in the same operational
+                workflow.
+              </p>
+              <p className="mt-4 text-sm font-medium text-slate-700">
+                From commission earned to payment status, keep the trail clear.
+              </p>
+            </div>
+            <div className="mt-14 w-full">
+              <ProducerProductFrame />
+            </div>
+          </div>
+        </section>
+
+        <section
+          id="reporting"
+          className="scroll-mt-24 bg-gradient-to-b from-alza-blue-950 via-alza-blue-900 to-slate-950 px-4 py-24 sm:px-6 lg:px-8 lg:py-32"
+        >
+          <div className="mx-auto max-w-7xl">
+            <p className="text-xs font-semibold uppercase tracking-[0.22em] text-alza-teal-300">Dashboard</p>
+            <h2 className="mt-4 max-w-3xl text-3xl font-bold tracking-tight text-white sm:text-4xl lg:text-[2.7rem] lg:leading-tight">
+              See the business behind your commissions.
+            </h2>
+            <p className="mt-5 max-w-2xl text-base leading-relaxed text-slate-300 sm:text-lg">
+              Understand agency commission revenue, producer commissions, discrepancies, and payment status from
+              one operational view.
+            </p>
+            <div className="mt-14 w-full">
+              <DashboardProductFrame />
+            </div>
+          </div>
+        </section>
+
+        <section id="positioning" className="scroll-mt-24 bg-white px-4 py-24 sm:px-6 lg:px-8 lg:py-28">
+          <div className="mx-auto max-w-7xl">
+            <p className="text-xs font-semibold uppercase tracking-[0.22em] text-alza-blue-700">
+              Built for insurance agencies
+            </p>
+            <h2 className="mt-4 max-w-3xl text-3xl font-bold tracking-tight text-slate-900 sm:text-4xl lg:text-[2.6rem] lg:leading-tight">
+              Keep your AMS.
+              <br />
+              Give commissions their own workflow.
+            </h2>
+            <p className="mt-5 max-w-2xl text-base leading-relaxed text-slate-600 sm:text-lg">
+              ALZA Flow works alongside your existing systems, giving your team one place for reconciliation,
+              discrepancies, producer commissions, and reporting.
+            </p>
+            <p className="mt-6 text-lg font-semibold text-slate-900">No AMS replacement required.</p>
+            <div className="mt-14 flex flex-col items-stretch gap-5 lg:flex-row lg:items-center">
+              <div className="flex-1 rounded-3xl bg-slate-50 p-8">
+                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                  Your existing systems
+                </p>
+                <ul className="mt-6 space-y-3 text-base text-slate-700">
                   <li>Policies</li>
                   <li>Clients</li>
                   <li>Documents</li>
                 </ul>
               </div>
-              <div className="rounded-2xl gradient-alza p-5 text-white shadow-lg">
+              <p className="hidden text-2xl font-semibold text-slate-300 lg:block" aria-hidden="true">
+                →
+              </p>
+              <p className="text-center text-sm font-semibold uppercase tracking-[0.16em] text-slate-400 lg:hidden">
+                to
+              </p>
+              <div className="flex-1 rounded-3xl gradient-alza p-8 text-white shadow-xl">
                 <p className="text-xs font-semibold uppercase tracking-[0.16em] text-white/80">ALZA Flow</p>
-                <ul className="mt-4 space-y-2 text-sm">
+                <ul className="mt-6 space-y-3 text-base">
                   <li>Reconciliation</li>
                   <li>Discrepancies</li>
                   <li>Producer commissions</li>
@@ -291,15 +327,16 @@ export function PublicLandingPage() {
           </div>
         </section>
 
-        <section id="get-started" className="bg-slate-900 px-4 py-16 sm:px-6 sm:py-20">
+        <section id="get-started" className="bg-slate-900 px-4 py-24 sm:px-6 lg:px-8 lg:py-28">
           <div className="mx-auto max-w-3xl text-center">
             <h2 className="text-3xl font-bold tracking-tight text-white sm:text-4xl sm:leading-tight">
-              Your commissions shouldn't require detective work.
+              Ready to make commission operations easier?
             </h2>
             <p className="mt-5 text-base leading-relaxed text-slate-300 sm:text-lg">
-              Bring statements, reconciliation, discrepancies, and producer commissions into one clear workflow.
+              Bring reconciliation, discrepancies, producer commissions, and reporting into one operational
+              workflow.
             </p>
-            <div className="mt-9 flex flex-col items-center justify-center gap-3 sm:flex-row">
+            <div className="mt-10 flex flex-col items-center justify-center gap-3 sm:flex-row">
               <Link
                 to={PUBLIC_GET_STARTED_PATH}
                 className="inline-flex h-12 w-full items-center justify-center rounded-xl gradient-alza px-7 text-sm font-semibold text-white hover:opacity-90 sm:w-auto"
@@ -320,8 +357,8 @@ export function PublicLandingPage() {
         </section>
       </main>
 
-      <footer className="border-t border-slate-200 bg-white px-4 py-10 sm:px-6">
-        <div className="mx-auto flex max-w-6xl flex-col gap-6 sm:flex-row sm:items-end sm:justify-between">
+      <footer className="border-t border-slate-200 bg-white px-4 py-10 sm:px-6 lg:px-8">
+        <div className="mx-auto flex max-w-7xl flex-col gap-6 sm:flex-row sm:items-end sm:justify-between">
           <div>
             <p className="text-sm font-bold tracking-wide text-slate-900">ALZA FLOW</p>
             <p className="mt-1 text-xs text-slate-500">by ALZA Business Solutions LLP</p>

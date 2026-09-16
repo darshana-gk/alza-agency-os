@@ -83,24 +83,23 @@ console.log('B. Sign-in destinations no longer dump to marketing root')
   assert(!signup.includes('to="/"'), 'Signup does not Sign in to /')
 }
 
-console.log('C. Product-led copy and sections')
+console.log('C. Template-style copy and sections')
 {
   for (const needle of [
-    'Know what you earned.',
-    'Know what was paid.',
-    "Know what's missing.",
+    'Take control of your',
+    'commission operations.',
     'Commission Operations for Insurance Agencies',
-    'Keep your AMS. Fix your commission operations.',
-    'ALZA Flow brings commission reconciliation, discrepancies, and producer commissions',
-    'Stop hunting through commission statements.',
-    "See what doesn't add up.",
-    'Know what your producers are owed.',
-    'See the commission picture clearly.',
-    'Your AMS manages policies.',
-    'ALZA Flow manages the commission work around them.',
+    "Know what came in. Catch what didn't.",
+    'Explore ALZA Flow',
+    'One place to understand your commission business.',
+    'Turn commission statements into answers.',
+    'Spot the commissions that need attention.',
+    'without the spreadsheet chase.',
+    'See the business behind your commissions.',
+    'Keep your AMS.',
+    'Give commissions their own workflow.',
     'No AMS replacement required.',
-    "Your commissions shouldn't require detective work.",
-    'See ALZA Flow',
+    'Ready to make commission operations easier?',
     'View Pricing',
     'by ALZA Business Solutions LLP',
   ]) {
@@ -113,11 +112,16 @@ console.log('C. Product-led copy and sections')
   assert(landing.includes('id="producers"'), 'producers id')
   assert(landing.includes('id="reporting"'), 'reporting id')
   assert(landing.includes('id="positioning"'), 'positioning id')
+  assert(landing.includes('max-w-7xl'), 'wider page container')
+  assert(landing.includes('py-24'), 'generous section padding')
+  assert(!landing.includes('function ProductStory'), 'narrow alternating ProductStory layout removed')
   assert((landing.match(/<header/g) ?? []).length === 1, 'exactly one header')
-  assert(!landing.includes("Commission operations shouldn't be guesswork."), 'generic V3 outcomes heading removed')
-  assert(!landing.includes('Reconcile with confidence.'), 'V3 outcome 1 removed')
-  assert(!landing.includes('From statement to clarity.'), 'numbered workflow heading removed')
-  assert(!landing.includes('See your commission operations clearly.'), 'generic V3 preview heading removed')
+  assert(!landing.includes('Know what you earned.'), 'old hero headline removed')
+  assert(!landing.includes('Know what your producers are owed.'), 'old producer headline removed')
+  assert(!landing.includes('Your AMS manages policies.'), 'old AMS headline removed')
+  assert(!landing.includes("Your commissions shouldn't require detective work."), 'old final CTA removed')
+  assert(!landing.includes('See ALZA Flow'), 'old See ALZA Flow CTA removed')
+  assert(!landing.includes('Stop hunting through commission statements.'), 'old recon headline removed')
   assert(!landing.includes('Learn'), 'Learn nav removed')
   assert(!landing.includes('Book a Demo'), 'hero Book a Demo removed')
   assert(!landing.includes('Clip coming soon'), 'video placeholders removed')
@@ -135,7 +139,7 @@ console.log('C. Product-led copy and sections')
 console.log('D. CTAs and dedicated pricing page still owns catalog')
 {
   assert(landing.includes('PUBLIC_GET_STARTED_PATH'), 'Get Started / View Pricing use /pricing')
-  assert(landing.includes('href="#product"'), 'See ALZA Flow / Product scroll on-page')
+  assert(landing.includes('href="#product"'), 'Explore ALZA Flow / Product scroll on-page')
   assert(landing.includes("href: '#how-it-works'"), 'How It Works nav scrolls on-page')
   assert(landing.includes('TalkToAlzaLink'), 'Talk/Contact uses swappable TalkToAlzaLink')
   assert(talk.includes('PUBLIC_DEMO_MAILTO'), 'TalkToAlzaLink uses existing support email')
@@ -168,6 +172,7 @@ console.log('E. Product UI frames, claims, PII, and dead-link hygiene')
   assert(preview.includes('Ready for Payment'), 'producer ready queue from financials')
   assert(preview.includes('Welcome to ALZA Flow'), 'dashboard welcome banner language')
   assert(preview.includes('from-alza-blue-900 via-alza-blue-800 to-alza-teal-900'), 'sidebar gradient matches app chrome')
+  assert(preview.includes('min-h-[30rem]'), 'feature frames are large')
   assert(dashboard.includes('Welcome to ALZA Flow'), 'dashboard source still has welcome banner')
   assert(dashboard.includes('Needs Attention'), 'dashboard source still has Needs Attention')
   assert(financials.includes('Ready for Payment'), 'financials source still has Ready for Payment')

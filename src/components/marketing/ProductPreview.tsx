@@ -23,54 +23,57 @@ export function MarketingAppFrame({
   title,
   active,
   children,
-  compact,
+  size = 'feature',
 }: {
   title: string
   active: (typeof NAV)[number]['label']
   children: ReactNode
-  compact?: boolean
+  size?: 'hero' | 'feature'
 }) {
+  const tall = size === 'feature'
   return (
-    <div className="overflow-hidden rounded-2xl bg-white shadow-[0_28px_80px_-28px_rgba(15,23,42,0.45)] ring-1 ring-slate-200/80">
-      <div className="flex items-center gap-1.5 border-b border-slate-100 bg-slate-50 px-4 py-2.5">
-        <span className="h-2 w-2 rounded-full bg-slate-300" aria-hidden="true" />
-        <span className="h-2 w-2 rounded-full bg-slate-300" aria-hidden="true" />
-        <span className="h-2 w-2 rounded-full bg-slate-300" aria-hidden="true" />
-        <span className="ml-2 text-[11px] font-medium text-slate-500">ALZA Flow</span>
+    <div className="overflow-hidden rounded-[1.4rem] bg-white shadow-[0_40px_100px_-32px_rgba(15,23,42,0.5)] ring-1 ring-slate-200/80">
+      <div className="flex items-center gap-1.5 border-b border-slate-100 bg-slate-50 px-5 py-3">
+        <span className="h-2.5 w-2.5 rounded-full bg-slate-300" aria-hidden="true" />
+        <span className="h-2.5 w-2.5 rounded-full bg-slate-300" aria-hidden="true" />
+        <span className="h-2.5 w-2.5 rounded-full bg-slate-300" aria-hidden="true" />
+        <span className="ml-2 text-xs font-medium text-slate-500">ALZA Flow</span>
       </div>
-      <div className={`grid ${compact ? 'min-h-[18rem]' : 'min-h-[22rem]'} lg:grid-cols-[11.5rem_minmax(0,1fr)]`}>
+      <div
+        className={`grid ${tall ? 'min-h-[30rem] xl:min-h-[34rem]' : 'min-h-[24rem] xl:min-h-[28rem]'} lg:grid-cols-[14.5rem_minmax(0,1fr)]`}
+      >
         <aside
-          className="hidden bg-gradient-to-b from-alza-blue-900 via-alza-blue-800 to-alza-teal-900 px-3 py-4 lg:block"
+          className="hidden bg-gradient-to-b from-alza-blue-900 via-alza-blue-800 to-alza-teal-900 px-4 py-5 lg:block"
           aria-hidden="true"
         >
-          <div className="mb-5 flex items-center gap-2 px-1">
-            <span className="flex h-7 w-7 items-center justify-center rounded-lg gradient-alza">
-              <Zap className="h-3.5 w-3.5 text-white" />
+          <div className="mb-6 flex items-center gap-2.5 px-1">
+            <span className="flex h-8 w-8 items-center justify-center rounded-lg gradient-alza">
+              <Zap className="h-4 w-4 text-white" />
             </span>
-            <span className="text-[11px] font-bold tracking-wide text-white">ALZA FLOW</span>
+            <span className="text-xs font-bold tracking-wide text-white">ALZA FLOW</span>
           </div>
-          <ul className="space-y-0.5 text-[12px] font-medium">
+          <ul className="space-y-1 text-sm font-medium">
             {NAV.map((item) => (
               <li
                 key={item.label}
                 className={
                   item.label === active
-                    ? 'flex items-center gap-2 rounded-lg bg-white/15 px-2.5 py-2 text-white'
-                    : 'flex items-center gap-2 px-2.5 py-2 text-slate-300'
+                    ? 'flex items-center gap-2.5 rounded-lg bg-white/15 px-3 py-2.5 text-white'
+                    : 'flex items-center gap-2.5 px-3 py-2.5 text-slate-300'
                 }
               >
-                <item.icon className="h-3.5 w-3.5 opacity-80" />
+                <item.icon className="h-4 w-4 opacity-80" />
                 {item.label}
               </li>
             ))}
           </ul>
         </aside>
         <div className="bg-slate-50">
-          <div className="border-b border-slate-200 bg-white px-4 py-3">
-            <p className="text-sm font-semibold text-slate-900">{title}</p>
-            <p className="text-[11px] text-slate-500">Stylized preview · demo labels only</p>
+          <div className="border-b border-slate-200 bg-white px-5 py-4">
+            <p className="text-base font-semibold text-slate-900">{title}</p>
+            <p className="mt-0.5 text-xs text-slate-500">Stylized preview · demo labels only</p>
           </div>
-          <div className="p-3 sm:p-4">{children}</div>
+          <div className="p-4 sm:p-6">{children}</div>
         </div>
       </div>
     </div>
@@ -93,7 +96,7 @@ function StatusPill({
           ? 'bg-amber-50 text-amber-700 ring-amber-600/20'
           : 'bg-slate-100 text-slate-600 ring-slate-500/20'
   return (
-    <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-medium ring-1 ring-inset ${cls}`}>
+    <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ring-1 ring-inset ${cls}`}>
       {label}
     </span>
   )
@@ -115,9 +118,9 @@ function SummaryPill({
         ? 'bg-orange-50 text-orange-900 ring-orange-600/15'
         : 'bg-slate-50 text-slate-700 ring-slate-500/15'
   return (
-    <div className={`min-w-[4.5rem] rounded-lg px-2.5 py-1.5 ring-1 ring-inset ${cls}`}>
-      <p className="text-[10px] font-medium uppercase tracking-wide opacity-80">{label}</p>
-      <p className="text-lg font-semibold tabular-nums">{value}</p>
+    <div className={`min-w-[5.5rem] rounded-xl px-3 py-2 ring-1 ring-inset ${cls}`}>
+      <p className="text-[11px] font-medium uppercase tracking-wide opacity-80">{label}</p>
+      <p className="text-2xl font-semibold tabular-nums">{value}</p>
     </div>
   )
 }
@@ -139,14 +142,14 @@ function Kpi({
   }
   const { wrap, Icon } = tones[tone]
   return (
-    <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+    <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
       <div className="flex items-start justify-between gap-2">
         <div>
-          <p className="text-[11px] font-medium text-slate-500">{title}</p>
-          <p className="mt-1 text-base font-bold tabular-nums text-slate-900">{value}</p>
+          <p className="text-xs font-medium text-slate-500">{title}</p>
+          <p className="mt-1 text-xl font-bold tabular-nums text-slate-900">{value}</p>
         </div>
-        <span className={`inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md ${wrap}`}>
-          <Icon className="h-3.5 w-3.5" />
+        <span className={`inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md ${wrap}`}>
+          <Icon className="h-4 w-4" />
         </span>
       </div>
     </div>
@@ -156,47 +159,47 @@ function Kpi({
 export function ReconciliationProductFrame() {
   return (
     <MarketingAppFrame title="Reconciliation" active="Reconciliation">
-      <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+      <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
         <div className="flex items-start justify-between gap-3">
           <div>
-            <p className="text-sm font-semibold text-slate-900">Carrier statement — August</p>
-            <p className="mt-0.5 text-[11px] text-slate-500">Commissions checked against expected agency amounts</p>
+            <p className="text-base font-semibold text-slate-900">Carrier statement — August</p>
+            <p className="mt-1 text-sm text-slate-500">Compared against expected agency amounts</p>
           </div>
-          <span className="rounded-full bg-alza-blue-50 px-2.5 py-1 text-[10px] font-medium text-alza-blue-800 ring-1 ring-inset ring-alza-blue-600/20">
+          <span className="rounded-full bg-alza-blue-50 px-3 py-1 text-xs font-medium text-alza-blue-800 ring-1 ring-inset ring-alza-blue-600/20">
             Work queue
           </span>
         </div>
-        <div className="mt-3 flex flex-wrap gap-2">
+        <div className="mt-5 flex flex-wrap gap-2.5">
           <SummaryPill label="Matched" value="18" tone="ok" />
           <SummaryPill label="Needs Review" value="3" tone="warn" />
           <SummaryPill label="Missing" value="1" tone="warn" />
           <SummaryPill label="Underpaid" value="1" tone="warn" />
           <SummaryPill label="Overpaid" value="1" tone="warn" />
         </div>
-        <div className="mt-4 overflow-x-auto rounded-lg border border-slate-100">
-          <div className="min-w-[28rem]">
-          <div className="grid grid-cols-4 bg-slate-50 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
-            <span>Line</span>
-            <span>Expected</span>
-            <span>Statement</span>
-            <span>Status</span>
-          </div>
-          {[
-            ['Commercial Auto', '$1,240', '$1,240', 'Matched', 'ok'],
-            ['Homeowners', '$890', '$640', 'Underpaid', 'warn'],
-            ['Businessowners', '$2,100', '—', 'Missing', 'warn'],
-            ['Workers Comp', '$760', '$760', 'Matched', 'ok'],
-          ].map((row) => (
-            <div
-              key={row[0]}
-              className="grid grid-cols-4 border-t border-slate-100 px-3 py-2 text-[12px] text-slate-700"
-            >
-              <span className="pr-2 font-medium">{row[0]}</span>
-              <span className="tabular-nums">{row[1]}</span>
-              <span className="tabular-nums">{row[2]}</span>
-              <StatusPill label={row[3]} tone={row[4] === 'ok' ? 'ok' : 'warn'} />
+        <div className="mt-5 overflow-x-auto rounded-lg border border-slate-100">
+          <div className="min-w-[32rem]">
+            <div className="grid grid-cols-4 bg-slate-50 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+              <span>Line</span>
+              <span>Expected</span>
+              <span>Statement</span>
+              <span>Status</span>
             </div>
-          ))}
+            {[
+              ['Commercial Auto', '$1,240', '$1,240', 'Matched', 'ok'],
+              ['Homeowners', '$890', '$640', 'Underpaid', 'warn'],
+              ['Businessowners', '$2,100', '—', 'Missing', 'warn'],
+              ['Workers Comp', '$760', '$760', 'Matched', 'ok'],
+            ].map((row) => (
+              <div
+                key={row[0]}
+                className="grid grid-cols-4 border-t border-slate-100 px-4 py-2.5 text-sm text-slate-700"
+              >
+                <span className="pr-2 font-medium">{row[0]}</span>
+                <span className="tabular-nums">{row[1]}</span>
+                <span className="tabular-nums">{row[2]}</span>
+                <StatusPill label={row[3]} tone={row[4] === 'ok' ? 'ok' : 'warn'} />
+              </div>
+            ))}
           </div>
         </div>
       </div>
@@ -207,33 +210,35 @@ export function ReconciliationProductFrame() {
 export function ExceptionsProductFrame() {
   return (
     <MarketingAppFrame title="Needs Review" active="Reconciliation">
-      <div className="mb-3 flex gap-2 border-b border-slate-200 text-[12px] font-medium">
-        <span className="border-b-2 border-transparent px-2 py-1.5 text-slate-500">Work queue</span>
-        <span className="border-b-2 border-alza-blue-700 px-2 py-1.5 text-alza-blue-800">Needs Review (4)</span>
+      <div className="mb-4 flex gap-3 border-b border-slate-200 text-sm font-medium">
+        <span className="border-b-2 border-transparent px-2 py-2 text-slate-500">Work queue</span>
+        <span className="border-b-2 border-alza-blue-700 px-2 py-2 text-alza-blue-800">Needs Review (4)</span>
       </div>
-      <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
-        <div className="grid grid-cols-4 bg-slate-50 px-3 py-2 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
-          <span>Statement</span>
-          <span>Line</span>
-          <span className="hidden sm:block">Variance</span>
-          <span>Discrepancy</span>
-        </div>
-        {[
-          ['Carrier · Aug', 'Homeowners', '−$250', 'Underpaid'],
-          ['Carrier · Aug', 'Businessowners', 'Missing', 'Missing'],
-          ['MGA · Aug', 'Commercial Auto', '+$80', 'Overpaid'],
-          ['MGA · Aug', 'Umbrella', 'No match', 'Needs Review'],
-        ].map((row) => (
-          <div
-            key={row[0] + row[1]}
-            className="grid grid-cols-4 border-t border-slate-100 px-3 py-2.5 text-[12px] text-slate-700"
-          >
-            <span>{row[0]}</span>
-            <span className="font-medium">{row[1]}</span>
-            <span className="hidden tabular-nums text-slate-500 sm:block">{row[2]}</span>
-            <StatusPill label={row[3]} tone="warn" />
+      <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm">
+        <div className="min-w-[32rem]">
+          <div className="grid grid-cols-4 bg-slate-50 px-4 py-2.5 text-xs font-semibold uppercase tracking-wide text-slate-500">
+            <span>Statement</span>
+            <span>Line</span>
+            <span>Variance</span>
+            <span>Discrepancy</span>
           </div>
-        ))}
+          {[
+            ['Carrier · Aug', 'Homeowners', '−$250', 'Underpaid'],
+            ['Carrier · Aug', 'Businessowners', 'Missing', 'Missing'],
+            ['MGA · Aug', 'Commercial Auto', '+$80', 'Overpaid'],
+            ['MGA · Aug', 'Umbrella', 'No match', 'Needs Review'],
+          ].map((row) => (
+            <div
+              key={row[0] + row[1]}
+              className="grid grid-cols-4 border-t border-slate-100 px-4 py-3 text-sm text-slate-700"
+            >
+              <span>{row[0]}</span>
+              <span className="font-medium">{row[1]}</span>
+              <span className="tabular-nums text-slate-500">{row[2]}</span>
+              <StatusPill label={row[3]} tone="warn" />
+            </div>
+          ))}
+        </div>
       </div>
     </MarketingAppFrame>
   )
@@ -242,49 +247,48 @@ export function ExceptionsProductFrame() {
 export function ProducerProductFrame() {
   return (
     <MarketingAppFrame title="Financials · Producer Payments" active="Financials">
-      <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-        <div className="mb-3 flex items-center justify-between">
+      <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
           <div>
-            <p className="text-sm font-semibold text-slate-900">Ready for Payment</p>
-            <p className="text-[11px] text-slate-500">Producer commissions ready to include in a payment batch</p>
+            <p className="text-base font-semibold text-slate-900">Ready for Payment</p>
+            <p className="mt-1 text-sm text-slate-500">Eligible producer amounts ready for a payment batch</p>
           </div>
-          <span className="rounded-lg gradient-alza px-3 py-1.5 text-[11px] font-medium text-white">
+          <span className="rounded-lg gradient-alza px-3.5 py-2 text-xs font-medium text-white">
             Create Payment Batch
           </span>
         </div>
-        <div className="overflow-hidden rounded-lg border border-slate-100">
-          <div className="grid grid-cols-4 bg-slate-50 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
-            <span>Producer</span>
-            <span>Line</span>
-            <span>Amount</span>
-            <span>Status</span>
-          </div>
-          {[
-            ['Producer A', 'Commercial Auto', '$410', 'Ready', 'ready'],
-            ['Producer B', 'Homeowners', '$280', 'Ready', 'ready'],
-            ['Producer A', 'Businessowners', '$620', 'Paid', 'ok'],
-            ['Producer C', 'Workers Comp', '$195', 'Paid', 'ok'],
-          ].map((row) => (
-            <div
-              key={row[0] + row[1] + row[3]}
-              className="grid grid-cols-4 border-t border-slate-100 px-3 py-2 text-[12px] text-slate-700"
-            >
-              <span className="font-medium">{row[0]}</span>
-              <span>{row[1]}</span>
-              <span className="tabular-nums">{row[2]}</span>
-              <StatusPill label={row[3]} tone={row[4] === 'ok' ? 'ok' : 'ready'} />
+        <div className="overflow-x-auto rounded-lg border border-slate-100">
+          <div className="min-w-[32rem]">
+            <div className="grid grid-cols-4 bg-slate-50 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+              <span>Producer</span>
+              <span>Line</span>
+              <span>Amount</span>
+              <span>Status</span>
             </div>
-          ))}
+            {[
+              ['Producer A', 'Commercial Auto', '$410', 'Ready', 'ready'],
+              ['Producer B', 'Homeowners', '$280', 'Ready', 'ready'],
+              ['Producer A', 'Businessowners', '$620', 'Paid', 'ok'],
+              ['Producer C', 'Workers Comp', '$195', 'Paid', 'ok'],
+            ].map((row) => (
+              <div
+                key={row[0] + row[1] + row[3]}
+                className="grid grid-cols-4 border-t border-slate-100 px-4 py-2.5 text-sm text-slate-700"
+              >
+                <span className="font-medium">{row[0]}</span>
+                <span>{row[1]}</span>
+                <span className="tabular-nums">{row[2]}</span>
+                <StatusPill label={row[3]} tone={row[4] === 'ok' ? 'ok' : 'ready'} />
+              </div>
+            ))}
+          </div>
         </div>
-        <p className="mt-3 text-[11px] text-slate-500">
-          Payment confirmation recorded in ALZA Flow. ALZA Flow Pay is not shown here.
-        </p>
       </div>
     </MarketingAppFrame>
   )
 }
 
-export function DashboardProductFrame({ wide }: { wide?: boolean }) {
+export function DashboardProductFrame({ size = 'feature' }: { size?: 'hero' | 'feature' }) {
   const bars = [
     { m: 'Jan', a: 42, p: 22 },
     { m: 'Feb', a: 48, p: 24 },
@@ -293,39 +297,40 @@ export function DashboardProductFrame({ wide }: { wide?: boolean }) {
     { m: 'May', a: 58, p: 29 },
     { m: 'Jun', a: 62, p: 31 },
   ]
+  const wide = size === 'feature'
   return (
-    <MarketingAppFrame title="Dashboard" active="Dashboard" compact={!wide}>
-      <div className="relative overflow-hidden rounded-xl gradient-alza p-4 text-white shadow-lg">
-        <div className="absolute -right-6 -top-6 h-24 w-24 rounded-full bg-white/10" />
-        <p className="relative text-sm font-bold">Welcome to ALZA Flow</p>
-        <p className="relative mt-1 text-[11px] text-blue-100">
-          Live premium, commission, and operational metrics from the agency workspace.
+    <MarketingAppFrame title="Dashboard" active="Dashboard" size={size}>
+      <div className="relative overflow-hidden rounded-xl gradient-alza p-5 text-white shadow-lg">
+        <div className="absolute -right-8 -top-8 h-28 w-28 rounded-full bg-white/10" />
+        <p className="relative text-base font-bold">Welcome to ALZA Flow</p>
+        <p className="relative mt-1 text-sm text-blue-100">
+          Live premium and operational metrics from the agency workspace.
         </p>
       </div>
-      <div className="mt-3 grid grid-cols-2 gap-2 xl:grid-cols-4">
+      <div className="mt-4 grid grid-cols-2 gap-3 xl:grid-cols-4">
         <Kpi title="Agency Commission" value="$48,200" tone="teal" />
         <Kpi title="Agency Received" value="$41,750" tone="blue" />
         <Kpi title="Producer Ready" value="$6,420" tone="amber" />
         <Kpi title="Producer Paid" value="$12,980" tone="violet" />
       </div>
-      <div className={`mt-3 grid gap-3 ${wide ? 'lg:grid-cols-3' : ''}`}>
-        <div className={`rounded-xl border border-slate-200 bg-white p-3 shadow-sm ${wide ? 'lg:col-span-2' : ''}`}>
-          <p className="mb-2 text-[12px] font-semibold text-slate-900">Monthly Premium & Commission</p>
-          <div className="flex h-28 items-end gap-2 px-1">
+      <div className={`mt-4 grid gap-3 ${wide ? 'lg:grid-cols-3' : ''}`}>
+        <div className={`rounded-xl border border-slate-200 bg-white p-4 shadow-sm ${wide ? 'lg:col-span-2' : ''}`}>
+          <p className="mb-3 text-sm font-semibold text-slate-900">Monthly Premium & Commission</p>
+          <div className="flex h-36 items-end gap-2.5 px-1 sm:h-40">
             {bars.map((bar) => (
-              <div key={bar.m} className="flex flex-1 flex-col items-center gap-1">
-                <div className="flex h-24 w-full items-end justify-center gap-0.5">
-                  <span className="w-1.5 rounded-t bg-alza-blue-600" style={{ height: `${bar.a}%` }} />
-                  <span className="w-1.5 rounded-t bg-alza-teal-600" style={{ height: `${bar.p + 20}%` }} />
+              <div key={bar.m} className="flex flex-1 flex-col items-center gap-1.5">
+                <div className="flex h-28 w-full items-end justify-center gap-1 sm:h-32">
+                  <span className="w-2 rounded-t bg-alza-blue-600" style={{ height: `${bar.a}%` }} />
+                  <span className="w-2 rounded-t bg-alza-teal-600" style={{ height: `${bar.p + 20}%` }} />
                 </div>
-                <span className="text-[9px] text-slate-400">{bar.m}</span>
+                <span className="text-[11px] text-slate-400">{bar.m}</span>
               </div>
             ))}
           </div>
         </div>
         {wide ? (
-          <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
-            <p className="mb-2 text-[12px] font-semibold text-slate-900">Needs Attention</p>
+          <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+            <p className="mb-3 text-sm font-semibold text-slate-900">Needs Attention</p>
             {[
               ['Needs Review', '4'],
               ['Returned for Correction', '2'],
@@ -333,10 +338,10 @@ export function DashboardProductFrame({ wide }: { wide?: boolean }) {
             ].map((item) => (
               <div
                 key={item[0]}
-                className="mb-1.5 flex items-center justify-between rounded-lg border border-slate-200 px-2.5 py-2"
+                className="mb-2 flex items-center justify-between rounded-lg border border-slate-200 px-3 py-2.5"
               >
-                <span className="text-[12px] text-slate-700">{item[0]}</span>
-                <span className="text-sm font-bold tabular-nums">{item[1]}</span>
+                <span className="text-sm text-slate-700">{item[0]}</span>
+                <span className="text-lg font-bold tabular-nums">{item[1]}</span>
               </div>
             ))}
           </div>
@@ -344,9 +349,4 @@ export function DashboardProductFrame({ wide }: { wide?: boolean }) {
       </div>
     </MarketingAppFrame>
   )
-}
-
-/** @deprecated V3 generic preview — kept so old imports fail loudly if unused. */
-export function CommissionWorkspacePreview() {
-  return <DashboardProductFrame />
 }
