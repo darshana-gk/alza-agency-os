@@ -28,6 +28,7 @@ import { TestSupabase } from '@/pages/TestSupabase'
 import { LoginPage } from '@/pages/Login'
 import { SignupPage } from '@/pages/Signup'
 import { PricingPage } from '@/pages/Pricing'
+import { PublicLandingPage } from '@/pages/PublicLanding'
 import { AccessDeniedPage } from '@/pages/AccessDenied'
 import { SetPasswordPage } from '@/pages/SetPassword'
 import { ResetPasswordPage } from '@/pages/ResetPassword'
@@ -39,6 +40,7 @@ function Guard({ path, children }: { path: string; children: React.ReactNode }) 
 
 function AuthenticatedApp() {
   const { status } = useAuth()
+  const location = useLocation()
 
   if (status === 'loading') {
     return (
@@ -49,6 +51,9 @@ function AuthenticatedApp() {
   }
 
   if (status === 'unauthenticated') {
+    if (location.pathname === '/') {
+      return <PublicLandingPage />
+    }
     return <LoginPage />
   }
 

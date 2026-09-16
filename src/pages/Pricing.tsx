@@ -16,9 +16,7 @@ import {
   signupPathForPlan,
   type PurchaseIntent,
 } from '../lib/purchaseIntent'
-
-const CONTACT_MAILTO =
-  'mailto:support@alzabusiness.com?subject=ALZA%20Flow%20pricing%20inquiry'
+import { PUBLIC_LOGIN_PATH, PUBLIC_PRICING_INQUIRY_MAILTO } from '../lib/publicSite'
 
 function getStartedHref(intent: PurchaseIntent, authenticatedBilling: boolean): string {
   return authenticatedBilling ? billingPathForPlan(intent.planKey) : signupPathForPlan(intent.planKey)
@@ -181,7 +179,7 @@ export function PricingPage() {
                   Online checkout is not available. Contact ALZA for a tailored plan.
                 </p>
                 <a
-                  href={CONTACT_MAILTO}
+                  href={PUBLIC_PRICING_INQUIRY_MAILTO}
                   className="mt-6 inline-flex h-11 w-full items-center justify-center rounded-lg border border-slate-200 bg-slate-50 text-sm font-medium text-slate-800 transition-colors hover:bg-slate-100"
                 >
                   Contact ALZA
@@ -218,7 +216,7 @@ export function PricingPage() {
           ) : (
             <>
               Already have an account?{' '}
-              <Link to="/" className="font-medium text-alza-blue-700 hover:underline">
+              <Link to={PUBLIC_LOGIN_PATH} className="font-medium text-alza-blue-700 hover:underline">
                 Sign in
               </Link>
             </>

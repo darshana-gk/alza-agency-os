@@ -9,6 +9,7 @@ import {
   postPasswordResetPath,
   validateNewPassword,
 } from '../lib/passwordRecovery'
+import { PUBLIC_LOGIN_PATH } from '../lib/publicSite'
 
 /**
  * Dedicated password-reset screen for Supabase PASSWORD_RECOVERY.
@@ -197,7 +198,7 @@ export function ResetPasswordPage() {
         <p className="mt-6 text-center text-xs text-slate-500">
           Remembered your password?{' '}
           <Link
-            to="/"
+            to={PUBLIC_LOGIN_PATH}
             className="font-medium text-alza-blue-700 hover:underline"
             onClick={() => completePasswordRecovery()}
           >

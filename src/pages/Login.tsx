@@ -1,8 +1,10 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { Zap } from 'lucide-react'
+import { Link } from 'react-router-dom'
 import { useAuth } from '../lib/auth'
 import { passwordRecoveryRequestErrorMessage } from '../lib/passwordRecovery'
 import { supabase } from '../lib/supabase'
+import { PUBLIC_LANDING_PATH, PUBLIC_PRICING_PATH, PUBLIC_SIGNUP_PATH } from '../lib/publicSite'
 
 export function LoginPage() {
   const { signIn } = useAuth()
@@ -68,9 +70,9 @@ export function LoginPage() {
 
       <div className="relative w-full max-w-md">
         <div className="mb-8 text-center">
-          <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-xl gradient-alza shadow-md">
+          <a href={PUBLIC_LANDING_PATH} className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-xl gradient-alza shadow-md" aria-label="ALZA Flow home">
             <Zap className="h-6 w-6 text-white" />
-          </div>
+          </a>
           <h1 className="text-2xl font-bold tracking-wide text-slate-900">ALZA FLOW</h1>
           <p className="mt-1 text-xs font-medium text-slate-500">
             by ALZA Business Solutions LLP
@@ -141,13 +143,13 @@ export function LoginPage() {
             </a>
             <p className="pt-1 text-center text-sm text-slate-600">
               New to ALZA Flow?{' '}
-              <a href="/pricing" className="font-medium text-alza-blue-700 hover:underline">
+              <Link to={PUBLIC_PRICING_PATH} className="font-medium text-alza-blue-700 hover:underline">
                 View pricing
-              </a>
+              </Link>
               {' · '}
-              <a href="/signup" className="font-medium text-alza-blue-700 hover:underline">
+              <Link to={PUBLIC_SIGNUP_PATH} className="font-medium text-alza-blue-700 hover:underline">
                 Create an account
-              </a>
+              </Link>
             </p>
           </form>
         </div>

@@ -4,6 +4,7 @@ import { Zap } from 'lucide-react'
 import { useAuth } from '../lib/auth'
 import { createSelfServeAgencySignup } from '../lib/selfServeSignup'
 import { purchaseIntentFromSearchParams } from '../lib/purchaseIntent'
+import { PUBLIC_LOGIN_PATH } from '../lib/publicSite'
 import { quoteBillingSelection } from '../lib/billingCatalog'
 
 export function SignupPage() {
@@ -205,7 +206,7 @@ export function SignupPage() {
 
             <p className="text-center text-sm text-slate-600">
               Already have an account?{' '}
-              <Link to="/" className="font-medium text-alza-blue-700 hover:underline">
+              <Link to={PUBLIC_LOGIN_PATH} className="font-medium text-alza-blue-700 hover:underline">
                 Sign in
               </Link>
             </p>

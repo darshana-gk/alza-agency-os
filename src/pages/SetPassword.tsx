@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { KeyRound, Zap } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { validateNewPassword } from '../lib/passwordRecovery'
+import { PUBLIC_LOGIN_PATH } from '../lib/publicSite'
 
 /**
  * Invite / recovery landing page.
@@ -180,7 +181,7 @@ export function SetPasswordPage() {
 
         <p className="mt-6 text-center text-xs text-slate-500">
           Already activated?{' '}
-          <Link to="/" className="font-medium text-alza-blue-700 hover:underline">
+          <Link to={PUBLIC_LOGIN_PATH} className="font-medium text-alza-blue-700 hover:underline">
             Sign in
           </Link>
         </p>
