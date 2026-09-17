@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { Link, Navigate, useNavigate, useSearchParams } from 'react-router-dom'
-import { Zap } from 'lucide-react'
+import { PublicBrandLink } from '../components/marketing/PublicBrandLink'
 import { useAuth } from '../lib/auth'
 import { createSelfServeAgencySignup } from '../lib/selfServeSignup'
 import { purchaseIntentFromSearchParams } from '../lib/purchaseIntent'
@@ -102,13 +102,8 @@ export function SignupPage() {
 
       <div className="relative w-full max-w-md">
         <div className="mb-8 text-center">
-          <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-xl gradient-alza shadow-md">
-            <Zap className="h-6 w-6 text-white" />
-          </div>
-          <h1 className="text-2xl font-bold tracking-wide text-slate-900">ALZA FLOW</h1>
-          <p className="mt-1 text-xs font-medium text-slate-500">
-            by ALZA Business Solutions LLP
-          </p>
+          <PublicBrandLink variant="stacked" />
+          <h1 className="sr-only">ALZA FLOW</h1>
           <p className="mt-3 text-sm text-slate-600">
             Create your agency account to get started.
           </p>
@@ -119,9 +114,9 @@ export function SignupPage() {
             <div className="mb-4 rounded-lg border border-alza-blue-100 bg-alza-blue-50/60 px-3 py-2 text-sm text-slate-700">
               <p className="font-medium text-slate-900">Selected plan</p>
               <p className="mt-0.5">
-                {intentQuote.bandLabel} · {intentQuote.intervalLabel} · {intentQuote.displayPrice}
+                {intentQuote.bandLabel} · {intentQuote.intervalLabel}
               </p>
-              <p className="mt-0.5 text-xs text-slate-500">{intent?.planKey}</p>
+              <p className="mt-0.5 text-slate-600">{intentQuote.displayPrice.replace(' / ', '/')}</p>
             </div>
           ) : null}
 

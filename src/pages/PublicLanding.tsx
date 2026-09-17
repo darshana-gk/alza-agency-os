@@ -383,10 +383,7 @@ export function PublicLandingPage() {
 
       <footer className="border-t border-slate-200 bg-white px-4 py-10 sm:px-6 lg:px-8">
         <div className="mx-auto flex max-w-7xl flex-col gap-6 sm:flex-row sm:items-end sm:justify-between">
-          <div>
-            <p className="text-sm font-bold tracking-wide text-slate-900">ALZA FLOW</p>
-            <p className="mt-1 text-xs text-slate-500">by ALZA Business Solutions LLP</p>
-          </div>
+          <PublicBrandLink variant="text" />
           <nav className="flex flex-wrap gap-x-5 gap-y-2 text-sm text-slate-600" aria-label="Footer">
             <Link to={PUBLIC_GET_STARTED_PATH} className="hover:text-slate-900">
               Pricing

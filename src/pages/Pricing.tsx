@@ -16,7 +16,6 @@ import {
   signupPathForPlan,
   type PurchaseIntent,
 } from '../lib/purchaseIntent'
-import { BackToTopButton } from '../components/marketing/BackToTopButton'
 import { PublicMarketingHeader } from '../components/marketing/TalkToAlzaLink'
 import { contactSalesPath, PUBLIC_LOGIN_PATH } from '../lib/publicSite'
 
@@ -67,7 +66,6 @@ export function PricingPage() {
         <div className="absolute -bottom-24 -right-16 h-80 w-80 rounded-full bg-alza-teal-200/40 blur-3xl" />
       </div>
       <PublicMarketingHeader />
-      <BackToTopButton />
 
       <div className="relative mx-auto w-full max-w-6xl px-4 py-14 sm:px-6 lg:px-8 lg:py-20">
         <div className="mb-12 text-center">
@@ -122,26 +120,25 @@ export function PricingPage() {
             return (
               <div
                 key={band.key}
-                className="flex flex-col rounded-3xl border border-slate-200 bg-white p-6 shadow-[0_18px_50px_-28px_rgba(15,23,42,0.35)]"
+                className="flex h-full min-h-[17.5rem] flex-col rounded-3xl border border-slate-200 bg-white p-6 shadow-[0_18px_50px_-28px_rgba(15,23,42,0.35)]"
               >
                 <h2 className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">{band.label}</h2>
-                <p className="mt-4 text-3xl font-bold tracking-tight text-slate-900">
+                <p className="mt-5 text-3xl font-bold tracking-tight text-slate-900">
                   {amount != null ? formatUsdWhole(amount) : '—'}
                 </p>
                 <p className="mt-1 text-sm text-slate-500">{interval === 'annual' ? 'per year' : 'per month'}</p>
-                <p className="mt-3 text-sm font-medium text-slate-700">Self-service</p>
                 {interval === 'annual' && band.monthly != null ? (
-                  <p className="mt-1 text-xs text-alza-teal-700">
+                  <p className="mt-3 text-xs text-alza-teal-700">
                     2 months free · {formatUsdWhole(band.monthly * 10)} billed annually
                   </p>
                 ) : (
-                  <p className="mt-1 text-xs text-slate-400">&nbsp;</p>
+                  <p className="mt-3 min-h-[1rem]" aria-hidden="true" />
                 )}
                 <button
                   type="button"
                   disabled={!quote.sku || !quote.checkoutEligible}
                   onClick={() => handleGetStarted(band.key)}
-                  className="group mt-8 inline-flex h-11 w-full items-center justify-center rounded-xl gradient-alza text-sm font-semibold text-white shadow-sm hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+                  className="group mt-auto inline-flex h-11 w-full items-center justify-center rounded-xl gradient-alza text-sm font-semibold text-white shadow-sm hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   {canPickForBilling ? 'Continue to billing' : 'Get Started'}
                   <ArrowRight className="mkt-cta-arrow ml-2 h-4 w-4" aria-hidden="true" />
@@ -152,25 +149,22 @@ export function PricingPage() {
         </div>
 
         <div className="mt-6 grid gap-5 lg:grid-cols-2">
-          <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-[0_18px_50px_-28px_rgba(15,23,42,0.35)]">
+          <div className="flex min-h-[16rem] flex-col rounded-3xl border border-slate-200 bg-white p-6 shadow-[0_18px_50px_-28px_rgba(15,23,42,0.35)]">
             <h2 className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">51+ users</h2>
-            <p className="mt-4 text-3xl font-bold tracking-tight text-slate-900">Custom Pricing</p>
-            <p className="mt-3 text-sm text-slate-600">For larger agencies that need a tailored conversation.</p>
+            <p className="mt-5 text-3xl font-bold tracking-tight text-slate-900">Custom Pricing</p>
             <Link
               to={contactSalesPath('pricing_contact')}
-              className="mt-8 inline-flex h-11 w-full items-center justify-center rounded-xl border border-slate-200 bg-slate-50 text-sm font-semibold text-slate-800 transition-colors hover:bg-slate-100"
+              className="mt-auto inline-flex h-11 w-full items-center justify-center rounded-xl border border-slate-200 bg-slate-50 text-sm font-semibold text-slate-800 transition-colors hover:bg-slate-100"
             >
               Contact ALZA
             </Link>
           </div>
 
-          <div className="rounded-3xl border border-dashed border-slate-300 bg-white/80 p-6">
+          <div className="flex min-h-[16rem] flex-col rounded-3xl border border-dashed border-slate-300 bg-white/80 p-6">
             <h2 className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">ALZA Flow Pay</h2>
-            <p className="mt-4 text-3xl font-bold tracking-tight text-slate-900">Coming Soon</p>
-            <p className="mt-3 text-sm text-slate-600">
-              Integrated producer payments are on the waitlist. Checkout is not available yet.
-            </p>
-            <span className="mt-8 inline-flex h-11 w-full items-center justify-center rounded-xl border border-slate-200 bg-slate-100 text-sm font-medium text-slate-500">
+            <p className="mt-5 text-3xl font-bold tracking-tight text-slate-900">Coming Soon</p>
+            <p className="mt-3 text-sm text-slate-600">Integrated producer payments are on the waitlist.</p>
+            <span className="mt-auto inline-flex h-11 w-full items-center justify-center rounded-xl border border-slate-200 bg-slate-100 text-sm font-medium text-slate-500">
               Waitlist only
             </span>
           </div>

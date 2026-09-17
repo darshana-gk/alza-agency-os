@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { BackToTopButton } from '../components/marketing/BackToTopButton'
 import { PublicMarketingHeader } from '../components/marketing/TalkToAlzaLink'
 import {
   parseSalesInquirySource,
@@ -81,7 +80,6 @@ export function ContactSalesPage() {
         <div className="absolute right-0 top-24 h-80 w-80 rounded-full bg-alza-teal-200/35 blur-3xl" />
       </div>
       <PublicMarketingHeader />
-      <BackToTopButton />
 
       <main className="relative mx-auto w-full max-w-2xl px-4 py-14 sm:px-6 lg:py-20">
         <p className="text-xs font-semibold uppercase tracking-[0.22em] text-alza-blue-700">Contact</p>

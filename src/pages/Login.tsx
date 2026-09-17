@@ -1,10 +1,10 @@
 import { useEffect, useState, type FormEvent } from 'react'
-import { Zap } from 'lucide-react'
 import { Link } from 'react-router-dom'
+import { PublicBrandLink } from '../components/marketing/PublicBrandLink'
 import { useAuth } from '../lib/auth'
 import { passwordRecoveryRequestErrorMessage } from '../lib/passwordRecovery'
 import { supabase } from '../lib/supabase'
-import { PUBLIC_LANDING_PATH, PUBLIC_PRICING_PATH, PUBLIC_SIGNUP_PATH } from '../lib/publicSite'
+import { PUBLIC_PRICING_PATH, PUBLIC_SIGNUP_PATH } from '../lib/publicSite'
 
 export function LoginPage() {
   const { signIn } = useAuth()
@@ -70,13 +70,8 @@ export function LoginPage() {
 
       <div className="relative w-full max-w-md">
         <div className="mb-8 text-center">
-          <a href={PUBLIC_LANDING_PATH} className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-xl gradient-alza shadow-md" aria-label="ALZA Flow home">
-            <Zap className="h-6 w-6 text-white" />
-          </a>
-          <h1 className="text-2xl font-bold tracking-wide text-slate-900">ALZA FLOW</h1>
-          <p className="mt-1 text-xs font-medium text-slate-500">
-            by ALZA Business Solutions LLP
-          </p>
+          <PublicBrandLink variant="stacked" />
+          <h1 className="sr-only">ALZA FLOW</h1>
           <p className="mt-3 text-sm text-slate-600">
             Sign in with your agency account to continue.
           </p>
