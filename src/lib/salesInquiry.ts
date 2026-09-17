@@ -3,7 +3,7 @@ import { supabase } from './supabase'
 export const SALES_INQUIRY_USER_BANDS = ['51-100', '101-250', '251-500', '500+'] as const
 export type SalesInquiryUserBand = (typeof SALES_INQUIRY_USER_BANDS)[number]
 
-export const SALES_INQUIRY_SOURCES = ['pricing_contact', 'landing_contact'] as const
+export const SALES_INQUIRY_SOURCES = ['pricing_contact', 'landing_contact', 'header_contact'] as const
 export type SalesInquirySource = (typeof SALES_INQUIRY_SOURCES)[number]
 
 export const SALES_INQUIRY_LIMITS = {
@@ -49,6 +49,7 @@ export type NormalizedSalesInquiry = {
 export function parseSalesInquirySource(value: unknown): SalesInquirySource {
   const raw = String(value ?? '').trim()
   if (raw === 'pricing_contact' || raw === 'pricing') return 'pricing_contact'
+  if (raw === 'header_contact' || raw === 'header') return 'header_contact'
   return 'landing_contact'
 }
 

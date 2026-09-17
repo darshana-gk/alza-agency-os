@@ -30,6 +30,8 @@ export function applyPublicDocumentMeta(title = PUBLIC_PAGE_TITLE, description =
   if (meta) meta.setAttribute('content', description)
 }
 
-export function contactSalesPath(source: 'landing_contact' | 'pricing_contact' = 'landing_contact') {
+export function contactSalesPath(
+  source: 'landing_contact' | 'pricing_contact' | 'header_contact' = 'landing_contact',
+) {
   return `${PUBLIC_CONTACT_SALES_PATH}?source=${source}`
 }

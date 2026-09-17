@@ -172,6 +172,10 @@ console.log('D. Pricing page + App route wiring present')
   assert(pricing.includes('Custom Pricing'), '51+ Custom Pricing')
   assert(pricing.includes('contactSalesPath'), '51+ Contact us uses sales inquiry route')
   assert(pricing.includes("contactSalesPath('pricing_contact')"), '51+ Contact us source unchanged')
+  assert(
+    readFileSync(resolve(root, 'src/components/marketing/TalkToAlzaLink.tsx'), 'utf8').includes('header_contact'),
+    'pricing header Contact us source',
+  )
   assert(pricing.includes('ArrowRight'), 'Get Started arrow present')
   assert(!pricing.includes('BackToTopButton'), 'no floating back-to-top on short pricing page')
   assert(!/\bPopular\b/.test(pricing), 'no Popular badge')

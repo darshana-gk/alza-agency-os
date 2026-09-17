@@ -21,12 +21,14 @@ import {
   PUBLIC_GET_STARTED_PATH,
   PUBLIC_LOGIN_PATH,
   applyPublicDocumentMeta,
+  contactSalesPath,
 } from '../lib/publicSite'
 
 const NAV = [
   { href: '#product', label: 'Product', kind: 'hash' as const },
   { href: '#how-it-works', label: 'How It Works', kind: 'hash' as const },
   { href: PUBLIC_GET_STARTED_PATH, label: 'Pricing', kind: 'route' as const },
+  { href: contactSalesPath('header_contact'), label: 'Contact us', kind: 'route' as const },
 ]
 
 const OUTCOME_CHIPS = [

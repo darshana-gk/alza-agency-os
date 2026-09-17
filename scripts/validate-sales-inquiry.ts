@@ -132,6 +132,9 @@ console.log('C. Client validation')
   assert(SALES_INQUIRY_USER_BANDS.join(',') === '51-100,101-250,251-500,500+', 'user band options')
   assert(parseSalesInquirySource('pricing') === 'pricing_contact', 'pricing source maps')
   assert(parseSalesInquirySource('landing') === 'landing_contact', 'landing source default')
+  assert(parseSalesInquirySource('header_contact') === 'header_contact', 'header source maps')
+  assert(parseSalesInquirySource('pricing_contact') === 'pricing_contact', 'pricing_contact unchanged')
+  assert(parseSalesInquirySource('landing_contact') === 'landing_contact', 'landing_contact unchanged')
   assert(firstNameFromFullName('Jordan Lee') === 'Jordan', 'first name for ack')
 }
 
@@ -167,8 +170,11 @@ console.log('D. Route, form, storage, anti-spam architecture')
   assert(config.includes('[functions.submit-sales-inquiry]'), 'function registered')
   assert(config.includes('verify_jwt = false'), 'public function jwt false exists')
   assert(existsSync(resolve(root, 'supabase/functions/submit-sales-inquiry/index.ts')), 'function file exists')
-  assert(talk.includes('PUBLIC_CONTACT_SALES_PATH'), 'Talk to ALZA uses contact-sales')
+  assert(talk.includes('PUBLIC_CONTACT_SALES_PATH') || talk.includes('contactSalesPath'), 'Talk to ALZA uses contact-sales')
   assert(landing.includes('TalkToAlzaLink'), 'landing Talk to ALZA present')
+  assert(landing.includes("contactSalesPath('header_contact')"), 'header Contact us source')
+  assert(talk.includes('header_contact'), 'header source on public marketing header')
+  assert(fn.includes('header_contact'), 'edge function accepts header_contact')
   assert(!/\bTURNSTILE_SITE_KEY\s*=\s*['"][A-Za-z0-9_-]{10,}/.test(contact), 'no invented Turnstile site key')
 }
 

@@ -7,7 +7,7 @@ import { corsHeaders, fail, ok } from '../_shared/http.ts'
 import { serviceClient } from '../_shared/opsAuth.ts'
 
 const BANDS = new Set(['51-100', '101-250', '251-500', '500+'])
-const SOURCES = new Set(['pricing_contact', 'landing_contact'])
+const SOURCES = new Set(['pricing_contact', 'landing_contact', 'header_contact'])
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 const LIMITS = { fullName: 120, workEmail: 254, agencyName: 160, phone: 40, message: 2000 }
 const ALZA_NOTIFY = 'support@alzabusiness.com'
@@ -110,7 +110,12 @@ Deno.serve(async (req) => {
   const message = String(raw.message ?? '').trim()
   const consent = raw.consent === true || raw.consent === 'true'
   const sourceRaw = String(raw.source ?? '').trim()
-  const source = sourceRaw === 'pricing_contact' || sourceRaw === 'pricing' ? 'pricing_contact' : 'landing_contact'
+  const source =
+    sourceRaw === 'pricing_contact' || sourceRaw === 'pricing'
+      ? 'pricing_contact'
+      : sourceRaw === 'header_contact' || sourceRaw === 'header'
+        ? 'header_contact'
+        : 'landing_contact'
 
   if (!fullName) return fail('full_name_required', 'Enter your full name.')
   if (fullName.length > LIMITS.fullName) return fail('full_name_too_long', 'Full name is too long.')
