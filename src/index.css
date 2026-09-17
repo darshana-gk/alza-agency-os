@@ -48,3 +48,300 @@
     background-clip: text;
   }
 }
+
+/* Public landing motion only. Authenticated app does not use these classes. */
+@keyframes mkt-orb-a {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  50% {
+    transform: translate3d(5%, -7%, 0) scale(1.07);
+  }
+}
+
+@keyframes mkt-orb-b {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  50% {
+    transform: translate3d(-7%, 9%, 0) scale(1.09);
+  }
+}
+
+@keyframes mkt-orb-c {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  50% {
+    transform: translate3d(8%, -5%, 0) scale(0.95);
+  }
+}
+
+@keyframes mkt-fade-up {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 18px, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+@keyframes mkt-float-ui {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0);
+  }
+  50% {
+    transform: translate3d(0, -12px, 0);
+  }
+}
+
+@keyframes mkt-bar-in {
+  from {
+    transform: scaleY(0);
+  }
+  to {
+    transform: scaleY(1);
+  }
+}
+
+@keyframes mkt-bar-breathe {
+  0%,
+  100% {
+    filter: brightness(1);
+  }
+  50% {
+    filter: brightness(1.18);
+  }
+}
+
+@keyframes mkt-width-shift {
+  0%,
+  100% {
+    transform: scaleX(1);
+  }
+  50% {
+    transform: scaleX(0.84);
+  }
+}
+
+@keyframes mkt-status-pulse {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.4;
+    transform: scale(0.78);
+  }
+}
+
+@keyframes mkt-ticker {
+  from {
+    transform: translate3d(0, 0, 0);
+  }
+  to {
+    transform: translate3d(-50%, 0, 0);
+  }
+}
+
+@keyframes mkt-gradient-shift {
+  0%,
+  100% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+}
+
+@keyframes mkt-flow-pulse {
+  0% {
+    transform: translate3d(0, 0, 0);
+    opacity: 0;
+  }
+  18% {
+    opacity: 1;
+  }
+  82% {
+    opacity: 1;
+  }
+  100% {
+    transform: translate3d(220%, 0, 0);
+    opacity: 0;
+  }
+}
+
+@keyframes mkt-flow-pulse-y {
+  0% {
+    transform: translate3d(0, 0, 0);
+    opacity: 0;
+  }
+  18% {
+    opacity: 1;
+  }
+  82% {
+    opacity: 1;
+  }
+  100% {
+    transform: translate3d(0, 220%, 0);
+    opacity: 0;
+  }
+}
+
+@layer utilities {
+  .mkt-orb-a {
+    animation: mkt-orb-a 16s ease-in-out infinite;
+  }
+
+  .mkt-orb-b {
+    animation: mkt-orb-b 20s ease-in-out infinite;
+  }
+
+  .mkt-orb-c {
+    animation: mkt-orb-c 13s ease-in-out infinite;
+  }
+
+  .mkt-enter-1 {
+    animation: mkt-fade-up 0.72s ease-out 0s both;
+  }
+
+  .mkt-enter-2 {
+    animation: mkt-fade-up 0.72s ease-out 0.12s both;
+  }
+
+  .mkt-enter-3 {
+    animation: mkt-fade-up 0.72s ease-out 0.24s both;
+  }
+
+  .mkt-enter-4 {
+    animation: mkt-fade-up 0.72s ease-out 0.38s both;
+  }
+
+  .mkt-enter-5 {
+    animation: mkt-fade-up 0.72s ease-out 0.52s both;
+  }
+
+  .mkt-float-ui {
+    animation: mkt-float-ui 7.2s ease-in-out infinite;
+  }
+
+  .mkt-bar-col {
+    transform-origin: bottom;
+    animation:
+      mkt-bar-in 0.9s ease-out both,
+      mkt-bar-breathe 4.8s ease-in-out 1s infinite;
+  }
+
+  .mkt-metric-fill {
+    transform-origin: left;
+    animation: mkt-width-shift 5.8s ease-in-out infinite;
+  }
+
+  .mkt-status-dot {
+    animation: mkt-status-pulse 2.6s ease-in-out infinite;
+  }
+
+  .mkt-ticker-track {
+    animation: mkt-ticker 28s linear infinite;
+  }
+
+  .mkt-cta-shift {
+    background-image: linear-gradient(
+      90deg,
+      var(--color-alza-blue-700),
+      var(--color-alza-teal-600),
+      var(--color-alza-blue-700)
+    );
+    background-size: 200% 100%;
+    animation: mkt-gradient-shift 7s ease infinite;
+  }
+
+  .mkt-flow-pulse {
+    animation: mkt-flow-pulse 2.4s ease-in-out infinite;
+  }
+
+  .mkt-flow-pulse-y {
+    animation: mkt-flow-pulse-y 2.4s ease-in-out infinite;
+  }
+
+  .mkt-reveal {
+    opacity: 0;
+    transform: translate3d(0, 22px, 0);
+    transition:
+      opacity 0.7s ease,
+      transform 0.7s ease;
+  }
+
+  .mkt-reveal.is-visible {
+    opacity: 1;
+    transform: none;
+  }
+
+  .mkt-hover-lift {
+    transition:
+      transform 0.35s ease,
+      box-shadow 0.35s ease;
+  }
+
+  @media (hover: hover) {
+    .mkt-hover-lift:hover {
+      transform: translate3d(0, -6px, 0);
+    }
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mkt-orb-a,
+  .mkt-orb-b,
+  .mkt-orb-c,
+  .mkt-enter-1,
+  .mkt-enter-2,
+  .mkt-enter-3,
+  .mkt-enter-4,
+  .mkt-enter-5,
+  .mkt-float-ui,
+  .mkt-bar-col,
+  .mkt-metric-fill,
+  .mkt-status-dot,
+  .mkt-ticker-track,
+  .mkt-cta-shift,
+  .mkt-flow-pulse,
+  .mkt-flow-pulse-y {
+    animation: none !important;
+  }
+
+  .mkt-enter-1,
+  .mkt-enter-2,
+  .mkt-enter-3,
+  .mkt-enter-4,
+  .mkt-enter-5,
+  .mkt-reveal {
+    opacity: 1 !important;
+    transform: none !important;
+    transition: none !important;
+  }
+
+  .mkt-ticker-track {
+    transform: none !important;
+    flex-wrap: wrap;
+    width: 100% !important;
+    max-width: 100%;
+    justify-content: center;
+    animation: none !important;
+  }
+
+  .mkt-ticker-dup {
+    display: none !important;
+  }
+
+  .mkt-hover-lift:hover {
+    transform: none !important;
+  }
+}

@@ -96,7 +96,8 @@ function StatusPill({
           ? 'bg-amber-50 text-amber-700 ring-amber-600/20'
           : 'bg-slate-100 text-slate-600 ring-slate-500/20'
   return (
-    <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ring-1 ring-inset ${cls}`}>
+    <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ring-1 ring-inset ${cls}`}>
+      <span className="mkt-status-dot h-1.5 w-1.5 rounded-full bg-current" aria-hidden="true" />
       {label}
     </span>
   )
@@ -151,6 +152,19 @@ function Kpi({
         <span className={`inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md ${wrap}`}>
           <Icon className="h-4 w-4" />
         </span>
+      </div>
+      <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-slate-100">
+        <span
+          className={`mkt-metric-fill block h-full rounded-full ${
+            tone === 'teal'
+              ? 'w-[78%] bg-alza-teal-500'
+              : tone === 'blue'
+                ? 'w-[64%] bg-alza-blue-500'
+                : tone === 'amber'
+                  ? 'w-[42%] bg-amber-500'
+                  : 'w-[55%] bg-violet-500'
+          }`}
+        />
       </div>
     </div>
   )
@@ -320,8 +334,14 @@ export function DashboardProductFrame({ size = 'feature' }: { size?: 'hero' | 'f
             {bars.map((bar) => (
               <div key={bar.m} className="flex flex-1 flex-col items-center gap-1.5">
                 <div className="flex h-28 w-full items-end justify-center gap-1 sm:h-32">
-                  <span className="w-2 rounded-t bg-alza-blue-600" style={{ height: `${bar.a}%` }} />
-                  <span className="w-2 rounded-t bg-alza-teal-600" style={{ height: `${bar.p + 20}%` }} />
+                  <span
+                    className="mkt-bar-col w-2 rounded-t bg-alza-blue-600"
+                    style={{ height: `${bar.a}%` }}
+                  />
+                  <span
+                    className="mkt-bar-col w-2 rounded-t bg-alza-teal-600"
+                    style={{ height: `${bar.p + 20}%`, animationDelay: '0.12s, 1.15s' }}
+                  />
                 </div>
                 <span className="text-[11px] text-slate-400">{bar.m}</span>
               </div>
