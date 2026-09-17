@@ -105,6 +105,8 @@ async function main() {
         agencyName: `${agencyName} bad-agency`,
         email: `bad.agency.${stamp}@alza-staging.test`,
         password,
+        jobTitle: 'Operations Manager',
+        workPhone: '+1 202 555 0147',
         agency_id: '00000000-0000-0000-0000-000000000099',
       })
       assert(
@@ -121,6 +123,8 @@ async function main() {
         agencyName: `${agencyName} bad-role`,
         email: `bad.role.${stamp}@alza-staging.test`,
         password,
+        jobTitle: 'Operations Manager',
+        workPhone: '+1 202 555 0147',
         role: 'admin',
       })
       assert(
@@ -137,6 +141,8 @@ async function main() {
         agencyName: `${agencyName} bad-band`,
         email: `bad.band.${stamp}@alza-staging.test`,
         password,
+        jobTitle: 'Operations Manager',
+        workPhone: '+1 202 555 0147',
         product: 'alza_flow',
         userBand: 'users_999',
         interval: 'monthly',
@@ -155,6 +161,8 @@ async function main() {
         agencyName: `${agencyName} bad-interval`,
         email: `bad.interval.${stamp}@alza-staging.test`,
         password,
+        jobTitle: 'Operations Manager',
+        workPhone: '+1 202 555 0147',
         product: 'alza_flow',
         userBand: 'users_1_3',
         interval: 'weekly',
@@ -166,12 +174,48 @@ async function main() {
       )
     }
 
+    // Missing required profile fields
+    {
+      const missingTitle = await invokeSignup(anonClient, {
+        fullName,
+        agencyName: `${agencyName} missing-title`,
+        email: `missing.title.${stamp}@alza-staging.test`,
+        password,
+        workPhone: '+1 202 555 0147',
+        product: 'alza_flow',
+        userBand: 'users_1_3',
+        interval: 'monthly',
+      })
+      assert(
+        'reject_missing_job_title',
+        missingTitle.ok === false && String(missingTitle.code ?? '') === 'invalid_job_title',
+        String(missingTitle.code ?? missingTitle.message),
+      )
+      const missingPhone = await invokeSignup(anonClient, {
+        fullName,
+        agencyName: `${agencyName} missing-phone`,
+        email: `missing.phone.${stamp}@alza-staging.test`,
+        password,
+        jobTitle: 'Operations Manager',
+        product: 'alza_flow',
+        userBand: 'users_1_3',
+        interval: 'monthly',
+      })
+      assert(
+        'reject_missing_phone',
+        missingPhone.ok === false && String(missingPhone.code ?? '') === 'invalid_phone',
+        String(missingPhone.code ?? missingPhone.message),
+      )
+    }
+
     // Success path
     const created = await invokeSignup(anonClient, {
       fullName,
       agencyName,
       email,
       password,
+      jobTitle: 'Operations Manager',
+      workPhone: '+1 202 555 0147',
       product: 'alza_flow',
       userBand: 'users_4_10',
       interval: 'annual',
@@ -186,7 +230,7 @@ async function main() {
     // Auth user exists
     const { data: userRow, error: userErr } = await admin
       .from('users')
-      .select('id, role, agency_profile_id, invite_status, email, auth_user_id')
+      .select('id, role, agency_profile_id, invite_status, email, auth_user_id, full_name, job_title')
       .eq('id', ownerUserId)
       .single()
     assert('users_row', !userErr && !!userRow, userErr?.message ?? 'missing user')
@@ -197,13 +241,19 @@ async function main() {
     assert('users_role_owner', userRow!.role === 'owner', String(userRow!.role))
     assert('users_agency_match', userRow!.agency_profile_id === agencyId, String(userRow!.agency_profile_id))
     assert('invite_accepted', userRow!.invite_status === 'accepted', String(userRow!.invite_status))
+    assert('full_name_stored', userRow!.full_name === fullName, String(userRow!.full_name))
+    assert('user_email_stored', userRow!.email === email, String(userRow!.email))
+    assert('job_title_stored', userRow!.job_title === 'Operations Manager', String(userRow!.job_title))
 
     // Agency exactly once
     const { data: agencies, error: agErr } = await admin
       .from('agency_profile')
-      .select('id, agency_name, email')
+      .select('id, agency_name, email, phone')
       .eq('id', agencyId)
     assert('agency_once', !agErr && (agencies?.length ?? 0) === 1, agErr?.message ?? `count=${agencies?.length}`)
+    assert('company_name_stored', agencies?.[0]?.agency_name === agencyName, String(agencies?.[0]?.agency_name))
+    assert('work_email_stored', agencies?.[0]?.email === email, String(agencies?.[0]?.email))
+    assert('work_phone_stored', agencies?.[0]?.phone === '+1 202 555 0147', String(agencies?.[0]?.phone))
 
     // Roles owner only
     const { data: roles } = await admin.from('user_roles').select('role').eq('user_id', ownerUserId)
@@ -242,6 +292,8 @@ async function main() {
       agencyName: `${agencyName} Dup`,
       email,
       password,
+      jobTitle: 'Operations Manager',
+      workPhone: '+1 202 555 0147',
       product: 'alza_flow',
       userBand: 'users_1_3',
       interval: 'monthly',
@@ -254,6 +306,8 @@ async function main() {
       agencyName,
       email,
       password,
+      jobTitle: 'Operations Manager',
+      workPhone: '+1 202 555 0147',
       product: 'alza_flow',
       userBand: 'users_4_10',
       interval: 'annual',

@@ -114,6 +114,8 @@ async function main() {
       agencyName,
       email,
       password: `P2-Test-${stamp}!aA`,
+      jobTitle: 'Operations Manager',
+      workPhone: '+1 202 555 0147',
       planKey,
     })
     assert(`${planKey}_ok`, payload.ok === true, String(payload.message ?? 'created'))
@@ -167,6 +169,8 @@ async function main() {
     agencyName: `P2 Bad ${stamp}`,
     email: `p2.bad.${stamp}@alza-staging.test`,
     password: `P2-Test-${stamp}!aA`,
+    jobTitle: 'Operations Manager',
+    workPhone: '+1 202 555 0147',
     planKey: 'flow_51_100_monthly',
   })
   // Invalid plan_key should either reject or create without that checkout sku

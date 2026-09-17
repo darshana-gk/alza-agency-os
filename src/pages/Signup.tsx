@@ -1,8 +1,12 @@
-import { useEffect, useMemo, useState, type FormEvent } from 'react'
+import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react'
 import { Link, Navigate, useNavigate, useSearchParams } from 'react-router-dom'
 import { PublicBrandLink } from '../components/marketing/PublicBrandLink'
 import { useAuth } from '../lib/auth'
-import { createSelfServeAgencySignup } from '../lib/selfServeSignup'
+import {
+  createSelfServeAgencySignup,
+  SELF_SERVE_SIGNUP_LIMITS,
+  validateSelfServeSignupProfile,
+} from '../lib/selfServeSignup'
 import { purchaseIntentFromSearchParams } from '../lib/purchaseIntent'
 import { PUBLIC_LOGIN_PATH } from '../lib/publicSite'
 import { quoteBillingSelection } from '../lib/billingCatalog'
@@ -14,7 +18,9 @@ export function SignupPage() {
 
   const [fullName, setFullName] = useState('')
   const [agencyName, setAgencyName] = useState('')
+  const [jobTitle, setJobTitle] = useState('')
   const [email, setEmail] = useState('')
+  const [workPhone, setWorkPhone] = useState('')
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -46,24 +52,27 @@ export function SignupPage() {
     e.preventDefault()
     setError(null)
 
-    if (!fullName.trim() || !agencyName.trim() || !email.trim() || !password) {
-      setError('Fill in all fields to create your account.')
-      return
-    }
-    if (password.length < 8) {
-      setError('Password must be at least 8 characters.')
-      return
-    }
-    if (password !== confirmPassword) {
-      setError('Passwords do not match.')
+    const checked = validateSelfServeSignupProfile({
+      fullName,
+      agencyName,
+      jobTitle,
+      workPhone,
+      email,
+      password,
+      confirmPassword,
+    })
+    if (!checked.ok) {
+      setError(checked.message)
       return
     }
 
     setLoading(true)
     const created = await createSelfServeAgencySignup({
-      fullName,
-      agencyName,
-      email,
+      fullName: checked.value.fullName,
+      agencyName: checked.value.agencyName,
+      jobTitle: checked.value.jobTitle,
+      workPhone: checked.value.workPhone,
+      email: checked.value.email,
       password,
       product: intent?.product ?? null,
       userBand: intent?.userBand ?? null,
@@ -77,7 +86,7 @@ export function SignupPage() {
       return
     }
 
-    const signedIn = await signIn(email.trim(), password)
+    const signedIn = await signIn(checked.value.email, password)
     setLoading(false)
     if (signedIn.error) {
       setError(
@@ -105,7 +114,7 @@ export function SignupPage() {
           <PublicBrandLink variant="stacked" />
           <h1 className="sr-only">ALZA FLOW</h1>
           <p className="mt-3 text-sm text-slate-600">
-            Create your agency account to get started.
+            Create your company account to get started.
           </p>
         </div>
 
@@ -120,70 +129,104 @@ export function SignupPage() {
             </div>
           ) : null}
 
-          <form onSubmit={(e) => void handleSubmit(e)} className="space-y-4">
-            <label className="block">
-              <span className="mb-1.5 block text-xs font-medium text-slate-500">Your name</span>
+          <form onSubmit={(e) => void handleSubmit(e)} className="space-y-4" noValidate>
+            <Field label="Full Name" htmlFor="fullName" required>
               <input
+                id="fullName"
                 type="text"
                 autoComplete="name"
+                required
+                maxLength={SELF_SERVE_SIGNUP_LIMITS.fullName}
                 value={fullName}
                 onChange={(e) => setFullName(e.target.value)}
-                className="h-11 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-900 placeholder:text-slate-400 focus:border-alza-blue-500 focus:outline-none focus:ring-2 focus:ring-alza-blue-500/20"
+                className={inputClass}
                 placeholder="Jane Smith"
               />
-            </label>
+            </Field>
 
-            <label className="block">
-              <span className="mb-1.5 block text-xs font-medium text-slate-500">
-                Agency / business name
-              </span>
+            <Field label="Company Name" htmlFor="companyName" required>
               <input
+                id="companyName"
+                name="agencyName"
                 type="text"
                 autoComplete="organization"
+                required
+                maxLength={SELF_SERVE_SIGNUP_LIMITS.agencyName}
                 value={agencyName}
                 onChange={(e) => setAgencyName(e.target.value)}
-                className="h-11 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-900 placeholder:text-slate-400 focus:border-alza-blue-500 focus:outline-none focus:ring-2 focus:ring-alza-blue-500/20"
+                className={inputClass}
                 placeholder="Acme Insurance Agency"
               />
-            </label>
+            </Field>
 
-            <label className="block">
-              <span className="mb-1.5 block text-xs font-medium text-slate-500">Work email</span>
+            <Field label="Job Title / Designation" htmlFor="jobTitle" required>
               <input
+                id="jobTitle"
+                type="text"
+                autoComplete="organization-title"
+                required
+                maxLength={SELF_SERVE_SIGNUP_LIMITS.jobTitle}
+                value={jobTitle}
+                onChange={(e) => setJobTitle(e.target.value)}
+                className={inputClass}
+                placeholder="e.g. Agency Owner, Operations Manager"
+              />
+            </Field>
+
+            <Field label="Work Email" htmlFor="workEmail" required>
+              <input
+                id="workEmail"
                 type="email"
                 autoComplete="username"
+                required
+                maxLength={SELF_SERVE_SIGNUP_LIMITS.email}
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                className="h-11 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-900 placeholder:text-slate-400 focus:border-alza-blue-500 focus:outline-none focus:ring-2 focus:ring-alza-blue-500/20"
+                className={inputClass}
                 placeholder="you@agency.com"
               />
-            </label>
+            </Field>
 
-            <label className="block">
-              <span className="mb-1.5 block text-xs font-medium text-slate-500">Password</span>
+            <Field label="Work Phone" htmlFor="workPhone" required>
               <input
+                id="workPhone"
+                type="tel"
+                autoComplete="tel"
+                required
+                maxLength={SELF_SERVE_SIGNUP_LIMITS.workPhone}
+                value={workPhone}
+                onChange={(e) => setWorkPhone(e.target.value)}
+                className={inputClass}
+                placeholder="Include country code"
+              />
+            </Field>
+
+            <Field label="Password" htmlFor="password" required>
+              <input
+                id="password"
                 type="password"
                 autoComplete="new-password"
+                required
+                minLength={SELF_SERVE_SIGNUP_LIMITS.passwordMin}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="h-11 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-900 placeholder:text-slate-400 focus:border-alza-blue-500 focus:outline-none focus:ring-2 focus:ring-alza-blue-500/20"
+                className={inputClass}
                 placeholder="At least 8 characters"
               />
-            </label>
+            </Field>
 
-            <label className="block">
-              <span className="mb-1.5 block text-xs font-medium text-slate-500">
-                Confirm password
-              </span>
+            <Field label="Confirm Password" htmlFor="confirmPassword" required>
               <input
+                id="confirmPassword"
                 type="password"
                 autoComplete="new-password"
+                required
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
-                className="h-11 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-900 placeholder:text-slate-400 focus:border-alza-blue-500 focus:outline-none focus:ring-2 focus:ring-alza-blue-500/20"
+                className={inputClass}
                 placeholder="Repeat password"
               />
-            </label>
+            </Field>
 
             {error && (
               <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
@@ -214,9 +257,34 @@ export function SignupPage() {
         </div>
 
         <p className="mt-6 text-center text-xs text-slate-500">
-          New agencies can create an account here. Invited teammates still use the invite email.
+          New customers can create an account here. Invited teammates still use the invite email.
         </p>
       </div>
+    </div>
+  )
+}
+
+const inputClass =
+  'mt-2 h-11 w-full rounded-xl border border-slate-200 bg-white px-3.5 text-sm text-slate-900 shadow-sm outline-none ring-alza-blue-600/20 placeholder:text-slate-400 focus:border-alza-blue-500 focus:ring-2'
+
+function Field({
+  label,
+  htmlFor,
+  required,
+  children,
+}: {
+  label: string
+  htmlFor: string
+  required?: boolean
+  children: ReactNode
+}) {
+  return (
+    <div>
+      <label htmlFor={htmlFor} className="text-sm font-medium text-slate-800">
+        {label}
+        {required ? <span className="text-alza-blue-700"> *</span> : null}
+      </label>
+      {children}
     </div>
   )
 }

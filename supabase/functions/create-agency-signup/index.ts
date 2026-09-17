@@ -35,6 +35,27 @@ function isEmail(value: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)
 }
 
+const PHONE_CHARS_RE = /^\+?[\d\s().\-]+$/
+const LIMITS = {
+  fullName: 120,
+  fullNameMin: 2,
+  agencyName: 160,
+  agencyNameMin: 2,
+  jobTitle: 120,
+  jobTitleMin: 2,
+  workPhone: 40,
+  workPhoneDigitMin: 7,
+  workPhoneDigitMax: 15,
+}
+
+function isValidWorkPhone(value: string): boolean {
+  const trimmed = value.trim()
+  if (!trimmed || trimmed.length > LIMITS.workPhone) return false
+  if (!PHONE_CHARS_RE.test(trimmed)) return false
+  const digits = trimmed.replace(/\D/g, '')
+  return digits.length >= LIMITS.workPhoneDigitMin && digits.length <= LIMITS.workPhoneDigitMax
+}
+
 function parseIntent(body: Record<string, unknown>): {
   productKey: string | null
   userBandKey: string | null
@@ -147,20 +168,41 @@ Deno.serve(async (req) => {
     }
   }
 
-  const fullName = String(body.full_name ?? body.fullName ?? body.name ?? '').trim()
-  const agencyName = String(body.agency_name ?? body.agencyName ?? body.business_name ?? body.businessName ?? '')
+  const fullName = String(body.full_name ?? body.fullName ?? body.name ?? '').trim().replace(/\s+/g, ' ')
+  const agencyName = String(body.agency_name ?? body.agencyName ?? body.business_name ?? body.businessName ?? body.companyName ?? body.company_name ?? '')
     .trim()
+    .replace(/\s+/g, ' ')
+  const jobTitle = String(body.job_title ?? body.jobTitle ?? '').trim().replace(/\s+/g, ' ')
+  const workPhone = String(body.work_phone ?? body.workPhone ?? body.phone ?? '').trim()
   const email = normalizeEmail(body.email)
   const password = String(body.password ?? '')
 
-  if (!fullName || fullName.length < 2) {
+  if (!fullName || fullName.length < LIMITS.fullNameMin) {
     return fail('invalid_name', 'Enter your full name.')
   }
-  if (!agencyName || agencyName.length < 2) {
-    return fail('invalid_agency', 'Enter your agency / business name.')
+  if (fullName.length > LIMITS.fullName) {
+    return fail('name_too_long', 'Full name is too long.')
+  }
+  if (!agencyName || agencyName.length < LIMITS.agencyNameMin) {
+    return fail('invalid_agency', 'Enter your company name.')
+  }
+  if (agencyName.length > LIMITS.agencyName) {
+    return fail('agency_too_long', 'Company name is too long.')
+  }
+  if (!jobTitle || jobTitle.length < LIMITS.jobTitleMin) {
+    return fail('invalid_job_title', 'Enter your job title or designation.')
+  }
+  if (jobTitle.length > LIMITS.jobTitle) {
+    return fail('job_title_too_long', 'Job title is too long.')
   }
   if (!isEmail(email)) {
-    return fail('invalid_email', 'Enter a valid email address.')
+    return fail('invalid_email', 'Enter a valid work email.')
+  }
+  if (!workPhone) {
+    return fail('invalid_phone', 'Enter your work phone.')
+  }
+  if (!isValidWorkPhone(workPhone)) {
+    return fail('invalid_phone', 'Enter a valid work phone, including country code if applicable.')
   }
   if (password.length < 8) {
     return fail('invalid_password', 'Password must be at least 8 characters.')
@@ -201,6 +243,8 @@ Deno.serve(async (req) => {
     user_metadata: {
       full_name: fullName,
       agency_name: agencyName,
+      job_title: jobTitle,
+      work_phone: workPhone,
       signup_source: 'self_serve',
     },
   })
@@ -228,6 +272,8 @@ Deno.serve(async (req) => {
     p_user_band_key: intent.userBandKey,
     p_billing_interval: intent.billingInterval,
     p_plan_key: intent.planKey,
+    p_job_title: jobTitle,
+    p_work_phone: workPhone,
   })
 
   if (rpcError || !provisioned) {
