@@ -20,6 +20,7 @@ export function ContactSalesPage() {
   const [fullName, setFullName] = useState('')
   const [workEmail, setWorkEmail] = useState('')
   const [agencyName, setAgencyName] = useState('')
+  const [jobTitle, setJobTitle] = useState('')
   const [userBand, setUserBand] = useState('')
   const [phone, setPhone] = useState('')
   const [message, setMessage] = useState('')
@@ -41,6 +42,7 @@ export function ContactSalesPage() {
       fullName,
       workEmail,
       agencyName,
+      jobTitle,
       userBand,
       phone,
       message,
@@ -57,6 +59,7 @@ export function ContactSalesPage() {
       fullName,
       workEmail,
       agencyName,
+      jobTitle,
       userBand,
       phone,
       message,
@@ -135,15 +138,28 @@ export function ContactSalesPage() {
                   className={inputClass}
                 />
               </Field>
-              <Field label="Agency Name" htmlFor="agencyName" required>
+              <Field label="Company Name" htmlFor="companyName" required>
                 <input
-                  id="agencyName"
+                  id="companyName"
                   name="agencyName"
                   autoComplete="organization"
                   required
                   maxLength={SALES_INQUIRY_LIMITS.agencyName}
                   value={agencyName}
                   onChange={(e) => setAgencyName(e.target.value)}
+                  className={inputClass}
+                />
+              </Field>
+              <Field label="Job Title / Designation" htmlFor="jobTitle" required>
+                <input
+                  id="jobTitle"
+                  name="jobTitle"
+                  autoComplete="organization-title"
+                  required
+                  maxLength={SALES_INQUIRY_LIMITS.jobTitle}
+                  placeholder="e.g. Agency Owner, Operations Manager"
+                  value={jobTitle}
+                  onChange={(e) => setJobTitle(e.target.value)}
                   className={inputClass}
                 />
               </Field>
@@ -176,11 +192,13 @@ export function ContactSalesPage() {
                   className={inputClass}
                 />
               </Field>
-              <Field label="Message / What can we help with?" htmlFor="message">
+              <Field label="Message / What can we help with?" htmlFor="message" required>
                 <textarea
                   id="message"
                   name="message"
                   rows={5}
+                  required
+                  minLength={SALES_INQUIRY_LIMITS.messageMin}
                   maxLength={SALES_INQUIRY_LIMITS.message}
                   value={message}
                   onChange={(e) => setMessage(e.target.value)}

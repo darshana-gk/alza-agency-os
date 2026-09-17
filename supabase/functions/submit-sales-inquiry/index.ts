@@ -9,7 +9,7 @@ import { serviceClient } from '../_shared/opsAuth.ts'
 const BANDS = new Set(['51-100', '101-250', '251-500', '500+'])
 const SOURCES = new Set(['pricing_contact', 'landing_contact', 'header_contact'])
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
-const LIMITS = { fullName: 120, workEmail: 254, agencyName: 160, phone: 40, message: 2000 }
+const LIMITS = { fullName: 120, workEmail: 254, agencyName: 160, jobTitle: 120, phone: 40, message: 2000, messageMin: 10 }
 const ALZA_NOTIFY = 'support@alzabusiness.com'
 const RATE_IP_MAX = 5
 const RATE_IP_WINDOW_MS = 60 * 60 * 1000
@@ -104,7 +104,10 @@ Deno.serve(async (req) => {
 
   const fullName = String(raw.fullName ?? raw.full_name ?? '').trim().replace(/\s+/g, ' ')
   const workEmail = String(raw.workEmail ?? raw.work_email ?? '').trim().toLowerCase()
-  const agencyName = String(raw.agencyName ?? raw.agency_name ?? '').trim().replace(/\s+/g, ' ')
+  const agencyName = String(raw.agencyName ?? raw.agency_name ?? raw.companyName ?? raw.company_name ?? '')
+    .trim()
+    .replace(/\s+/g, ' ')
+  const jobTitle = String(raw.jobTitle ?? raw.job_title ?? '').trim().replace(/\s+/g, ' ')
   const userBand = String(raw.userBand ?? raw.user_band ?? '').trim()
   const phone = String(raw.phone ?? '').trim()
   const message = String(raw.message ?? '').trim()
@@ -123,10 +126,14 @@ Deno.serve(async (req) => {
   if (workEmail.length > LIMITS.workEmail || !EMAIL_RE.test(workEmail)) {
     return fail('email_invalid', 'Enter a valid work email.')
   }
-  if (!agencyName) return fail('agency_required', 'Enter your agency name.')
-  if (agencyName.length > LIMITS.agencyName) return fail('agency_too_long', 'Agency name is too long.')
+  if (!agencyName) return fail('agency_required', 'Enter your company name.')
+  if (agencyName.length > LIMITS.agencyName) return fail('agency_too_long', 'Company name is too long.')
+  if (!jobTitle) return fail('job_title_required', 'Enter your job title or designation.')
+  if (jobTitle.length > LIMITS.jobTitle) return fail('job_title_too_long', 'Job title is too long.')
   if (!BANDS.has(userBand)) return fail('user_band_required', 'Select the number of users.')
   if (phone.length > LIMITS.phone) return fail('phone_too_long', 'Phone number is too long.')
+  if (!message) return fail('message_required', 'Tell us a little about what you need.')
+  if (message.length < LIMITS.messageMin) return fail('message_too_short', 'Please add a bit more detail so we can help.')
   if (message.length > LIMITS.message) return fail('message_too_long', 'Message is too long.')
   if (!consent) {
     return fail('consent_required', 'Please confirm we may contact you about this inquiry.')
@@ -139,7 +146,7 @@ Deno.serve(async (req) => {
   if (!turnstileOk) return fail('rejected', 'Unable to send inquiry.')
 
   const ipHash = await sha256(ip)
-  const payloadHash = await sha256([workEmail, agencyName, userBand, message].join('|'))
+  const payloadHash = await sha256([workEmail, agencyName, jobTitle, userBand, message].join('|'))
   const admin = serviceClient()
   const now = Date.now()
 
@@ -178,9 +185,10 @@ Deno.serve(async (req) => {
       full_name: fullName,
       work_email: workEmail,
       agency_name: agencyName,
+      job_title: jobTitle,
       user_band: userBand,
       phone: phone || null,
-      message: message || null,
+      message,
       status: 'new',
       source,
       consent: true,
@@ -208,11 +216,12 @@ Deno.serve(async (req) => {
 
   if (resendKey && resendFrom) {
     const safeName = escapeHtml(fullName)
-    const safeAgency = escapeHtml(agencyName)
+    const safeTitle = escapeHtml(jobTitle)
+    const safeCompany = escapeHtml(agencyName)
     const safeEmail = escapeHtml(workEmail)
     const safePhone = escapeHtml(phone || '—')
     const safeBand = escapeHtml(userBand)
-    const safeMessage = escapeHtml(message || '—').replace(/\n/g, '<br />')
+    const safeMessage = escapeHtml(message).replace(/\n/g, '<br />')
     const safeSource = escapeHtml(source)
     const safeWhen = escapeHtml(submittedAt)
 
@@ -220,28 +229,30 @@ Deno.serve(async (req) => {
       apiKey: resendKey,
       from: resendFrom,
       to: [notifyTo],
-      subject: 'New ALZA Flow Sales Inquiry',
+      subject: 'New ALZA Flow Inquiry',
       text: [
-        'New ALZA Flow Sales Inquiry',
-        `Full Name: ${fullName}`,
-        `Agency Name: ${agencyName}`,
+        'New ALZA Flow Inquiry',
+        `Name: ${fullName}`,
+        `Job Title / Designation: ${jobTitle}`,
+        `Company: ${agencyName}`,
         `Work Email: ${workEmail}`,
         `Phone: ${phone || '—'}`,
-        `User Band: ${userBand}`,
-        `Message: ${message || '—'}`,
-        `Submitted At: ${submittedAt}`,
+        `Number of Users: ${userBand}`,
+        `Message: ${message}`,
         `Source: ${source}`,
+        `Submitted: ${submittedAt}`,
       ].join('\n'),
-      html: `<p><strong>New ALZA Flow Sales Inquiry</strong></p>
+      html: `<p><strong>New ALZA Flow Inquiry</strong></p>
 <table>
-<tr><td>Full Name</td><td>${safeName}</td></tr>
-<tr><td>Agency Name</td><td>${safeAgency}</td></tr>
+<tr><td>Name</td><td>${safeName}</td></tr>
+<tr><td>Job Title / Designation</td><td>${safeTitle}</td></tr>
+<tr><td>Company</td><td>${safeCompany}</td></tr>
 <tr><td>Work Email</td><td>${safeEmail}</td></tr>
 <tr><td>Phone</td><td>${safePhone}</td></tr>
-<tr><td>User Band</td><td>${safeBand}</td></tr>
+<tr><td>Number of Users</td><td>${safeBand}</td></tr>
 <tr><td>Message</td><td>${safeMessage}</td></tr>
-<tr><td>Submitted At</td><td>${safeWhen}</td></tr>
 <tr><td>Source</td><td>${safeSource}</td></tr>
+<tr><td>Submitted</td><td>${safeWhen}</td></tr>
 </table>`,
     })
     notified = notify.ok

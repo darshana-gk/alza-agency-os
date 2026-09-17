@@ -10,8 +10,10 @@ export const SALES_INQUIRY_LIMITS = {
   fullName: 120,
   workEmail: 254,
   agencyName: 160,
+  jobTitle: 120,
   phone: 40,
   message: 2000,
+  messageMin: 10,
 } as const
 
 export const SALES_INQUIRY_HONEYPOT_FIELD = 'company_website'
@@ -22,6 +24,7 @@ export type SalesInquiryInput = {
   fullName: string
   workEmail: string
   agencyName: string
+  jobTitle: string
   userBand: string
   phone?: string
   message?: string
@@ -39,9 +42,10 @@ export type NormalizedSalesInquiry = {
   fullName: string
   workEmail: string
   agencyName: string
+  jobTitle: string
   userBand: SalesInquiryUserBand
   phone: string | null
-  message: string | null
+  message: string
   consent: true
   source: SalesInquirySource
 }
@@ -66,6 +70,7 @@ export function validateSalesInquiryInput(input: SalesInquiryInput): SalesInquir
   const fullName = String(input.fullName ?? '').trim().replace(/\s+/g, ' ')
   const workEmail = String(input.workEmail ?? '').trim().toLowerCase()
   const agencyName = String(input.agencyName ?? '').trim().replace(/\s+/g, ' ')
+  const jobTitle = String(input.jobTitle ?? '').trim().replace(/\s+/g, ' ')
   const userBand = String(input.userBand ?? '').trim()
   const phone = String(input.phone ?? '').trim()
   const message = String(input.message ?? '').trim()
@@ -78,15 +83,23 @@ export function validateSalesInquiryInput(input: SalesInquiryInput): SalesInquir
   if (workEmail.length > SALES_INQUIRY_LIMITS.workEmail || !EMAIL_RE.test(workEmail)) {
     return { ok: false, code: 'email_invalid', message: 'Enter a valid work email.' }
   }
-  if (!agencyName) return { ok: false, code: 'agency_required', message: 'Enter your agency name.' }
+  if (!agencyName) return { ok: false, code: 'agency_required', message: 'Enter your company name.' }
   if (agencyName.length > SALES_INQUIRY_LIMITS.agencyName) {
-    return { ok: false, code: 'agency_too_long', message: 'Agency name is too long.' }
+    return { ok: false, code: 'agency_too_long', message: 'Company name is too long.' }
+  }
+  if (!jobTitle) return { ok: false, code: 'job_title_required', message: 'Enter your job title or designation.' }
+  if (jobTitle.length > SALES_INQUIRY_LIMITS.jobTitle) {
+    return { ok: false, code: 'job_title_too_long', message: 'Job title is too long.' }
   }
   if (!isSalesInquiryUserBand(userBand)) {
     return { ok: false, code: 'user_band_required', message: 'Select the number of users.' }
   }
   if (phone.length > SALES_INQUIRY_LIMITS.phone) {
     return { ok: false, code: 'phone_too_long', message: 'Phone number is too long.' }
+  }
+  if (!message) return { ok: false, code: 'message_required', message: 'Tell us a little about what you need.' }
+  if (message.length < SALES_INQUIRY_LIMITS.messageMin) {
+    return { ok: false, code: 'message_too_short', message: 'Please add a bit more detail so we can help.' }
   }
   if (message.length > SALES_INQUIRY_LIMITS.message) {
     return { ok: false, code: 'message_too_long', message: 'Message is too long.' }
@@ -101,9 +114,10 @@ export function validateSalesInquiryInput(input: SalesInquiryInput): SalesInquir
       fullName,
       workEmail,
       agencyName,
+      jobTitle,
       userBand,
       phone: phone || null,
-      message: message || null,
+      message,
       consent: true,
       source: parseSalesInquirySource(input.source),
     },
@@ -143,6 +157,7 @@ export async function submitSalesInquiry(input: SalesInquiryInput): Promise<Sale
       fullName: checked.value.fullName,
       workEmail: checked.value.workEmail,
       agencyName: checked.value.agencyName,
+      jobTitle: checked.value.jobTitle,
       userBand: checked.value.userBand,
       phone: checked.value.phone,
       message: checked.value.message,
