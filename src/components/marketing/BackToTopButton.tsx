@@ -20,6 +20,8 @@ export function BackToTopButton() {
         visible ? 'is-visible' : ''
       }`}
       style={{ bottom: 'max(1.25rem, env(safe-area-inset-bottom))' }}
+      tabIndex={visible ? 0 : -1}
+      aria-hidden={!visible}
       aria-label="Back to top"
       onClick={() => window.scrollTo({ top: 0, behavior: reduced ? 'auto' : 'smooth' })}
     >

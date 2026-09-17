@@ -101,7 +101,6 @@ export function ContactSalesPage() {
         ) : (
           <form className="mt-10 rounded-3xl border border-slate-200 bg-white p-6 shadow-[0_18px_50px_-28px_rgba(15,23,42,0.35)] sm:p-8" onSubmit={handleSubmit} noValidate>
             <div className="mkt-hp" aria-hidden="true">
-              <label htmlFor={SALES_INQUIRY_HONEYPOT_FIELD}>Company website</label>
               <input
                 id={SALES_INQUIRY_HONEYPOT_FIELD}
                 name={SALES_INQUIRY_HONEYPOT_FIELD}
