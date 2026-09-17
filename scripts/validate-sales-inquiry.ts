@@ -84,6 +84,8 @@ console.log('A. Public pricing presentation')
   assert(pricing.includes('Waitlist only'), 'Flow Pay waitlist')
   assert(pricing.includes('ArrowRight'), 'Get Started arrow')
   assert(pricing.includes('contactSalesPath'), '51+ uses contact-sales')
+  assert(pricing.includes('Contact us'), '51+ CTA is Contact us')
+  assert(pricing.includes('max-w-[44rem]'), 'secondary row width-capped')
 }
 
 console.log('B. Self-service catalog unchanged')

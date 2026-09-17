@@ -81,7 +81,7 @@ export function MarketingOrbs({ variant = 'hero' }: { variant?: 'hero' | 'dark' 
     <div className="pointer-events-none absolute inset-0 overflow-hidden" aria-hidden="true">
       <div
         className={`mkt-orb-a absolute left-[18%] top-8 h-[28rem] w-[28rem] rounded-full blur-3xl md:h-[34rem] md:w-[34rem] ${
-          dark ? 'bg-alza-teal-400/15' : 'bg-alza-blue-300/45'
+          dark ? 'bg-alza-teal-400/8' : 'bg-alza-blue-300/45'
         }`}
       />
       <div

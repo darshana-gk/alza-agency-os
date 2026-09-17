@@ -286,19 +286,25 @@ export function PublicLandingPage() {
 
         <section
           id="reporting"
-          className="relative scroll-mt-24 overflow-hidden bg-gradient-to-b from-alza-blue-950 via-alza-blue-900 to-slate-950 px-4 py-24 sm:px-6 lg:px-8 lg:py-32"
+          className="relative scroll-mt-24 overflow-hidden bg-gradient-to-b from-[#041433] via-alza-blue-950 to-slate-950 px-4 py-24 sm:px-6 lg:px-8 lg:py-32"
         >
           <MarketingOrbs variant="dark" />
           <div className="relative mx-auto max-w-7xl">
-            <Reveal>
-              <p className="text-xs font-semibold uppercase tracking-[0.22em] text-alza-teal-300">Dashboard</p>
-              <h2 className="mt-4 max-w-3xl text-3xl font-bold tracking-tight text-white sm:text-4xl lg:text-[2.7rem] lg:leading-tight">
-                See the business behind your commissions.
-              </h2>
-              <p className="mt-5 max-w-2xl text-base leading-relaxed text-slate-300 sm:text-lg">
-                Understand agency commission revenue, producer commissions, discrepancies, and payment status from
-                one operational view.
-              </p>
+            <Reveal className="relative max-w-3xl">
+              <div
+                className="pointer-events-none absolute -inset-x-4 -inset-y-3 rounded-3xl bg-gradient-to-r from-[#041433]/90 via-[#041433]/70 to-transparent sm:-inset-x-6"
+                aria-hidden="true"
+              />
+              <div className="relative">
+                <p className="text-xs font-semibold uppercase tracking-[0.22em] text-alza-teal-200">Dashboard</p>
+                <h2 className="mt-4 text-3xl font-bold tracking-tight text-white sm:text-4xl lg:text-[2.7rem] lg:leading-tight">
+                  See the business behind your commissions.
+                </h2>
+                <p className="mt-5 max-w-2xl text-base leading-relaxed text-slate-100 sm:text-lg">
+                  Understand agency commission revenue, producer commissions, discrepancies, and payment status from
+                  one operational view.
+                </p>
+              </div>
             </Reveal>
             <Reveal delayMs={80} className="mt-14 w-full">
               <div className="mkt-hover-lift">
@@ -355,12 +361,12 @@ export function PublicLandingPage() {
           </div>
         </section>
 
-        <section id="get-started" className="bg-slate-900 px-4 py-24 sm:px-6 lg:px-8 lg:py-28">
+        <section id="get-started" className="bg-slate-900 px-4 py-20 sm:px-6 lg:px-8 lg:py-24">
           <Reveal className="mx-auto max-w-3xl text-center">
             <h2 className="text-3xl font-bold tracking-tight text-white sm:text-4xl sm:leading-tight">
               Ready to make your commission operations easier?
             </h2>
-            <div className="mt-10 flex flex-col items-center justify-center gap-3 sm:flex-row">
+            <div className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row">
               <Link
                 to={PUBLIC_GET_STARTED_PATH}
                 className="mkt-cta-shift inline-flex h-12 w-full items-center justify-center rounded-xl px-7 text-sm font-semibold text-white hover:opacity-90 sm:w-auto"
@@ -374,8 +380,8 @@ export function PublicLandingPage() {
                 View Pricing
               </Link>
             </div>
-            <p className="mt-8 text-sm text-slate-400">
-              <TalkToAlzaLink className="font-medium text-slate-200 hover:text-white" />
+            <p className="mt-6 text-sm text-slate-400">
+              <TalkToAlzaLink className="font-medium text-slate-200 hover:text-white">Talk to us</TalkToAlzaLink>
             </p>
           </Reveal>
         </section>

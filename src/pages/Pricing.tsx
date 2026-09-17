@@ -148,23 +148,23 @@ export function PricingPage() {
           })}
         </div>
 
-        <div className="mt-6 grid gap-5 lg:grid-cols-2">
-          <div className="flex min-h-[16rem] flex-col rounded-3xl border border-slate-200 bg-white p-6 shadow-[0_18px_50px_-28px_rgba(15,23,42,0.35)]">
+        <div className="mx-auto mt-6 grid w-full max-w-[44rem] gap-5 sm:grid-cols-2">
+          <div className="flex flex-col items-center justify-center rounded-3xl border border-slate-200 bg-white px-6 py-8 text-center shadow-[0_18px_50px_-28px_rgba(15,23,42,0.35)]">
             <h2 className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">51+ users</h2>
-            <p className="mt-5 text-3xl font-bold tracking-tight text-slate-900">Custom Pricing</p>
+            <p className="mt-4 text-3xl font-bold tracking-tight text-slate-900">Custom Pricing</p>
             <Link
               to={contactSalesPath('pricing_contact')}
-              className="mt-auto inline-flex h-11 w-full items-center justify-center rounded-xl border border-slate-200 bg-slate-50 text-sm font-semibold text-slate-800 transition-colors hover:bg-slate-100"
+              className="mt-8 inline-flex h-11 w-full max-w-[12.5rem] items-center justify-center rounded-xl border border-slate-200 bg-slate-50 text-sm font-semibold text-slate-800 transition-colors hover:bg-slate-100"
             >
-              Contact ALZA
+              Contact us
             </Link>
           </div>
 
-          <div className="flex min-h-[16rem] flex-col rounded-3xl border border-dashed border-slate-300 bg-white/80 p-6">
+          <div className="flex flex-col items-center justify-center rounded-3xl border border-dashed border-slate-300 bg-white/80 px-6 py-8 text-center">
             <h2 className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">ALZA Flow Pay</h2>
-            <p className="mt-5 text-3xl font-bold tracking-tight text-slate-900">Coming Soon</p>
-            <p className="mt-3 text-sm text-slate-600">Integrated producer payments are on the waitlist.</p>
-            <span className="mt-auto inline-flex h-11 w-full items-center justify-center rounded-xl border border-slate-200 bg-slate-100 text-sm font-medium text-slate-500">
+            <p className="mt-4 text-3xl font-bold tracking-tight text-slate-900">Coming Soon</p>
+            <p className="mt-3 max-w-[16rem] text-sm text-slate-600">Integrated producer payments are on the waitlist.</p>
+            <span className="mt-8 inline-flex h-11 w-full max-w-[12.5rem] items-center justify-center rounded-xl border border-slate-200 bg-slate-100 text-sm font-medium text-slate-500">
               Waitlist only
             </span>
           </div>
