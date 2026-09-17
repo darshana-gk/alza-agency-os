@@ -1,11 +1,14 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { ArrowRight, Menu, X, Zap } from 'lucide-react'
+import { ArrowRight, Menu, X } from 'lucide-react'
+import { BackToTopButton } from '../components/marketing/BackToTopButton'
+import { PublicBrandLink } from '../components/marketing/PublicBrandLink'
 import {
   CommissionJourney,
   MarketingOrbs,
   OpsTicker,
   Reveal,
+  usePrefersReducedMotion,
 } from '../components/marketing/LandingMotion'
 import {
   DashboardProductFrame,
@@ -36,6 +39,7 @@ const OUTCOME_CHIPS = [
 
 export function PublicLandingPage() {
   const [menuOpen, setMenuOpen] = useState(false)
+  const reducedMotion = usePrefersReducedMotion()
 
   useEffect(() => {
     applyPublicDocumentMeta()
@@ -47,27 +51,18 @@ export function PublicLandingPage() {
   }, [])
 
   return (
-    <div className="min-h-screen overflow-x-hidden scroll-smooth bg-white text-slate-900">
+    <div className={`min-h-screen overflow-x-hidden bg-white text-slate-900 ${reducedMotion ? '' : 'scroll-smooth'}`}>
       <a
         href="#main"
         className="absolute left-4 top-4 z-50 -translate-y-16 rounded-lg bg-white px-3 py-2 text-sm font-medium text-slate-900 shadow focus:translate-y-0"
       >
         Skip to content
       </a>
+      <BackToTopButton />
 
       <header className="sticky top-0 z-40 border-b border-slate-200/70 bg-white/90 backdrop-blur">
         <div className="mx-auto flex h-[4.25rem] max-w-7xl items-center justify-between gap-4 px-4 sm:px-6 lg:px-8">
-          <a href="#hero" className="flex items-center gap-2.5" aria-label="ALZA Flow home">
-            <span className="flex h-9 w-9 items-center justify-center rounded-xl gradient-alza shadow-sm">
-              <Zap className="h-5 w-5 text-white" aria-hidden="true" />
-            </span>
-            <span className="leading-tight">
-              <span className="block text-sm font-bold tracking-wide text-slate-900">ALZA FLOW</span>
-              <span className="block text-[10px] font-medium text-slate-500">
-                by ALZA Business Solutions LLP
-              </span>
-            </span>
-          </a>
+          <PublicBrandLink />
 
           <nav className="hidden items-center gap-8 text-sm font-medium text-slate-600 lg:flex" aria-label="Product">
             {NAV.map((item) =>
@@ -363,12 +358,8 @@ export function PublicLandingPage() {
         <section id="get-started" className="bg-slate-900 px-4 py-24 sm:px-6 lg:px-8 lg:py-28">
           <Reveal className="mx-auto max-w-3xl text-center">
             <h2 className="text-3xl font-bold tracking-tight text-white sm:text-4xl sm:leading-tight">
-              Ready to make commission operations easier?
+              Ready to make your commission operations easier?
             </h2>
-            <p className="mt-5 text-base leading-relaxed text-slate-300 sm:text-lg">
-              Bring reconciliation, discrepancies, producer commissions, and reporting into one operational
-              workflow.
-            </p>
             <div className="mt-10 flex flex-col items-center justify-center gap-3 sm:flex-row">
               <Link
                 to={PUBLIC_GET_STARTED_PATH}
@@ -383,7 +374,7 @@ export function PublicLandingPage() {
                 View Pricing
               </Link>
             </div>
-            <p className="mt-6 text-sm text-slate-400">
+            <p className="mt-8 text-sm text-slate-400">
               <TalkToAlzaLink className="font-medium text-slate-200 hover:text-white" />
             </p>
           </Reveal>

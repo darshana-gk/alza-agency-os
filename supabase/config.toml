@@ -10,6 +10,9 @@ verify_jwt = true
 [functions.create-agency-signup]
 verify_jwt = false
 
+[functions.submit-sales-inquiry]
+verify_jwt = false
+
 [functions.notify-transaction-review]
 verify_jwt = true
 

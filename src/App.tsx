@@ -29,6 +29,7 @@ import { LoginPage } from '@/pages/Login'
 import { SignupPage } from '@/pages/Signup'
 import { PricingPage } from '@/pages/Pricing'
 import { PublicLandingPage } from '@/pages/PublicLanding'
+import { ContactSalesPage } from '@/pages/ContactSales'
 import { AccessDeniedPage } from '@/pages/AccessDenied'
 import { SetPasswordPage } from '@/pages/SetPassword'
 import { ResetPasswordPage } from '@/pages/ResetPassword'
@@ -303,13 +304,15 @@ export default function App() {
   if (
     location.pathname === '/signup' ||
     location.pathname === '/get-started' ||
-    location.pathname === '/pricing'
+    location.pathname === '/pricing' ||
+    location.pathname === '/contact-sales'
   ) {
     return (
       <Routes>
         <Route path="/pricing" element={<PricingPage />} />
         <Route path="/signup" element={<SignupPage />} />
         <Route path="/get-started" element={<SignupPage />} />
+        <Route path="/contact-sales" element={<ContactSalesPage />} />
         <Route path="*" element={<Navigate to="/pricing" replace />} />
       </Routes>
     )

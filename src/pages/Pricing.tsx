@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { Zap } from 'lucide-react'
+import { ArrowRight } from 'lucide-react'
 import { useAuth } from '../lib/auth'
 import { canManageBilling, rolesOf } from '../lib/permissions'
 import {
@@ -16,7 +16,9 @@ import {
   signupPathForPlan,
   type PurchaseIntent,
 } from '../lib/purchaseIntent'
-import { PUBLIC_LOGIN_PATH, PUBLIC_PRICING_INQUIRY_MAILTO } from '../lib/publicSite'
+import { BackToTopButton } from '../components/marketing/BackToTopButton'
+import { PublicMarketingHeader } from '../components/marketing/TalkToAlzaLink'
+import { contactSalesPath, PUBLIC_LOGIN_PATH } from '../lib/publicSite'
 
 function getStartedHref(intent: PurchaseIntent, authenticatedBilling: boolean): string {
   return authenticatedBilling ? billingPathForPlan(intent.planKey) : signupPathForPlan(intent.planKey)
@@ -28,16 +30,16 @@ export function PricingPage() {
   const [interval, setInterval] = useState<BillingInterval>('monthly')
 
   const authenticated = status === 'authenticated'
-  const canPickForBilling =
-    authenticated && canManageBilling(rolesOf(profile))
+  const canPickForBilling = authenticated && canManageBilling(rolesOf(profile))
 
   useEffect(() => {
     document.title = 'Pricing · ALZA Flow'
   }, [])
 
-  const flowBands = useMemo(() => billingUserBands('alza_flow'), [])
-  const selfServeBands = flowBands.filter((b) => b.checkoutEligible)
-  const contactBands = flowBands.filter((b) => !b.checkoutEligible)
+  const selfServeBands = useMemo(
+    () => billingUserBands('alza_flow').filter((b) => b.checkoutEligible),
+    [],
+  )
 
   function handleGetStarted(bandKey: BillingUserBandKey) {
     const quote = quoteBillingSelection({
@@ -55,36 +57,30 @@ export function PricingPage() {
       },
       canPickForBilling,
     )
-    if (canPickForBilling) {
-      navigate(href)
-      return
-    }
     navigate(href)
   }
 
   return (
-    <div className="relative min-h-screen overflow-hidden bg-slate-50 px-4 py-10">
+    <div className="relative min-h-screen overflow-x-hidden bg-slate-50">
       <div className="pointer-events-none absolute inset-0">
         <div className="absolute -left-24 -top-24 h-72 w-72 rounded-full bg-alza-blue-200/40 blur-3xl" />
         <div className="absolute -bottom-24 -right-16 h-80 w-80 rounded-full bg-alza-teal-200/40 blur-3xl" />
       </div>
+      <PublicMarketingHeader />
+      <BackToTopButton />
 
-      <div className="relative mx-auto w-full max-w-5xl">
-        <div className="mb-10 text-center">
-          <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-xl gradient-alza shadow-md">
-            <Zap className="h-6 w-6 text-white" />
-          </div>
-          <h1 className="text-3xl font-bold tracking-wide text-slate-900 sm:text-4xl">ALZA FLOW</h1>
-          <p className="mt-1 text-xs font-medium text-slate-500">
-            by ALZA Business Solutions LLP
-          </p>
+      <div className="relative mx-auto w-full max-w-6xl px-4 py-14 sm:px-6 lg:px-8 lg:py-20">
+        <div className="mb-12 text-center">
+          <p className="text-xs font-semibold uppercase tracking-[0.22em] text-alza-blue-700">Pricing</p>
+          <h1 className="mt-4 text-3xl font-bold tracking-tight text-slate-900 sm:text-4xl">ALZA FLOW</h1>
+          <p className="mt-1 text-xs font-medium text-slate-500">by ALZA Business Solutions LLP</p>
           <p className="mx-auto mt-4 max-w-xl text-sm text-slate-600 sm:text-base">
-            Commission operations for insurance agencies. Choose your user band, then create your
-            account and subscribe.
+            Commission operations for insurance agencies. Choose your user band, then create your account
+            and subscribe.
           </p>
         </div>
 
-        <div className="mb-8 flex justify-center">
+        <div className="mb-10 flex justify-center">
           <div
             className="inline-flex rounded-xl border border-slate-200 bg-white p-1 shadow-sm"
             role="group"
@@ -115,7 +111,7 @@ export function PricingPage() {
           </div>
         </div>
 
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="grid gap-5 sm:grid-cols-2 xl:grid-cols-4">
           {selfServeBands.map((band) => {
             const quote = quoteBillingSelection({
               product: 'alza_flow',
@@ -126,90 +122,65 @@ export function PricingPage() {
             return (
               <div
                 key={band.key}
-                className="flex flex-col rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"
+                className="flex flex-col rounded-3xl border border-slate-200 bg-white p-6 shadow-[0_18px_50px_-28px_rgba(15,23,42,0.35)]"
               >
-                <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
-                  {band.label}
-                </h2>
-                <p className="mt-3 text-3xl font-bold text-slate-900">
+                <h2 className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">{band.label}</h2>
+                <p className="mt-4 text-3xl font-bold tracking-tight text-slate-900">
                   {amount != null ? formatUsdWhole(amount) : '—'}
                 </p>
-                <p className="mt-1 text-sm text-slate-500">
-                  {interval === 'annual' ? 'per year' : 'per month'}
-                </p>
+                <p className="mt-1 text-sm text-slate-500">{interval === 'annual' ? 'per year' : 'per month'}</p>
+                <p className="mt-3 text-sm font-medium text-slate-700">Self-service</p>
                 {interval === 'annual' && band.monthly != null ? (
-                  <p className="mt-2 text-xs text-alza-teal-700">
+                  <p className="mt-1 text-xs text-alza-teal-700">
                     2 months free · {formatUsdWhole(band.monthly * 10)} billed annually
                   </p>
                 ) : (
-                  <p className="mt-2 text-xs text-slate-400">Self-service checkout</p>
+                  <p className="mt-1 text-xs text-slate-400">&nbsp;</p>
                 )}
                 <button
                   type="button"
                   disabled={!quote.sku || !quote.checkoutEligible}
                   onClick={() => handleGetStarted(band.key)}
-                  className="mt-6 inline-flex h-11 w-full items-center justify-center rounded-lg gradient-alza text-sm font-medium text-white shadow-sm transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+                  className="group mt-8 inline-flex h-11 w-full items-center justify-center rounded-xl gradient-alza text-sm font-semibold text-white shadow-sm hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   {canPickForBilling ? 'Continue to billing' : 'Get Started'}
+                  <ArrowRight className="mkt-cta-arrow ml-2 h-4 w-4" aria-hidden="true" />
                 </button>
-                {quote.sku ? (
-                  <p className="mt-2 text-center text-[11px] text-slate-400">{quote.sku}</p>
-                ) : null}
               </div>
             )
           })}
         </div>
 
-        <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {contactBands.map((band) => {
-            const guidance =
-              band.key === 'users_51_100' && band.monthly != null
-                ? `Starts at ${formatUsdWhole(band.monthly)}+/month`
-                : 'Custom pricing'
-            return (
-              <div
-                key={band.key}
-                className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"
-              >
-                <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
-                  {band.label}
-                </h2>
-                <p className="mt-3 text-xl font-bold text-slate-900">{guidance}</p>
-                <p className="mt-2 text-sm text-slate-600">
-                  Online checkout is not available. Contact ALZA for a tailored plan.
-                </p>
-                <a
-                  href={PUBLIC_PRICING_INQUIRY_MAILTO}
-                  className="mt-6 inline-flex h-11 w-full items-center justify-center rounded-lg border border-slate-200 bg-slate-50 text-sm font-medium text-slate-800 transition-colors hover:bg-slate-100"
-                >
-                  Contact ALZA
-                </a>
-              </div>
-            )
-          })}
+        <div className="mt-6 grid gap-5 lg:grid-cols-2">
+          <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-[0_18px_50px_-28px_rgba(15,23,42,0.35)]">
+            <h2 className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">51+ users</h2>
+            <p className="mt-4 text-3xl font-bold tracking-tight text-slate-900">Custom Pricing</p>
+            <p className="mt-3 text-sm text-slate-600">For larger agencies that need a tailored conversation.</p>
+            <Link
+              to={contactSalesPath('pricing_contact')}
+              className="mt-8 inline-flex h-11 w-full items-center justify-center rounded-xl border border-slate-200 bg-slate-50 text-sm font-semibold text-slate-800 transition-colors hover:bg-slate-100"
+            >
+              Contact ALZA
+            </Link>
+          </div>
 
-          <div className="rounded-2xl border border-dashed border-slate-300 bg-white/80 p-5 shadow-sm">
-            <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
-              ALZA Flow Pay
-            </h2>
-            <p className="mt-3 text-xl font-bold text-slate-900">Coming Soon</p>
-            <p className="mt-2 text-sm text-slate-600">
+          <div className="rounded-3xl border border-dashed border-slate-300 bg-white/80 p-6">
+            <h2 className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">ALZA Flow Pay</h2>
+            <p className="mt-4 text-3xl font-bold tracking-tight text-slate-900">Coming Soon</p>
+            <p className="mt-3 text-sm text-slate-600">
               Integrated producer payments are on the waitlist. Checkout is not available yet.
             </p>
-            <span className="mt-6 inline-flex h-11 w-full items-center justify-center rounded-lg border border-slate-200 bg-slate-100 text-sm font-medium text-slate-500">
+            <span className="mt-8 inline-flex h-11 w-full items-center justify-center rounded-xl border border-slate-200 bg-slate-100 text-sm font-medium text-slate-500">
               Waitlist only
             </span>
           </div>
         </div>
 
-        <p className="mt-10 text-center text-sm text-slate-600">
+        <p className="mt-12 text-center text-sm text-slate-600">
           {authenticated ? (
             <>
               Already signed in.{' '}
-              <Link
-                to="/admin/subscription-billing"
-                className="font-medium text-alza-blue-700 hover:underline"
-              >
+              <Link to="/admin/subscription-billing" className="font-medium text-alza-blue-700 hover:underline">
                 Open Subscription Billing
               </Link>
             </>

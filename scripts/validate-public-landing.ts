@@ -13,6 +13,7 @@ import {
 } from '../src/lib/billingCatalog.ts'
 import { signupPathForPlan } from '../src/lib/purchaseIntent.ts'
 import {
+  PUBLIC_CONTACT_SALES_PATH,
   PUBLIC_DEMO_MAILTO,
   PUBLIC_GET_STARTED_PATH,
   PUBLIC_LOGIN_PATH,
@@ -67,7 +68,7 @@ console.log('A. Routing architecture')
     app.includes("location.pathname === '/'") && app.includes('<PublicLandingPage />'),
     'unauthenticated / renders landing',
   )
-  assert(app.includes("path=\"/pricing\"") && app.includes('PricingPage'), '/pricing preserved')
+  assert(app.includes("path=\"/contact-sales\"") && app.includes('ContactSalesPage'), '/contact-sales preserved as public route')
   assert(app.includes("path=\"/signup\"") && app.includes('SignupPage'), '/signup preserved')
   assert(app.includes("path=\"/get-started\""), '/get-started preserved')
   assert(app.includes('<Dashboard />'), 'authenticated dashboard still at index')
@@ -101,7 +102,7 @@ console.log('C. Template-style copy and sections')
     'Keep your AMS.',
     'Give commissions their own workflow.',
     'No AMS replacement required.',
-    'Ready to make commission operations easier?',
+    'Ready to make your commission operations easier?',
     'View Pricing',
     'by ALZA Business Solutions LLP',
   ]) {
@@ -123,6 +124,8 @@ console.log('C. Template-style copy and sections')
   assert(!landing.includes('Know what your producers are owed.'), 'old producer headline removed')
   assert(!landing.includes('Your AMS manages policies.'), 'old AMS headline removed')
   assert(!landing.includes("Your commissions shouldn't require detective work."), 'old final CTA removed')
+  assert(!landing.includes('Ready to make commission operations easier?'), 'old final headline removed')
+  assert(!landing.includes('Bring reconciliation, discrepancies, producer commissions, and reporting into one operational'), 'repetitive final supporting sentence removed')
   assert(!landing.includes('See ALZA Flow'), 'old See ALZA Flow CTA removed')
   assert(!landing.includes('Stop hunting through commission statements.'), 'old recon headline removed')
   assert(!landing.includes('Learn'), 'Learn nav removed')
@@ -169,7 +172,10 @@ console.log('D. CTAs and dedicated pricing page still owns catalog')
   assert(landing.includes('href="#product"'), 'Explore ALZA Flow / Product scroll on-page')
   assert(landing.includes("href: '#how-it-works'"), 'How It Works nav scrolls on-page')
   assert(landing.includes('TalkToAlzaLink'), 'Talk/Contact uses swappable TalkToAlzaLink')
-  assert(talk.includes('PUBLIC_DEMO_MAILTO'), 'TalkToAlzaLink uses existing support email')
+  assert(talk.includes('PUBLIC_CONTACT_SALES_PATH'), 'Talk to ALZA uses /contact-sales')
+  assert(PUBLIC_CONTACT_SALES_PATH === '/contact-sales', 'contact-sales path constant')
+  assert(landing.includes('BackToTopButton'), 'floating back to top on landing')
+  assert(landing.includes('PublicBrandLink'), 'header logo uses shared public brand link')
   assert(landing.includes('View Pricing'), 'homepage has View Pricing')
   assert(pricing.includes('Get Started'), 'dedicated /pricing still has Get Started')
   assert(pricing.includes('Coming Soon'), 'dedicated /pricing still has Flow Pay Coming Soon')
@@ -247,6 +253,7 @@ console.log('F. Metadata and safety isolation')
   assert(!auth.includes('PublicLanding'), 'auth module untouched')
   assert(login.includes('PUBLIC_LANDING_PATH') || login.includes(PUBLIC_PRICING_PATH), 'login still links to public pricing/signup')
   assert(PUBLIC_PRICING_PATH === '/pricing', 'pricing path constant')
+  assert(PUBLIC_CONTACT_SALES_PATH === '/contact-sales', 'sales inquiry path constant')
 }
 
 console.log('')

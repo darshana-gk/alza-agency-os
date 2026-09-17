@@ -19,7 +19,7 @@ const JOURNEY_STEPS = [
   'Payment status',
 ] as const
 
-function usePrefersReducedMotion() {
+export function usePrefersReducedMotion() {
   const [reduced, setReduced] = useState(false)
   useEffect(() => {
     const mq = window.matchMedia('(prefers-reduced-motion: reduce)')
