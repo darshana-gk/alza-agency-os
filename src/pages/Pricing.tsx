@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { ArrowRight } from 'lucide-react'
+import { ArrowRight, Check } from 'lucide-react'
 import { useAuth } from '../lib/auth'
 import { canManageBilling, rolesOf } from '../lib/permissions'
 import {
@@ -18,6 +18,12 @@ import {
 } from '../lib/purchaseIntent'
 import { PublicMarketingHeader } from '../components/marketing/TalkToAlzaLink'
 import { contactSalesPath, PUBLIC_LOGIN_PATH } from '../lib/publicSite'
+
+const SELF_SERVE_INCLUDED = [
+  'Commission reconciliation',
+  'Discrepancy tracking',
+  'Producer commissions',
+] as const
 
 function getStartedHref(intent: PurchaseIntent, authenticatedBilling: boolean): string {
   return authenticatedBilling ? billingPathForPlan(intent.planKey) : signupPathForPlan(intent.planKey)
@@ -134,6 +140,18 @@ export function PricingPage() {
                 ) : (
                   <p className="mt-3 min-h-[1rem]" aria-hidden="true" />
                 )}
+                <ul className="mt-5 flex-1 space-y-2">
+                  {SELF_SERVE_INCLUDED.map((item) => (
+                    <li key={item} className="flex items-center gap-2 text-sm leading-5 text-slate-700">
+                      <Check
+                        className="h-3.5 w-3.5 shrink-0 text-alza-teal-600"
+                        strokeWidth={2.5}
+                        aria-hidden="true"
+                      />
+                      <span>{item}</span>
+                    </li>
+                  ))}
+                </ul>
                 <button
                   type="button"
                   disabled={!quote.sku || !quote.checkoutEligible}
