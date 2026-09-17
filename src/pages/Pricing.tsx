@@ -120,7 +120,7 @@ export function PricingPage() {
             return (
               <div
                 key={band.key}
-                className="flex h-full min-h-[17.5rem] flex-col rounded-3xl border border-slate-200 bg-white p-6 shadow-[0_18px_50px_-28px_rgba(15,23,42,0.35)]"
+                className="flex h-full min-h-[17.5rem] flex-col text-center rounded-3xl border border-slate-200 bg-white p-6 shadow-[0_18px_50px_-28px_rgba(15,23,42,0.35)]"
               >
                 <h2 className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">{band.label}</h2>
                 <p className="mt-5 text-3xl font-bold tracking-tight text-slate-900">

@@ -177,6 +177,8 @@ console.log('D. Pricing page + App route wiring present')
     'pricing header Contact us source',
   )
   assert(pricing.includes('ArrowRight'), 'Get Started arrow present')
+  assert(pricing.includes('min-h-[17.5rem] flex-col text-center'), 'self-serve cards center-align band/price/period')
+  assert(pricing.includes('group mt-auto inline-flex h-11 w-full'), 'Get Started remains full-width')
   assert(!pricing.includes('SELF_SERVE_INCLUDED'), 'no included-features list')
   assert(!pricing.includes('Commission reconciliation'), 'no commission reconciliation checklist')
   assert(!pricing.includes('Discrepancy tracking'), 'no discrepancy tracking checklist')
