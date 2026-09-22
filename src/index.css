@@ -272,6 +272,10 @@
     width: 4.35rem;
   }
 
+  .mkt-wordmark--auth {
+    width: 6.75rem;
+  }
+
   .mkt-eyebrow {
     color: var(--color-brand-teal);
     font-size: 0.7rem;

@@ -62,10 +62,10 @@ export function LoginPage() {
   }
 
   return (
-    <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-slate-50 px-4 py-10">
+    <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-brand-neutral px-4 py-10">
       <div className="pointer-events-none absolute inset-0">
-        <div className="absolute -left-24 -top-24 h-72 w-72 rounded-full bg-alza-blue-200/40 blur-3xl" />
-        <div className="absolute -bottom-24 -right-16 h-80 w-80 rounded-full bg-alza-teal-200/40 blur-3xl" />
+        <div className="absolute -left-24 -top-24 h-72 w-72 rounded-full bg-brand-sky blur-3xl" />
+        <div className="absolute -bottom-24 -right-16 h-80 w-80 rounded-full bg-brand-teal/20 blur-3xl" />
       </div>
 
       <div className="relative w-full max-w-md">
@@ -86,7 +86,7 @@ export function LoginPage() {
                 autoComplete="username"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                className="h-11 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-900 placeholder:text-slate-400 focus:border-alza-blue-500 focus:outline-none focus:ring-2 focus:ring-alza-blue-500/20"
+                className="h-11 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-900 placeholder:text-slate-400 focus:border-brand-teal focus:outline-none focus:ring-2 focus:ring-brand-teal/20"
                 placeholder="you@agency.com"
               />
             </label>
@@ -98,7 +98,7 @@ export function LoginPage() {
                 autoComplete="current-password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="h-11 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-900 placeholder:text-slate-400 focus:border-alza-blue-500 focus:outline-none focus:ring-2 focus:ring-alza-blue-500/20"
+                className="h-11 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-900 placeholder:text-slate-400 focus:border-brand-teal focus:outline-none focus:ring-2 focus:ring-brand-teal/20"
                 placeholder="••••••••"
               />
             </label>
@@ -117,7 +117,7 @@ export function LoginPage() {
             <button
               type="submit"
               disabled={loading || recovering}
-              className="inline-flex h-11 w-full items-center justify-center rounded-lg gradient-alza text-sm font-medium text-white shadow-sm transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+              className="inline-flex h-11 w-full items-center justify-center rounded-lg bg-brand-teal text-sm font-medium text-brand-navy shadow-sm transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {loading ? 'Signing in…' : 'Sign In'}
             </button>
@@ -126,7 +126,7 @@ export function LoginPage() {
               type="button"
               disabled={loading || recovering}
               onClick={() => void handleForgotPassword()}
-              className="w-full text-center text-sm font-medium text-alza-blue-700 hover:underline disabled:cursor-not-allowed disabled:opacity-50"
+              className="w-full text-center text-sm font-medium text-brand-teal hover:underline disabled:cursor-not-allowed disabled:opacity-50"
             >
               {recovering ? 'Sending reset email…' : 'Forgot password?'}
             </button>
@@ -138,11 +138,11 @@ export function LoginPage() {
             </a>
             <p className="pt-1 text-center text-sm text-slate-600">
               New to ALZA Flow?{' '}
-              <Link to={PUBLIC_PRICING_PATH} className="font-medium text-alza-blue-700 hover:underline">
+              <Link to={PUBLIC_PRICING_PATH} className="font-medium text-brand-teal hover:underline">
                 View pricing
               </Link>
               {' · '}
-              <Link to={PUBLIC_SIGNUP_PATH} className="font-medium text-alza-blue-700 hover:underline">
+              <Link to={PUBLIC_SIGNUP_PATH} className="font-medium text-brand-teal hover:underline">
                 Create an account
               </Link>
             </p>

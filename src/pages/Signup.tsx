@@ -103,10 +103,10 @@ export function SignupPage() {
   }
 
   return (
-    <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-slate-50 px-4 py-10">
+    <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-brand-neutral px-4 py-10">
       <div className="pointer-events-none absolute inset-0">
-        <div className="absolute -left-24 -top-24 h-72 w-72 rounded-full bg-alza-blue-200/40 blur-3xl" />
-        <div className="absolute -bottom-24 -right-16 h-80 w-80 rounded-full bg-alza-teal-200/40 blur-3xl" />
+        <div className="absolute -left-24 -top-24 h-72 w-72 rounded-full bg-brand-sky blur-3xl" />
+        <div className="absolute -bottom-24 -right-16 h-80 w-80 rounded-full bg-brand-teal/20 blur-3xl" />
       </div>
 
       <div className="relative w-full max-w-md">
@@ -120,8 +120,8 @@ export function SignupPage() {
 
         <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
           {intentQuote ? (
-            <div className="mb-4 rounded-lg border border-alza-blue-100 bg-alza-blue-50/60 px-3 py-2 text-sm text-slate-700">
-              <p className="font-medium text-slate-900">Selected plan</p>
+            <div className="mb-4 rounded-lg border border-brand-sky bg-brand-neutral px-3 py-2 text-sm text-slate-700">
+              <p className="font-medium text-brand-navy">Selected plan</p>
               <p className="mt-0.5">
                 {intentQuote.bandLabel} · {intentQuote.intervalLabel}
               </p>
@@ -237,19 +237,19 @@ export function SignupPage() {
             <button
               type="submit"
               disabled={loading}
-              className="inline-flex h-11 w-full items-center justify-center rounded-lg gradient-alza text-sm font-medium text-white shadow-sm transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+              className="inline-flex h-11 w-full items-center justify-center rounded-lg bg-brand-teal text-sm font-medium text-brand-navy shadow-sm transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {loading ? 'Creating account…' : 'Create account'}
             </button>
 
             <p className="text-center text-sm text-slate-600">
               Already have an account?{' '}
-              <Link to={PUBLIC_LOGIN_PATH} className="font-medium text-alza-blue-700 hover:underline">
+              <Link to={PUBLIC_LOGIN_PATH} className="font-medium text-brand-teal hover:underline">
                 Sign in
               </Link>
             </p>
             <p className="text-center text-sm text-slate-600">
-              <Link to="/pricing" className="font-medium text-alza-blue-700 hover:underline">
+              <Link to="/pricing" className="font-medium text-brand-teal hover:underline">
                 Back to pricing
               </Link>
             </p>
@@ -265,7 +265,7 @@ export function SignupPage() {
 }
 
 const inputClass =
-  'mt-2 h-11 w-full rounded-xl border border-slate-200 bg-white px-3.5 text-sm text-slate-900 shadow-sm outline-none ring-alza-blue-600/20 placeholder:text-slate-400 focus:border-alza-blue-500 focus:ring-2'
+  'mt-2 h-11 w-full rounded-xl border border-slate-200 bg-white px-3.5 text-sm text-slate-900 shadow-sm outline-none ring-brand-teal/20 placeholder:text-slate-400 focus:border-brand-teal focus:ring-2'
 
 function Field({
   label,
@@ -282,7 +282,7 @@ function Field({
     <div>
       <label htmlFor={htmlFor} className="text-sm font-medium text-slate-800">
         {label}
-        {required ? <span className="text-alza-blue-700"> *</span> : null}
+        {required ? <span className="text-brand-teal"> *</span> : null}
       </label>
       {children}
     </div>

@@ -1,5 +1,4 @@
 import { Link, useLocation } from 'react-router-dom'
-import { Zap } from 'lucide-react'
 import type { MouseEvent } from 'react'
 import { usePrefersReducedMotion } from './LandingMotion'
 import { PUBLIC_LANDING_PATH } from '../../lib/publicSite'
@@ -25,11 +24,15 @@ export function PublicBrandLink({
   const lockup =
     variant === 'stacked' ? (
       <>
-        <span className="flex h-12 w-12 items-center justify-center rounded-xl gradient-alza shadow-md">
-          <Zap className="h-6 w-6 text-white" aria-hidden="true" />
-        </span>
+        <img
+          src={wordmark}
+          alt=""
+          width={430}
+          height={127}
+          className="mkt-wordmark mkt-wordmark--auth"
+        />
         <span className="mt-4 text-center leading-tight">
-          <span className="block text-2xl font-bold tracking-wide text-slate-900">ALZA FLOW</span>
+          <span className="block text-2xl font-bold tracking-wide text-brand-navy">ALZA FLOW</span>
           <span className="mt-1 block text-xs font-medium text-slate-500">
             by ALZA Business Solutions LLP
           </span>

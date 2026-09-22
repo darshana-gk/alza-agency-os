@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { KeyRound, Zap } from 'lucide-react'
+import { KeyRound } from 'lucide-react'
+import { PublicBrandLink } from '../components/marketing/PublicBrandLink'
 import { supabase } from '../lib/supabase'
 import { validateNewPassword } from '../lib/passwordRecovery'
 import { PUBLIC_LOGIN_PATH } from '../lib/publicSite'
@@ -102,19 +103,16 @@ export function SetPasswordPage() {
   }
 
   return (
-    <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-slate-50 px-4 py-10">
+    <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-brand-neutral px-4 py-10">
       <div className="pointer-events-none absolute inset-0">
-        <div className="absolute -left-24 -top-24 h-72 w-72 rounded-full bg-alza-blue-200/40 blur-3xl" />
-        <div className="absolute -bottom-24 -right-16 h-80 w-80 rounded-full bg-alza-teal-200/40 blur-3xl" />
+        <div className="absolute -left-24 -top-24 h-72 w-72 rounded-full bg-brand-sky blur-3xl" />
+        <div className="absolute -bottom-24 -right-16 h-80 w-80 rounded-full bg-brand-teal/20 blur-3xl" />
       </div>
 
       <div className="relative w-full max-w-md">
         <div className="mb-8 text-center">
-          <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-xl gradient-alza shadow-md">
-            <Zap className="h-6 w-6 text-white" />
-          </div>
-          <h1 className="text-2xl font-bold tracking-wide text-slate-900">ALZA FLOW</h1>
-          <p className="mt-1 text-xs font-medium text-slate-500">by ALZA Business Solutions LLP</p>
+          <PublicBrandLink variant="stacked" />
+          <h1 className="sr-only">ALZA FLOW</h1>
           <p className="mt-3 text-sm text-slate-600">Set your password to activate your agency account.</p>
         </div>
 
@@ -123,10 +121,10 @@ export function SetPasswordPage() {
             <p className="text-sm text-slate-600">Validating invite link…</p>
           ) : (
             <form onSubmit={handleSubmit} className="space-y-4">
-              <div className="flex items-start gap-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-3">
-                <KeyRound className="mt-0.5 h-4 w-4 shrink-0 text-alza-blue-700" />
+              <div className="flex items-start gap-3 rounded-lg border border-slate-200 bg-brand-neutral px-3 py-3">
+                <KeyRound className="mt-0.5 h-4 w-4 shrink-0 text-brand-teal" />
                 <div className="min-w-0 text-sm text-slate-700">
-                  <p className="font-medium text-slate-900">Invite acceptance</p>
+                  <p className="font-medium text-brand-navy">Invite acceptance</p>
                   <p className="mt-0.5 truncate text-slate-600">{email || 'No email on session'}</p>
                 </div>
               </div>
@@ -139,7 +137,7 @@ export function SetPasswordPage() {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   disabled={!hasSession || saving}
-                  className="h-11 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-900 placeholder:text-slate-400 focus:border-alza-blue-500 focus:outline-none focus:ring-2 focus:ring-alza-blue-500/20 disabled:bg-slate-50"
+                  className="h-11 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-900 placeholder:text-slate-400 focus:border-brand-teal focus:outline-none focus:ring-2 focus:ring-brand-teal/20 disabled:bg-slate-50"
                   placeholder="At least 8 characters"
                 />
               </label>
@@ -152,7 +150,7 @@ export function SetPasswordPage() {
                   value={confirm}
                   onChange={(e) => setConfirm(e.target.value)}
                   disabled={!hasSession || saving}
-                  className="h-11 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-900 placeholder:text-slate-400 focus:border-alza-blue-500 focus:outline-none focus:ring-2 focus:ring-alza-blue-500/20 disabled:bg-slate-50"
+                  className="h-11 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-900 placeholder:text-slate-400 focus:border-brand-teal focus:outline-none focus:ring-2 focus:ring-brand-teal/20 disabled:bg-slate-50"
                   placeholder="Repeat password"
                 />
               </label>
@@ -171,7 +169,7 @@ export function SetPasswordPage() {
               <button
                 type="submit"
                 disabled={!hasSession || saving}
-                className="inline-flex h-11 w-full items-center justify-center rounded-lg gradient-alza text-sm font-medium text-white shadow-sm transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+                className="inline-flex h-11 w-full items-center justify-center rounded-lg bg-brand-teal text-sm font-medium text-brand-navy shadow-sm transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {saving ? 'Saving…' : 'Save password & continue'}
               </button>
@@ -181,7 +179,7 @@ export function SetPasswordPage() {
 
         <p className="mt-6 text-center text-xs text-slate-500">
           Already activated?{' '}
-          <Link to={PUBLIC_LOGIN_PATH} className="font-medium text-alza-blue-700 hover:underline">
+          <Link to={PUBLIC_LOGIN_PATH} className="font-medium text-brand-teal hover:underline">
             Sign in
           </Link>
         </p>
