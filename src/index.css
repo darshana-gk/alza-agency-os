@@ -436,6 +436,17 @@
     height: 1px;
     overflow: hidden;
   }
+
+  .mkt-ft-line {
+    max-width: 26rem;
+    white-space: nowrap;
+  }
+}
+
+@media (max-width: 640px) {
+  .mkt-ft-line {
+    white-space: normal;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
