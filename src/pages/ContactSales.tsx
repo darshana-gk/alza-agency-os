@@ -77,23 +77,23 @@ export function ContactSalesPage() {
   }
 
   return (
-    <div className="relative min-h-screen overflow-x-hidden bg-slate-50">
+    <div className="relative min-h-screen overflow-x-hidden bg-brand-neutral">
       <div className="pointer-events-none absolute inset-0">
-        <div className="absolute -left-24 top-0 h-72 w-72 rounded-full bg-alza-blue-200/40 blur-3xl" />
-        <div className="absolute right-0 top-24 h-80 w-80 rounded-full bg-alza-teal-200/35 blur-3xl" />
+        <div className="absolute -left-24 top-0 h-72 w-72 rounded-full bg-brand-sky blur-3xl" />
+        <div className="absolute right-0 top-24 h-80 w-80 rounded-full bg-brand-teal/20 blur-3xl" />
       </div>
       <PublicMarketingHeader />
 
       <main className="relative mx-auto w-full max-w-2xl px-4 py-14 sm:px-6 lg:py-20">
-        <p className="text-xs font-semibold uppercase tracking-[0.22em] text-alza-blue-700">Contact</p>
-        <h1 className="mt-4 text-3xl font-bold tracking-tight text-slate-900 sm:text-4xl">Talk to ALZA</h1>
+        <p className="mkt-eyebrow">Contact</p>
+        <h1 className="mkt-display mt-4 text-3xl sm:text-4xl">Talk to ALZA</h1>
         <p className="mt-4 max-w-xl text-base text-slate-600">
           Tell us a little about your agency and we'll get back to you.
         </p>
 
         {received ? (
           <div className="mt-10 rounded-3xl border border-slate-200 bg-white p-8 shadow-[0_18px_50px_-28px_rgba(15,23,42,0.35)]">
-            <p className="text-xl font-semibold text-slate-900">Inquiry received.</p>
+            <p className="text-xl font-semibold text-brand-navy">Inquiry received.</p>
             <p className="mt-3 text-sm leading-relaxed text-slate-600">{RECEIVED_COPY}</p>
             {acknowledged ? (
               <p className="mt-4 text-sm text-slate-500">We've also sent a confirmation to your work email.</p>
@@ -208,7 +208,7 @@ export function ContactSalesPage() {
               <label className="flex items-start gap-3 text-sm text-slate-700">
                 <input
                   type="checkbox"
-                  className="mt-1 h-4 w-4 rounded border-slate-300 text-alza-blue-700"
+                  className="mt-1 h-4 w-4 rounded border-slate-300 text-brand-teal"
                   checked={consent}
                   onChange={(e) => setConsent(e.target.checked)}
                 />
@@ -221,7 +221,7 @@ export function ContactSalesPage() {
             <button
               type="submit"
               disabled={submitting}
-              className="mt-8 inline-flex h-12 w-full items-center justify-center rounded-xl gradient-alza text-sm font-semibold text-white shadow-sm hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+              className="mkt-btn mkt-btn-primary mt-8 inline-flex h-12 w-full items-center justify-center text-sm disabled:cursor-not-allowed disabled:opacity-60"
             >
               {submitting ? 'Sending…' : 'Send Inquiry'}
             </button>
@@ -233,7 +233,7 @@ export function ContactSalesPage() {
 }
 
 const inputClass =
-  'mt-2 w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm text-slate-900 shadow-sm outline-none ring-alza-blue-600/20 focus:border-alza-blue-500 focus:ring-2'
+  'mt-2 w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm text-slate-900 shadow-sm outline-none ring-brand-teal/25 focus:border-brand-teal focus:ring-2'
 
 function Field({
   label,
@@ -250,7 +250,7 @@ function Field({
     <div>
       <label htmlFor={htmlFor} className="text-sm font-medium text-slate-800">
         {label}
-        {required ? <span className="text-alza-blue-700"> *</span> : <span className="ml-1 text-xs font-normal text-slate-400">Optional</span>}
+        {required ? <span className="text-brand-teal"> *</span> : <span className="ml-1 text-xs font-normal text-slate-400">Optional</span>}
       </label>
       {children}
     </div>

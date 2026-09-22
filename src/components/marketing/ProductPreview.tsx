@@ -9,8 +9,8 @@ import {
   Scale,
   TrendingUp,
   Wallet,
-  Zap,
 } from 'lucide-react'
+import wordmark from '../../assets/brand/alza-wordmark.png'
 
 const NAV = [
   { label: 'Dashboard', icon: LayoutDashboard },
@@ -32,8 +32,8 @@ export function MarketingAppFrame({
 }) {
   const tall = size === 'feature'
   return (
-    <div className="overflow-hidden rounded-[1.4rem] bg-white shadow-[0_40px_100px_-32px_rgba(15,23,42,0.5)] ring-1 ring-slate-200/80">
-      <div className="flex items-center gap-1.5 border-b border-slate-100 bg-slate-50 px-5 py-3">
+    <div className="overflow-hidden rounded-[1.4rem] bg-white shadow-[0_40px_100px_-32px_rgba(11,31,59,0.45)] ring-1 ring-slate-200/80">
+      <div className="flex items-center gap-1.5 border-b border-slate-100 bg-brand-neutral px-5 py-3">
         <span className="h-2.5 w-2.5 rounded-full bg-slate-300" aria-hidden="true" />
         <span className="h-2.5 w-2.5 rounded-full bg-slate-300" aria-hidden="true" />
         <span className="h-2.5 w-2.5 rounded-full bg-slate-300" aria-hidden="true" />
@@ -42,13 +42,16 @@ export function MarketingAppFrame({
       <div
         className={`grid ${tall ? 'min-h-[30rem] xl:min-h-[34rem]' : 'min-h-[24rem] xl:min-h-[28rem]'} lg:grid-cols-[14.5rem_minmax(0,1fr)]`}
       >
-        <aside
-          className="hidden bg-gradient-to-b from-alza-blue-900 via-alza-blue-800 to-alza-teal-900 px-4 py-5 lg:block"
-          aria-hidden="true"
-        >
+        <aside className="hidden bg-brand-navy px-4 py-5 lg:block" aria-hidden="true">
           <div className="mb-6 flex items-center gap-2.5 px-1">
-            <span className="flex h-8 w-8 items-center justify-center rounded-lg gradient-alza">
-              <Zap className="h-4 w-4 text-white" />
+            <span className="inline-flex rounded-md bg-white px-1.5 py-1">
+              <img
+                src={wordmark}
+                alt=""
+                width={430}
+                height={127}
+                className="mkt-wordmark mkt-wordmark--preview"
+              />
             </span>
             <span className="text-xs font-bold tracking-wide text-white">ALZA FLOW</span>
           </div>
@@ -68,9 +71,9 @@ export function MarketingAppFrame({
             ))}
           </ul>
         </aside>
-        <div className="bg-slate-50">
+        <div className="bg-brand-neutral">
           <div className="border-b border-slate-200 bg-white px-5 py-4">
-            <p className="text-base font-semibold text-slate-900">{title}</p>
+            <p className="text-base font-semibold text-brand-navy">{title}</p>
             <p className="mt-0.5 text-xs text-slate-500">Stylized preview · demo labels only</p>
           </div>
           <div className="p-4 sm:p-6">{children}</div>
@@ -93,7 +96,7 @@ function StatusPill({
       : tone === 'warn'
         ? 'bg-orange-50 text-orange-800 ring-orange-600/20'
         : tone === 'ready'
-          ? 'bg-amber-50 text-amber-700 ring-amber-600/20'
+          ? 'bg-brand-sky text-brand-navy ring-brand-teal/30'
           : 'bg-slate-100 text-slate-600 ring-slate-500/20'
   return (
     <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ring-1 ring-inset ${cls}`}>
@@ -117,7 +120,7 @@ function SummaryPill({
       ? 'bg-emerald-50 text-emerald-900 ring-emerald-600/15'
       : tone === 'warn'
         ? 'bg-orange-50 text-orange-900 ring-orange-600/15'
-        : 'bg-slate-50 text-slate-700 ring-slate-500/15'
+        : 'bg-brand-neutral text-brand-navy ring-slate-500/15'
   return (
     <div className={`min-w-[5.5rem] rounded-xl px-3 py-2 ring-1 ring-inset ${cls}`}>
       <p className="text-[11px] font-medium uppercase tracking-wide opacity-80">{label}</p>
@@ -133,12 +136,12 @@ function Kpi({
 }: {
   title: string
   value: string
-  tone: 'blue' | 'teal' | 'violet' | 'amber'
+  tone: 'navy' | 'teal' | 'sky' | 'amber'
 }) {
   const tones = {
-    blue: { wrap: 'bg-alza-blue-50 text-alza-blue-600', Icon: Wallet },
-    teal: { wrap: 'bg-alza-teal-50 text-alza-teal-600', Icon: CircleDollarSign },
-    violet: { wrap: 'bg-violet-50 text-violet-600', Icon: TrendingUp },
+    navy: { wrap: 'bg-brand-sky text-brand-navy', Icon: Wallet },
+    teal: { wrap: 'bg-brand-teal/10 text-brand-teal', Icon: CircleDollarSign },
+    sky: { wrap: 'bg-brand-sky text-brand-navy', Icon: TrendingUp },
     amber: { wrap: 'bg-amber-50 text-amber-600', Icon: TrendingUp },
   }
   const { wrap, Icon } = tones[tone]
@@ -147,7 +150,7 @@ function Kpi({
       <div className="flex items-start justify-between gap-2">
         <div>
           <p className="text-xs font-medium text-slate-500">{title}</p>
-          <p className="mt-1 text-xl font-bold tabular-nums text-slate-900">{value}</p>
+          <p className="mt-1 text-xl font-bold tabular-nums text-brand-navy">{value}</p>
         </div>
         <span className={`inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md ${wrap}`}>
           <Icon className="h-4 w-4" />
@@ -157,12 +160,12 @@ function Kpi({
         <span
           className={`mkt-metric-fill block h-full rounded-full ${
             tone === 'teal'
-              ? 'w-[78%] bg-alza-teal-500'
-              : tone === 'blue'
-                ? 'w-[64%] bg-alza-blue-500'
+              ? 'w-[78%] bg-brand-teal'
+              : tone === 'navy'
+                ? 'w-[64%] bg-brand-navy'
                 : tone === 'amber'
                   ? 'w-[42%] bg-amber-500'
-                  : 'w-[55%] bg-violet-500'
+                  : 'w-[55%] bg-brand-teal/70'
           }`}
         />
       </div>
@@ -176,10 +179,10 @@ export function ReconciliationProductFrame() {
       <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
         <div className="flex items-start justify-between gap-3">
           <div>
-            <p className="text-base font-semibold text-slate-900">Carrier statement — August</p>
+            <p className="text-base font-semibold text-brand-navy">Carrier statement — August</p>
             <p className="mt-1 text-sm text-slate-500">Compared against expected agency amounts</p>
           </div>
-          <span className="rounded-full bg-alza-blue-50 px-3 py-1 text-xs font-medium text-alza-blue-800 ring-1 ring-inset ring-alza-blue-600/20">
+          <span className="rounded-full bg-brand-sky px-3 py-1 text-xs font-medium text-brand-navy ring-1 ring-inset ring-brand-teal/25">
             Work queue
           </span>
         </div>
@@ -192,7 +195,7 @@ export function ReconciliationProductFrame() {
         </div>
         <div className="mt-5 overflow-x-auto rounded-lg border border-slate-100">
           <div className="min-w-[32rem]">
-            <div className="grid grid-cols-4 bg-slate-50 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+            <div className="grid grid-cols-4 bg-brand-neutral px-4 py-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
               <span>Line</span>
               <span>Expected</span>
               <span>Statement</span>
@@ -226,11 +229,11 @@ export function ExceptionsProductFrame() {
     <MarketingAppFrame title="Needs Review" active="Reconciliation">
       <div className="mb-4 flex gap-3 border-b border-slate-200 text-sm font-medium">
         <span className="border-b-2 border-transparent px-2 py-2 text-slate-500">Work queue</span>
-        <span className="border-b-2 border-alza-blue-700 px-2 py-2 text-alza-blue-800">Needs Review (4)</span>
+        <span className="border-b-2 border-brand-teal px-2 py-2 text-brand-navy">Needs Review (4)</span>
       </div>
       <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm">
         <div className="min-w-[32rem]">
-          <div className="grid grid-cols-4 bg-slate-50 px-4 py-2.5 text-xs font-semibold uppercase tracking-wide text-slate-500">
+          <div className="grid grid-cols-4 bg-brand-neutral px-4 py-2.5 text-xs font-semibold uppercase tracking-wide text-slate-500">
             <span>Statement</span>
             <span>Line</span>
             <span>Variance</span>
@@ -260,20 +263,20 @@ export function ExceptionsProductFrame() {
 
 export function ProducerProductFrame() {
   return (
-    <MarketingAppFrame title="Financials · Producer Payments" active="Financials">
+    <MarketingAppFrame title="Financials · Producer Commissions" active="Financials">
       <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
           <div>
-            <p className="text-base font-semibold text-slate-900">Ready for Payment</p>
-            <p className="mt-1 text-sm text-slate-500">Eligible producer amounts ready for a payment batch</p>
+            <p className="text-base font-semibold text-brand-navy">Commission Ready</p>
+            <p className="mt-1 text-sm text-slate-500">Verified producer commission amounts ready for review</p>
           </div>
-          <span className="rounded-lg gradient-alza px-3.5 py-2 text-xs font-medium text-white">
-            Create Payment Batch
+          <span className="rounded-full bg-brand-navy px-3.5 py-2 text-xs font-medium text-white">
+            Review commissions
           </span>
         </div>
         <div className="overflow-x-auto rounded-lg border border-slate-100">
           <div className="min-w-[32rem]">
-            <div className="grid grid-cols-4 bg-slate-50 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+            <div className="grid grid-cols-4 bg-brand-neutral px-4 py-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
               <span>Producer</span>
               <span>Line</span>
               <span>Amount</span>
@@ -314,32 +317,32 @@ export function DashboardProductFrame({ size = 'feature' }: { size?: 'hero' | 'f
   const wide = size === 'feature'
   return (
     <MarketingAppFrame title="Dashboard" active="Dashboard" size={size}>
-      <div className="relative overflow-hidden rounded-xl gradient-alza p-5 text-white shadow-lg">
-        <div className="absolute -right-8 -top-8 h-28 w-28 rounded-full bg-white/10" />
+      <div className="relative overflow-hidden rounded-xl bg-brand-navy p-5 text-white shadow-lg">
+        <div className="absolute -right-8 -top-8 h-28 w-28 rounded-full bg-brand-teal/20" />
         <p className="relative text-base font-bold">Welcome to ALZA Flow</p>
-        <p className="relative mt-1 text-sm text-blue-100">
+        <p className="relative mt-1 text-sm text-white/75">
           Live premium and operational metrics from the agency workspace.
         </p>
       </div>
       <div className="mt-4 grid grid-cols-2 gap-3 xl:grid-cols-4">
         <Kpi title="Agency Commission" value="$48,200" tone="teal" />
-        <Kpi title="Agency Received" value="$41,750" tone="blue" />
-        <Kpi title="Producer Ready" value="$6,420" tone="amber" />
-        <Kpi title="Producer Paid" value="$12,980" tone="violet" />
+        <Kpi title="Agency Received" value="$41,750" tone="navy" />
+        <Kpi title="Commission Ready" value="$6,420" tone="amber" />
+        <Kpi title="Commissions Paid" value="$12,980" tone="sky" />
       </div>
       <div className={`mt-4 grid gap-3 ${wide ? 'lg:grid-cols-3' : ''}`}>
         <div className={`rounded-xl border border-slate-200 bg-white p-4 shadow-sm ${wide ? 'lg:col-span-2' : ''}`}>
-          <p className="mb-3 text-sm font-semibold text-slate-900">Monthly Premium & Commission</p>
+          <p className="mb-3 text-sm font-semibold text-brand-navy">Monthly Premium & Commission</p>
           <div className="flex h-36 items-end gap-2.5 px-1 sm:h-40">
             {bars.map((bar) => (
               <div key={bar.m} className="flex flex-1 flex-col items-center gap-1.5">
                 <div className="flex h-28 w-full items-end justify-center gap-1 sm:h-32">
                   <span
-                    className="mkt-bar-col w-2 rounded-t bg-alza-blue-600"
+                    className="mkt-bar-col w-2 rounded-t bg-brand-navy"
                     style={{ height: `${bar.a}%` }}
                   />
                   <span
-                    className="mkt-bar-col w-2 rounded-t bg-alza-teal-600"
+                    className="mkt-bar-col w-2 rounded-t bg-brand-teal"
                     style={{ height: `${bar.p + 20}%`, animationDelay: '0.12s, 1.15s' }}
                   />
                 </div>
@@ -350,11 +353,11 @@ export function DashboardProductFrame({ size = 'feature' }: { size?: 'hero' | 'f
         </div>
         {wide ? (
           <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-            <p className="mb-3 text-sm font-semibold text-slate-900">Needs Attention</p>
+            <p className="mb-3 text-sm font-semibold text-brand-navy">Needs Attention</p>
             {[
               ['Needs Review', '4'],
               ['Returned for Correction', '2'],
-              ['Ready for Payment', '6'],
+              ['Commission Ready', '6'],
             ].map((item) => (
               <div
                 key={item[0]}

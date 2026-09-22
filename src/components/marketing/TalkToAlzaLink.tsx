@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react'
 import { Link } from 'react-router-dom'
+import { ArrowRight } from 'lucide-react'
 import { PublicBrandLink } from './PublicBrandLink'
 import {
   contactSalesPath,
@@ -25,12 +26,12 @@ export function TalkToAlzaLink({
 }
 
 export function PublicMarketingHeader({ cta = 'Get Started' }: { cta?: string }) {
-  const navLink = 'text-sm font-medium text-slate-600 hover:text-slate-900'
+  const navLink = 'text-sm font-medium text-slate-600 hover:text-brand-navy'
   return (
     <header className="sticky top-0 z-40 border-b border-slate-200/70 bg-white/90 backdrop-blur">
-      <div className="mx-auto flex h-[4.25rem] max-w-7xl items-center justify-between gap-3 px-4 sm:gap-4 sm:px-6 lg:px-8">
+      <div className="mx-auto flex h-[4.75rem] max-w-7xl items-center justify-between gap-4 px-4 sm:px-6 lg:px-8">
         <PublicBrandLink />
-        <nav className="hidden items-center gap-6 lg:flex" aria-label="Public">
+        <nav className="hidden items-center gap-8 lg:flex" aria-label="Public">
           <Link to={PUBLIC_PRICING_PATH} className={navLink}>
             Pricing
           </Link>
@@ -38,8 +39,8 @@ export function PublicMarketingHeader({ cta = 'Get Started' }: { cta?: string })
             Contact us
           </TalkToAlzaLink>
         </nav>
-        <div className="flex items-center gap-3 sm:gap-5">
-          <TalkToAlzaLink source="header_contact" className={`${navLink} lg:hidden`}>
+        <div className="flex shrink-0 items-center gap-3 sm:gap-5">
+          <TalkToAlzaLink source="header_contact" className={`${navLink} hidden sm:inline lg:hidden`}>
             Contact us
           </TalkToAlzaLink>
           <Link to={PUBLIC_LOGIN_PATH} className={`hidden sm:inline ${navLink}`}>
@@ -47,9 +48,10 @@ export function PublicMarketingHeader({ cta = 'Get Started' }: { cta?: string })
           </Link>
           <Link
             to={PUBLIC_GET_STARTED_PATH}
-            className="inline-flex h-10 items-center rounded-lg gradient-alza px-3 text-sm font-medium text-white shadow-sm hover:opacity-90 sm:px-4"
+            className="mkt-btn mkt-btn-primary inline-flex h-10 shrink-0 items-center px-3 text-sm sm:px-5"
           >
             {cta}
+            <ArrowRight className="mkt-cta-arrow ml-1.5 h-4 w-4" aria-hidden="true" />
           </Link>
         </div>
       </div>

@@ -53,27 +53,27 @@ export function PublicLandingPage() {
   }, [])
 
   return (
-    <div className={`min-h-screen overflow-x-hidden bg-white text-slate-900 ${reducedMotion ? '' : 'scroll-smooth'}`}>
+    <div className={`min-h-screen overflow-x-clip bg-white text-brand-navy ${reducedMotion ? '' : 'scroll-smooth'}`}>
       <a
         href="#main"
-        className="absolute left-4 top-4 z-50 -translate-y-16 rounded-lg bg-white px-3 py-2 text-sm font-medium text-slate-900 shadow focus:translate-y-0"
+        className="absolute left-4 top-4 z-50 -translate-y-16 rounded-lg bg-white px-3 py-2 text-sm font-medium text-brand-navy shadow focus:translate-y-0"
       >
         Skip to content
       </a>
       <BackToTopButton />
 
       <header className="sticky top-0 z-40 border-b border-slate-200/70 bg-white/90 backdrop-blur">
-        <div className="mx-auto flex h-[4.25rem] max-w-7xl items-center justify-between gap-4 px-4 sm:px-6 lg:px-8">
+        <div className="mx-auto flex h-[4.75rem] max-w-7xl items-center justify-between gap-4 px-4 sm:px-6 lg:px-8">
           <PublicBrandLink />
 
           <nav className="hidden items-center gap-8 text-sm font-medium text-slate-600 lg:flex" aria-label="Product">
             {NAV.map((item) =>
               item.kind === 'route' ? (
-                <Link key={item.href} to={item.href} className="hover:text-slate-900">
+                <Link key={item.href} to={item.href} className="hover:text-brand-navy">
                   {item.label}
                 </Link>
               ) : (
-                <a key={item.href} href={item.href} className="hover:text-slate-900">
+                <a key={item.href} href={item.href} className="hover:text-brand-navy">
                   {item.label}
                 </a>
               ),
@@ -81,12 +81,12 @@ export function PublicLandingPage() {
           </nav>
 
           <div className="hidden items-center gap-5 lg:flex">
-            <Link to={PUBLIC_LOGIN_PATH} className="text-sm font-medium text-slate-600 hover:text-slate-900">
+            <Link to={PUBLIC_LOGIN_PATH} className="text-sm font-medium text-slate-600 hover:text-brand-navy">
               Sign In
             </Link>
             <Link
               to={PUBLIC_GET_STARTED_PATH}
-              className="inline-flex h-10 items-center rounded-lg gradient-alza px-4 text-sm font-medium text-white shadow-sm hover:opacity-90"
+              className="inline-flex h-10 items-center rounded-lg bg-brand-teal px-4 text-sm font-medium text-brand-navy shadow-sm hover:opacity-90"
             >
               Get Started
             </Link>
@@ -94,7 +94,7 @@ export function PublicLandingPage() {
 
           <button
             type="button"
-            className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-slate-200 text-slate-700 lg:hidden"
+            className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-slate-200 text-brand-navy lg:hidden"
             aria-expanded={menuOpen}
             aria-controls="mobile-nav"
             onClick={() => setMenuOpen((open) => !open)}
@@ -106,7 +106,7 @@ export function PublicLandingPage() {
 
         {menuOpen ? (
           <div id="mobile-nav" className="border-t border-slate-200 bg-white px-4 py-4 lg:hidden">
-            <nav className="flex flex-col gap-3 text-sm font-medium text-slate-700" aria-label="Mobile">
+            <nav className="flex flex-col gap-3 text-sm font-medium text-brand-navy" aria-label="Mobile">
               {NAV.map((item) =>
                 item.kind === 'route' ? (
                   <Link key={item.href} to={item.href} onClick={() => setMenuOpen(false)}>
@@ -123,7 +123,7 @@ export function PublicLandingPage() {
               </Link>
               <Link
                 to={PUBLIC_GET_STARTED_PATH}
-                className="inline-flex h-10 items-center justify-center rounded-lg gradient-alza text-white"
+                className="inline-flex h-10 items-center justify-center rounded-lg bg-brand-teal text-sm font-medium text-brand-navy"
                 onClick={() => setMenuOpen(false)}
               >
                 Get Started
@@ -138,32 +138,34 @@ export function PublicLandingPage() {
           <MarketingOrbs />
           <div className="relative mx-auto grid max-w-7xl items-center gap-12 lg:grid-cols-[minmax(0,26.5rem)_minmax(0,1fr)] lg:gap-10 xl:grid-cols-[minmax(0,28rem)_minmax(0,1fr)]">
             <div className="lg:pb-12">
-              <p className="mkt-enter-1 text-xs font-semibold uppercase tracking-[0.22em] text-alza-blue-700">
+              <p className="mkt-enter-1 text-xs font-semibold uppercase tracking-[0.22em] text-brand-teal">
                 Commission Operations for Insurance Agencies
               </p>
-              <h1 className="mkt-enter-2 mt-5 text-[2.4rem] font-bold leading-[1.08] tracking-tight text-slate-900 sm:text-5xl lg:text-[3.35rem] lg:leading-[1.05]">
+              <h1 className="mkt-enter-2 mt-5 text-[2.4rem] font-bold leading-[1.08] tracking-tight text-brand-navy sm:text-5xl lg:text-[3.35rem] lg:leading-[1.05]">
                 Take control of your
                 <br />
                 commission operations.
               </h1>
               <p className="mkt-enter-3 mt-6 max-w-md text-base leading-relaxed text-slate-600 sm:text-lg">
-                Reconcile carrier and MGA statements, catch commission discrepancies, manage producer payouts,
-                and see what your agency has earned — all in one place.
+                Reconcile carrier and MGA statements, catch commission discrepancies, track producer
+                commissions, and see what your agency has earned — all in one place.
               </p>
-              <p className="mkt-enter-4 mt-5 text-lg font-semibold text-slate-900">
-                Know what came in. Catch what didn't.
+              <p className="mkt-enter-4 mt-5 text-lg font-semibold leading-snug text-brand-navy">
+                <span className="block">Know what you've earned.</span>
+                <span className="block">Know what you've received.</span>
+                <span className="block">Know what's missing.</span>
               </p>
               <div className="mkt-enter-5 mt-9 flex flex-col gap-3 sm:flex-row">
                 <Link
                   to={PUBLIC_GET_STARTED_PATH}
-                  className="mkt-cta-shift inline-flex h-12 items-center justify-center rounded-xl px-7 text-sm font-semibold text-white shadow-sm hover:opacity-90"
+                  className="inline-flex h-12 items-center justify-center rounded-xl bg-brand-teal px-7 text-sm font-semibold text-brand-navy shadow-sm hover:opacity-90"
                 >
                   Get Started
                   <ArrowRight className="ml-2 h-4 w-4" aria-hidden="true" />
                 </Link>
                 <a
                   href="#product"
-                  className="inline-flex h-12 items-center justify-center rounded-xl bg-white px-7 text-sm font-semibold text-slate-800 ring-1 ring-slate-200 hover:bg-slate-50"
+                  className="inline-flex h-12 items-center justify-center rounded-xl bg-white px-7 text-sm font-semibold text-brand-navy ring-1 ring-slate-200 hover:bg-brand-neutral"
                 >
                   Explore ALZA Flow
                 </a>
@@ -171,7 +173,7 @@ export function PublicLandingPage() {
             </div>
             <div className="relative lg:-mr-6 lg:translate-y-8 xl:-mr-10">
               <div
-                className="pointer-events-none absolute -inset-8 rounded-[2rem] bg-gradient-to-br from-alza-blue-200/55 to-alza-teal-200/45 blur-2xl"
+                className="pointer-events-none absolute -inset-8 rounded-[2rem] bg-gradient-to-br from-brand-sky to-brand-teal/20 blur-2xl"
                 aria-hidden="true"
               />
               <div className="relative mkt-enter-5">
@@ -185,10 +187,32 @@ export function PublicLandingPage() {
 
         <OpsTicker />
 
-        <section id="product" className="scroll-mt-24 bg-slate-50 px-4 py-24 sm:px-6 lg:px-8 lg:py-28">
+        <section id="problem" className="scroll-mt-24 bg-white px-4 py-24 sm:px-6 lg:px-8 lg:py-28">
+          <div className="mx-auto max-w-7xl">
+            <Reveal className="max-w-3xl">
+              <p className="text-xs font-semibold uppercase tracking-[0.22em] text-brand-teal">
+                The problem we solve
+              </p>
+              <h2 className="mt-4 text-3xl font-bold tracking-tight text-brand-navy sm:text-4xl lg:text-[2.6rem] lg:leading-tight">
+                Commission chaos, reconciled.
+              </h2>
+              <p className="mt-5 max-w-2xl text-base leading-relaxed text-slate-600 sm:text-lg">
+                Agencies can lose visibility into commissions when expected amounts, carrier and MGA
+                statements, exceptions and producer commissions are tracked across disconnected files
+                and workflows. ALZA Flow brings that activity into one reviewable commission workflow.
+              </p>
+              <TalkToAlzaLink className="mt-10 inline-flex h-12 items-center justify-center rounded-xl bg-brand-teal px-7 text-sm font-semibold text-brand-navy shadow-sm hover:opacity-90">
+                Talk to us about ALZA Flow
+                <ArrowRight className="ml-2 h-4 w-4" aria-hidden="true" />
+              </TalkToAlzaLink>
+            </Reveal>
+          </div>
+        </section>
+
+        <section id="product" className="scroll-mt-24 bg-brand-neutral px-4 py-24 sm:px-6 lg:px-8 lg:py-28">
           <div className="mx-auto max-w-7xl">
             <Reveal className="mx-auto max-w-3xl text-center">
-              <h2 className="text-3xl font-bold tracking-tight text-slate-900 sm:text-4xl lg:text-[2.6rem] lg:leading-tight">
+              <h2 className="text-3xl font-bold tracking-tight text-brand-navy sm:text-4xl lg:text-[2.6rem] lg:leading-tight">
                 One place to understand your commission business.
               </h2>
               <p className="mt-5 text-base leading-relaxed text-slate-600 sm:text-lg">
@@ -208,12 +232,12 @@ export function PublicLandingPage() {
 
         <section
           id="reconciliation"
-          className="scroll-mt-24 bg-gradient-to-b from-alza-blue-50 via-white to-white px-4 py-24 sm:px-6 lg:px-8 lg:py-28"
+          className="scroll-mt-24 bg-gradient-to-b from-brand-sky via-white to-white px-4 py-24 sm:px-6 lg:px-8 lg:py-28"
         >
           <div className="mx-auto max-w-7xl">
             <Reveal>
-              <p className="text-xs font-semibold uppercase tracking-[0.22em] text-alza-blue-700">Reconciliation</p>
-              <h2 className="mt-4 max-w-3xl text-3xl font-bold tracking-tight text-slate-900 sm:text-4xl lg:text-[2.6rem] lg:leading-tight">
+              <p className="text-xs font-semibold uppercase tracking-[0.22em] text-brand-teal">Reconciliation</p>
+              <h2 className="mt-4 max-w-3xl text-3xl font-bold tracking-tight text-brand-navy sm:text-4xl lg:text-[2.6rem] lg:leading-tight">
                 Turn commission statements into answers.
               </h2>
               <p className="mt-5 max-w-2xl text-base leading-relaxed text-slate-600 sm:text-lg">
@@ -249,8 +273,8 @@ export function PublicLandingPage() {
               <ExceptionsProductFrame />
             </Reveal>
             <Reveal className="mt-10 rounded-3xl bg-white p-8 shadow-[0_24px_80px_-28px_rgba(15,23,42,0.35)] ring-1 ring-slate-200 lg:absolute lg:left-0 lg:top-16 lg:mt-0 lg:w-[38%] lg:p-10">
-              <p className="text-xs font-semibold uppercase tracking-[0.22em] text-alza-blue-700">Exceptions</p>
-              <h2 className="mt-4 text-3xl font-bold tracking-tight text-slate-900 sm:text-[2.15rem] sm:leading-tight">
+              <p className="text-xs font-semibold uppercase tracking-[0.22em] text-brand-teal">Exceptions</p>
+              <h2 className="mt-4 text-3xl font-bold tracking-tight text-brand-navy sm:text-[2.15rem] sm:leading-tight">
                 Spot the commissions that need attention.
               </h2>
               <p className="mt-4 text-base leading-relaxed text-slate-600">
@@ -261,21 +285,21 @@ export function PublicLandingPage() {
           </div>
         </section>
 
-        <section id="producers" className="scroll-mt-24 bg-alza-teal-50/40 px-4 py-24 sm:px-6 lg:px-8 lg:py-28">
+        <section id="producers" className="scroll-mt-24 bg-brand-sky/60 px-4 py-24 sm:px-6 lg:px-8 lg:py-28">
           <div className="mx-auto max-w-7xl">
             <Reveal className="max-w-2xl">
-              <p className="text-xs font-semibold uppercase tracking-[0.22em] text-alza-teal-800">Producer commissions</p>
-              <h2 className="mt-4 text-3xl font-bold tracking-tight text-slate-900 sm:text-4xl lg:text-[2.6rem] lg:leading-tight">
+              <p className="text-xs font-semibold uppercase tracking-[0.22em] text-brand-teal">Producer commissions</p>
+              <h2 className="mt-4 text-3xl font-bold tracking-tight text-brand-navy sm:text-4xl lg:text-[2.6rem] lg:leading-tight">
                 Producer commissions,
                 <br />
                 without the spreadsheet chase.
               </h2>
               <p className="mt-5 text-base leading-relaxed text-slate-600 sm:text-lg">
-                Track producer commissions, approval status, and payment activity in the same operational
+                Track producer commissions, approval status, and commission amounts in the same operational
                 workflow.
               </p>
-              <p className="mt-4 text-sm font-medium text-slate-700">
-                From commission earned to payment status, keep the trail clear.
+              <p className="mt-4 text-sm font-medium text-brand-navy">
+                From commission earned to commission status, keep the trail clear.
               </p>
             </Reveal>
             <Reveal delayMs={80} className="mt-14 w-full">
@@ -288,23 +312,23 @@ export function PublicLandingPage() {
 
         <section
           id="reporting"
-          className="relative scroll-mt-24 overflow-hidden bg-gradient-to-b from-[#041433] via-alza-blue-950 to-slate-950 px-4 py-24 sm:px-6 lg:px-8 lg:py-32"
+          className="relative scroll-mt-24 overflow-hidden bg-brand-navy px-4 py-24 sm:px-6 lg:px-8 lg:py-32"
         >
           <MarketingOrbs variant="dark" />
           <div className="relative mx-auto max-w-7xl">
             <Reveal className="relative max-w-3xl">
               <div
-                className="pointer-events-none absolute -inset-x-4 -inset-y-3 rounded-3xl bg-gradient-to-r from-[#041433]/90 via-[#041433]/70 to-transparent sm:-inset-x-6"
+                className="pointer-events-none absolute -inset-x-4 -inset-y-3 rounded-3xl bg-gradient-to-r from-brand-navy/90 via-brand-navy/70 to-transparent sm:-inset-x-6"
                 aria-hidden="true"
               />
               <div className="relative">
-                <p className="text-xs font-semibold uppercase tracking-[0.22em] text-alza-teal-200">Dashboard</p>
+                <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[#7ee8de]">Dashboard</p>
                 <h2 className="mt-4 text-3xl font-bold tracking-tight text-white sm:text-4xl lg:text-[2.7rem] lg:leading-tight">
                   See the business behind your commissions.
                 </h2>
-                <p className="mt-5 max-w-2xl text-base leading-relaxed text-slate-100 sm:text-lg">
-                  Understand agency commission revenue, producer commissions, discrepancies, and payment status from
-                  one operational view.
+                <p className="mt-5 max-w-2xl text-base leading-relaxed text-white/80 sm:text-lg">
+                  Understand agency commission revenue, producer commissions, discrepancies, and commission
+                  status from one operational view.
                 </p>
               </div>
             </Reveal>
@@ -319,10 +343,10 @@ export function PublicLandingPage() {
         <section id="positioning" className="scroll-mt-24 bg-white px-4 py-24 sm:px-6 lg:px-8 lg:py-28">
           <div className="mx-auto max-w-7xl">
             <Reveal>
-              <p className="text-xs font-semibold uppercase tracking-[0.22em] text-alza-blue-700">
+              <p className="text-xs font-semibold uppercase tracking-[0.22em] text-brand-teal">
                 Built for insurance agencies
               </p>
-              <h2 className="mt-4 max-w-3xl text-3xl font-bold tracking-tight text-slate-900 sm:text-4xl lg:text-[2.6rem] lg:leading-tight">
+              <h2 className="mt-4 max-w-3xl text-3xl font-bold tracking-tight text-brand-navy sm:text-4xl lg:text-[2.6rem] lg:leading-tight">
                 Keep your AMS.
                 <br />
                 Give commissions their own workflow.
@@ -331,10 +355,10 @@ export function PublicLandingPage() {
                 ALZA Flow works alongside your existing systems, giving your team one place for reconciliation,
                 discrepancies, producer commissions, and reporting.
               </p>
-              <p className="mt-6 text-lg font-semibold text-slate-900">No AMS replacement required.</p>
+              <p className="mt-6 text-lg font-semibold text-brand-navy">No AMS replacement required.</p>
             </Reveal>
             <Reveal delayMs={80} className="mt-14 flex flex-col items-stretch gap-5 lg:flex-row lg:items-center">
-              <div className="flex-1 rounded-3xl bg-slate-50 p-8">
+              <div className="flex-1 rounded-3xl bg-brand-neutral p-8">
                 <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
                   Your existing systems
                 </p>
@@ -350,8 +374,8 @@ export function PublicLandingPage() {
               <p className="text-center text-sm font-semibold uppercase tracking-[0.16em] text-slate-400 lg:hidden">
                 to
               </p>
-              <div className="flex-1 rounded-3xl gradient-alza p-8 text-white shadow-xl">
-                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-white/80">ALZA Flow</p>
+              <div className="flex-1 rounded-3xl bg-brand-navy p-8 text-white shadow-xl">
+                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-brand-teal">ALZA Flow</p>
                 <ul className="mt-6 space-y-3 text-base">
                   <li>Reconciliation</li>
                   <li>Discrepancies</li>
@@ -363,7 +387,7 @@ export function PublicLandingPage() {
           </div>
         </section>
 
-        <section id="get-started" className="bg-slate-900 px-4 py-20 sm:px-6 lg:px-8 lg:py-24">
+        <section id="get-started" className="bg-brand-navy px-4 py-20 sm:px-6 lg:px-8 lg:py-24">
           <Reveal className="mx-auto max-w-3xl text-center">
             <h2 className="text-3xl font-bold tracking-tight text-white sm:text-4xl sm:leading-tight">
               Ready to make your commission operations easier?
@@ -371,7 +395,7 @@ export function PublicLandingPage() {
             <div className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row">
               <Link
                 to={PUBLIC_GET_STARTED_PATH}
-                className="mkt-cta-shift inline-flex h-12 w-full items-center justify-center rounded-xl px-7 text-sm font-semibold text-white hover:opacity-90 sm:w-auto"
+                className="inline-flex h-12 w-full items-center justify-center rounded-xl bg-brand-teal px-7 text-sm font-semibold text-brand-navy hover:opacity-90 sm:w-auto"
               >
                 Get Started
               </Link>
@@ -382,8 +406,8 @@ export function PublicLandingPage() {
                 View Pricing
               </Link>
             </div>
-            <p className="mt-6 text-sm text-slate-400">
-              <TalkToAlzaLink className="font-medium text-slate-200 hover:text-white">Talk to us</TalkToAlzaLink>
+            <p className="mt-6 text-sm text-white/60">
+              <TalkToAlzaLink className="font-medium text-white/85 hover:text-white">Talk to us</TalkToAlzaLink>
             </p>
           </Reveal>
         </section>
@@ -391,15 +415,23 @@ export function PublicLandingPage() {
 
       <footer className="border-t border-slate-200 bg-white px-4 py-10 sm:px-6 lg:px-8">
         <div className="mx-auto flex max-w-7xl flex-col gap-6 sm:flex-row sm:items-end sm:justify-between">
-          <PublicBrandLink variant="text" />
+          <div>
+            <PublicBrandLink variant="footer" />
+            <p className="mt-5 text-[10px] font-semibold uppercase tracking-[0.2em] text-brand-teal">
+              Operations. Talent. Technology.
+            </p>
+            <p className="mt-1.5 max-w-xs text-xs tracking-[0.02em] text-slate-500">
+              A more efficient. More connected tomorrow.
+            </p>
+          </div>
           <nav className="flex flex-wrap gap-x-5 gap-y-2 text-sm text-slate-600" aria-label="Footer">
-            <Link to={PUBLIC_GET_STARTED_PATH} className="hover:text-slate-900">
+            <Link to={PUBLIC_GET_STARTED_PATH} className="hover:text-brand-navy">
               Pricing
             </Link>
-            <Link to={PUBLIC_LOGIN_PATH} className="hover:text-slate-900">
+            <Link to={PUBLIC_LOGIN_PATH} className="hover:text-brand-navy">
               Sign In
             </Link>
-            <TalkToAlzaLink className="hover:text-slate-900">Contact ALZA</TalkToAlzaLink>
+            <TalkToAlzaLink className="hover:text-brand-navy">Contact ALZA</TalkToAlzaLink>
           </nav>
         </div>
       </footer>

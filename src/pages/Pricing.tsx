@@ -60,17 +60,17 @@ export function PricingPage() {
   }
 
   return (
-    <div className="relative min-h-screen overflow-x-hidden bg-slate-50">
+    <div className="relative min-h-screen overflow-x-hidden bg-brand-neutral">
       <div className="pointer-events-none absolute inset-0">
-        <div className="absolute -left-24 -top-24 h-72 w-72 rounded-full bg-alza-blue-200/40 blur-3xl" />
-        <div className="absolute -bottom-24 -right-16 h-80 w-80 rounded-full bg-alza-teal-200/40 blur-3xl" />
+        <div className="absolute -left-24 -top-24 h-72 w-72 rounded-full bg-brand-sky blur-3xl" />
+        <div className="absolute -bottom-24 -right-16 h-80 w-80 rounded-full bg-brand-teal/20 blur-3xl" />
       </div>
       <PublicMarketingHeader />
 
       <div className="relative mx-auto w-full max-w-6xl px-4 py-14 sm:px-6 lg:px-8 lg:py-20">
         <div className="mb-12 text-center">
-          <p className="text-xs font-semibold uppercase tracking-[0.22em] text-alza-blue-700">Pricing</p>
-          <h1 className="mt-4 text-3xl font-bold tracking-tight text-slate-900 sm:text-4xl">ALZA FLOW</h1>
+          <p className="mkt-eyebrow">Pricing</p>
+          <h1 className="mkt-display mt-4 text-3xl sm:text-4xl">ALZA FLOW</h1>
           <p className="mt-1 text-xs font-medium text-slate-500">by ALZA Business Solutions LLP</p>
           <p className="mx-auto mt-4 max-w-xl text-sm text-slate-600 sm:text-base">
             Commission operations for insurance agencies. Choose your user band, then create your account
@@ -93,13 +93,13 @@ export function PricingPage() {
                   onClick={() => setInterval(opt.key)}
                   className={
                     active
-                      ? 'rounded-lg gradient-alza px-4 py-2 text-sm font-medium text-white shadow-sm'
-                      : 'rounded-lg px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50'
+                      ? 'rounded-full bg-brand-navy px-4 py-2 text-sm font-medium text-white shadow-sm'
+                      : 'rounded-full px-4 py-2 text-sm font-medium text-slate-600 hover:bg-brand-neutral'
                   }
                 >
                   {opt.label}
                   {opt.key === 'annual' ? (
-                    <span className={active ? 'ml-1.5 opacity-90' : 'ml-1.5 text-alza-teal-700'}>
+                    <span className={active ? 'ml-1.5 opacity-90' : 'ml-1.5 text-brand-teal'}>
                       · 2 months free
                     </span>
                   ) : null}
@@ -120,10 +120,10 @@ export function PricingPage() {
             return (
               <div
                 key={band.key}
-                className="flex h-full min-h-[17.5rem] flex-col text-center rounded-3xl border border-slate-200 bg-white p-6 shadow-[0_18px_50px_-28px_rgba(15,23,42,0.35)]"
+                className="flex h-full min-h-[17.5rem] flex-col text-center rounded-3xl border border-slate-200 bg-white p-6 shadow-[0_18px_50px_-28px_rgba(11,31,59,0.28)]"
               >
                 <h2 className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">{band.label}</h2>
-                <p className="mt-5 text-3xl font-bold tracking-tight text-slate-900">
+                <p className="mt-5 text-3xl font-bold tracking-tight text-brand-navy">
                   {amount != null ? formatUsdWhole(amount) : '—'}
                 </p>
                 <p className="mt-1 text-sm text-slate-500">{interval === 'annual' ? 'per year' : 'per month'}</p>
@@ -131,7 +131,7 @@ export function PricingPage() {
                   type="button"
                   disabled={!quote.sku || !quote.checkoutEligible}
                   onClick={() => handleGetStarted(band.key)}
-                  className="group mt-auto inline-flex h-11 w-full items-center justify-center rounded-xl gradient-alza text-sm font-semibold text-white shadow-sm hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+                  className="mkt-btn mkt-btn-primary group mt-auto inline-flex h-11 w-full items-center justify-center text-sm disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   {canPickForBilling ? 'Continue to billing' : 'Get Started'}
                   <ArrowRight className="mkt-cta-arrow ml-2 h-4 w-4" aria-hidden="true" />
@@ -142,12 +142,12 @@ export function PricingPage() {
         </div>
 
         <div className="mx-auto mt-6 grid w-full max-w-[44rem] gap-5 sm:grid-cols-2">
-          <div className="flex flex-col items-center justify-center rounded-3xl border border-slate-200 bg-white px-6 py-8 text-center shadow-[0_18px_50px_-28px_rgba(15,23,42,0.35)]">
+          <div className="flex flex-col items-center justify-center rounded-3xl border border-slate-200 bg-white px-6 py-8 text-center shadow-[0_18px_50px_-28px_rgba(11,31,59,0.28)]">
             <h2 className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">51+ users</h2>
-            <p className="mt-4 text-3xl font-bold tracking-tight text-slate-900">Custom Pricing</p>
+            <p className="mt-4 text-3xl font-bold tracking-tight text-brand-navy">Custom Pricing</p>
             <Link
               to={contactSalesPath('pricing_contact')}
-              className="mt-8 inline-flex h-11 w-full max-w-[12.5rem] items-center justify-center rounded-xl border border-slate-200 bg-slate-50 text-sm font-semibold text-slate-800 transition-colors hover:bg-slate-100"
+              className="mkt-btn mkt-btn-secondary mt-8 inline-flex h-11 w-full max-w-[12.5rem] items-center justify-center text-sm"
             >
               Contact us
             </Link>
@@ -155,7 +155,7 @@ export function PricingPage() {
 
           <div className="flex flex-col items-center justify-center rounded-3xl border border-dashed border-slate-300 bg-white/80 px-6 py-8 text-center">
             <h2 className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">ALZA Flow Pay</h2>
-            <p className="mt-4 text-3xl font-bold tracking-tight text-slate-900">Coming Soon</p>
+            <p className="mt-4 text-3xl font-bold tracking-tight text-brand-navy">Coming Soon</p>
             <p className="mt-3 max-w-[16rem] text-sm text-slate-600">Integrated producer payments are on the waitlist.</p>
             <span className="mt-8 inline-flex h-11 w-full max-w-[12.5rem] items-center justify-center rounded-xl border border-slate-200 bg-slate-100 text-sm font-medium text-slate-500">
               Waitlist only
@@ -167,14 +167,14 @@ export function PricingPage() {
           {authenticated ? (
             <>
               Already signed in.{' '}
-              <Link to="/admin/subscription-billing" className="font-medium text-alza-blue-700 hover:underline">
+              <Link to="/admin/subscription-billing" className="font-medium text-brand-navy hover:underline">
                 Open Subscription Billing
               </Link>
             </>
           ) : (
             <>
               Already have an account?{' '}
-              <Link to={PUBLIC_LOGIN_PATH} className="font-medium text-alza-blue-700 hover:underline">
+              <Link to={PUBLIC_LOGIN_PATH} className="font-medium text-brand-navy hover:underline">
                 Sign in
               </Link>
             </>

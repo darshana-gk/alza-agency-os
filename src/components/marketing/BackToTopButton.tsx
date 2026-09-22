@@ -16,7 +16,7 @@ export function BackToTopButton() {
   return (
     <button
       type="button"
-      className={`mkt-back-top fixed right-4 z-40 flex h-11 w-11 items-center justify-center rounded-full text-white shadow-lg gradient-alza sm:right-6 ${
+      className={`mkt-back-top mkt-btn-primary fixed right-4 z-40 flex h-11 w-11 items-center justify-center rounded-full shadow-lg sm:right-6 ${
         visible ? 'is-visible' : ''
       }`}
       style={{ bottom: 'max(1.25rem, env(safe-area-inset-bottom))' }}

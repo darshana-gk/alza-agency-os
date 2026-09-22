@@ -3,13 +3,14 @@ import { Zap } from 'lucide-react'
 import type { MouseEvent } from 'react'
 import { usePrefersReducedMotion } from './LandingMotion'
 import { PUBLIC_LANDING_PATH } from '../../lib/publicSite'
+import wordmark from '../../assets/brand/alza-wordmark.png'
 
 export function PublicBrandLink({
   className = '',
   variant = 'header',
 }: {
   className?: string
-  variant?: 'header' | 'stacked' | 'text'
+  variant?: 'header' | 'stacked' | 'text' | 'footer'
 }) {
   const location = useLocation()
   const reduced = usePrefersReducedMotion()
@@ -36,19 +37,37 @@ export function PublicBrandLink({
       </>
     ) : variant === 'text' ? (
       <span className="leading-tight">
-        <span className="block text-sm font-bold tracking-wide text-slate-900">ALZA FLOW</span>
+        <span className="block text-sm font-bold tracking-wide text-brand-navy">ALZA FLOW</span>
         <span className="mt-1 block text-xs text-slate-500">by ALZA Business Solutions LLP</span>
+      </span>
+    ) : variant === 'footer' ? (
+      <span className="flex flex-col items-start gap-3">
+        <img
+          src={wordmark}
+          alt=""
+          width={430}
+          height={127}
+          className="mkt-wordmark mkt-wordmark--footer"
+        />
+        <span className="leading-tight">
+          <span className="block text-sm font-bold tracking-wide text-brand-navy">ALZA FLOW</span>
+          <span className="mt-1 block text-xs font-medium text-slate-500">
+            by ALZA Business Solutions LLP
+          </span>
+        </span>
       </span>
     ) : (
       <>
-        <span className="flex h-9 w-9 items-center justify-center rounded-xl gradient-alza shadow-sm">
-          <Zap className="h-5 w-5 text-white" aria-hidden="true" />
-        </span>
-        <span className="leading-tight">
-          <span className="block text-sm font-bold tracking-wide text-slate-900">ALZA FLOW</span>
-          <span className="block text-[10px] font-medium text-slate-500">
-            by ALZA Business Solutions LLP
-          </span>
+        <img
+          src={wordmark}
+          alt=""
+          width={430}
+          height={127}
+          className="mkt-wordmark mkt-wordmark--header"
+        />
+        <span className="hidden h-8 w-px bg-slate-200 sm:block" aria-hidden="true" />
+        <span className="leading-none">
+          <span className="block text-sm font-bold tracking-wide text-brand-navy">ALZA FLOW</span>
         </span>
       </>
     )
@@ -62,7 +81,9 @@ export function PublicBrandLink({
           ? `flex flex-col items-center ${className}`
           : variant === 'text'
             ? className
-            : `flex items-center gap-2.5 ${className}`
+            : variant === 'footer'
+              ? className
+      : `flex items-center gap-2.5 ${className}`
       }
       aria-label="ALZA Flow home"
     >

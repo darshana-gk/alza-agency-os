@@ -4,7 +4,7 @@ const TICKER_ITEMS = [
   'Statements compared',
   'Exceptions highlighted',
   'Producer amounts tracked',
-  'Payment status updated',
+  'Commission status updated',
   'Missing lines flagged',
   'Matched activity confirmed',
 ] as const
@@ -16,7 +16,7 @@ const JOURNEY_STEPS = [
   'Reconciliation',
   'Verified commission',
   'Producer commission',
-  'Payment status',
+  'Commission status',
 ] as const
 
 export function usePrefersReducedMotion() {
@@ -45,23 +45,53 @@ export function Reveal({
   const reduced = usePrefersReducedMotion()
 
   useEffect(() => {
-    if (reduced) {
-      setVisible(true)
-      return
-    }
     const el = ref.current
     if (!el) return
+
+    const show = () => setVisible(true)
+    if (reduced) {
+      show()
+      return
+    }
+
+    const isOnscreen = () => {
+      const rect = el.getBoundingClientRect()
+      const vh = window.innerHeight || document.documentElement.clientHeight
+      return rect.bottom > -160 && rect.top < vh + 160
+    }
+
+    if (isOnscreen()) show()
+
     const io = new IntersectionObserver(
       ([entry]) => {
-        if (entry.isIntersecting) {
-          setVisible(true)
+        if (entry.isIntersecting || entry.intersectionRatio > 0) {
+          show()
           io.disconnect()
         }
       },
-      { threshold: 0.14, rootMargin: '0px 0px -6% 0px' },
+      { threshold: 0, rootMargin: '160px 0px 160px 0px' },
     )
     io.observe(el)
-    return () => io.disconnect()
+
+    const onScrollOrResize = () => {
+      if (isOnscreen()) {
+        show()
+        window.removeEventListener('scroll', onScrollOrResize)
+        window.removeEventListener('resize', onScrollOrResize)
+      }
+    }
+    window.addEventListener('scroll', onScrollOrResize, { passive: true })
+    window.addEventListener('resize', onScrollOrResize)
+
+    // Never leave marketing content at opacity 0 if the observer misses a tall section.
+    const safety = window.setTimeout(show, 800)
+
+    return () => {
+      window.clearTimeout(safety)
+      io.disconnect()
+      window.removeEventListener('scroll', onScrollOrResize)
+      window.removeEventListener('resize', onScrollOrResize)
+    }
   }, [reduced])
 
   return (
@@ -81,17 +111,17 @@ export function MarketingOrbs({ variant = 'hero' }: { variant?: 'hero' | 'dark' 
     <div className="pointer-events-none absolute inset-0 overflow-hidden" aria-hidden="true">
       <div
         className={`mkt-orb-a absolute left-[18%] top-8 h-[28rem] w-[28rem] rounded-full blur-3xl md:h-[34rem] md:w-[34rem] ${
-          dark ? 'bg-alza-teal-400/8' : 'bg-alza-blue-300/45'
+          dark ? 'bg-brand-teal/10' : 'bg-brand-sky'
         }`}
       />
       <div
         className={`mkt-orb-b absolute -right-16 top-24 hidden h-[22rem] w-[22rem] rounded-full blur-3xl sm:block ${
-          dark ? 'bg-alza-blue-400/20' : 'bg-alza-teal-200/50'
+          dark ? 'bg-white/10' : 'bg-brand-teal/25'
         }`}
       />
       <div
         className={`mkt-orb-c absolute -left-20 bottom-0 h-[18rem] w-[18rem] rounded-full blur-3xl ${
-          dark ? 'bg-alza-blue-300/10' : 'bg-alza-blue-200/40'
+          dark ? 'bg-brand-teal/8' : 'bg-brand-sky/80'
         }`}
       />
     </div>
@@ -106,7 +136,7 @@ function TickerRow({ duplicate = false }: { duplicate?: boolean }) {
     >
       {TICKER_ITEMS.map((item) => (
         <li key={`${duplicate ? 'dup' : 'src'}-${item}`} className="flex items-center gap-3 whitespace-nowrap">
-          <span className="mkt-status-dot h-1.5 w-1.5 rounded-full bg-gradient-to-r from-alza-blue-600 to-alza-teal-500" />
+          <span className="mkt-status-dot h-1.5 w-1.5 rounded-full bg-brand-teal" />
           <span className="text-sm font-medium text-slate-600">{item}</span>
         </li>
       ))}
@@ -128,14 +158,14 @@ export function OpsTicker() {
 function FlowConnector({ axis = 'x' }: { axis?: 'x' | 'y' }) {
   if (axis === 'y') {
     return (
-      <span className="relative mx-auto my-1 block h-7 w-px overflow-hidden bg-alza-blue-200 sm:hidden" aria-hidden="true">
-        <span className="mkt-flow-pulse-y absolute left-1/2 top-0 h-3 w-1.5 -translate-x-1/2 rounded-full bg-alza-teal-500" />
+      <span className="relative mx-auto my-1 block h-7 w-px overflow-hidden bg-brand-sky sm:hidden" aria-hidden="true">
+        <span className="mkt-flow-pulse-y absolute left-1/2 top-0 h-3 w-1.5 -translate-x-1/2 rounded-full bg-brand-teal" />
       </span>
     )
   }
   return (
-    <span className="relative hidden h-px w-5 overflow-hidden bg-alza-blue-200 sm:block" aria-hidden="true">
-      <span className="mkt-flow-pulse absolute top-1/2 left-0 h-1.5 w-1.5 -translate-y-1/2 rounded-full bg-alza-teal-500" />
+    <span className="relative hidden h-px w-5 overflow-hidden bg-brand-sky sm:block" aria-hidden="true">
+      <span className="mkt-flow-pulse absolute top-1/2 left-0 h-1.5 w-1.5 -translate-y-1/2 rounded-full bg-brand-teal" />
     </span>
   )
 }
@@ -145,12 +175,13 @@ export function CommissionJourney() {
     <section id="how-it-works" className="scroll-mt-24 bg-white px-4 py-24 sm:px-6 lg:px-8 lg:py-28">
       <div className="mx-auto max-w-7xl">
         <Reveal>
-          <p className="text-xs font-semibold uppercase tracking-[0.22em] text-alza-blue-700">How it works</p>
-          <h2 className="mt-4 max-w-3xl text-3xl font-bold tracking-tight text-slate-900 sm:text-4xl lg:text-[2.5rem] lg:leading-tight">
+          <p className="text-xs font-semibold uppercase tracking-[0.22em] text-brand-teal">How it works</p>
+          <h2 className="mt-4 max-w-3xl text-3xl font-bold tracking-tight text-brand-navy sm:text-4xl lg:text-[2.5rem] lg:leading-tight">
             Keep the commission path connected.
           </h2>
           <p className="mt-5 max-w-2xl text-base leading-relaxed text-slate-600 sm:text-lg">
-            From bound transaction to verified commission to producer payout — ALZA Flow keeps the agency's commission operation connected.
+            From bound transaction to verified commission to producer commission tracking — ALZA Flow
+            keeps the agency's commission operation connected.
           </p>
         </Reveal>
         <Reveal delayMs={80} className="mt-12">
@@ -159,8 +190,8 @@ export function CommissionJourney() {
               <li key={step} className="flex flex-col items-center sm:flex-row sm:items-center">
                 {index > 0 ? <FlowConnector axis="y" /> : null}
                 {index > 0 ? <FlowConnector axis="x" /> : null}
-                <div className="w-full rounded-2xl bg-slate-50 px-4 py-4 text-center ring-1 ring-slate-200/80 sm:w-auto sm:min-w-[9.5rem] sm:px-4">
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-700">{step}</p>
+                <div className="w-full rounded-2xl bg-brand-neutral px-4 py-4 text-center ring-1 ring-slate-200/80 sm:w-auto sm:min-w-[9.5rem] sm:px-4">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-brand-navy">{step}</p>
                 </div>
               </li>
             ))}
