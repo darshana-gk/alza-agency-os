@@ -255,10 +255,16 @@ Deno.serve(async (req) => {
   if (!origin.origin) return fail('misconfigured', origin.error ?? 'APP_URL is not set.', 500)
   const redirectTo = `${origin.origin}/auth/set-password`
   const fullName = `${ownerFirst} ${ownerLast}`.trim()
+  const inviteData = {
+    full_name: fullName,
+    agency_name: agencyName,
+    role: 'Owner',
+    invited_by: 'ALZA Flow',
+  }
 
   const inviteStartedAt = Date.now()
   const invited = await admin.auth.admin.inviteUserByEmail(ownerEmail, {
-    data: { full_name: fullName },
+    data: inviteData,
     redirectTo,
   })
   let authUserId = invited.data.user?.id ?? null
@@ -279,7 +285,7 @@ Deno.serve(async (req) => {
       const linked = await admin.auth.admin.generateLink({
         type: 'invite',
         email: ownerEmail,
-        options: { data: { full_name: fullName }, redirectTo },
+        options: { data: inviteData, redirectTo },
       })
       const linkedUser = linked.data.user
       const createdAt = Date.parse(linkedUser?.created_at ?? '')
