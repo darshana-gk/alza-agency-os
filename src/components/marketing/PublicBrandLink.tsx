@@ -44,7 +44,7 @@ export function PublicBrandLink({
         <span className="mt-1 block text-xs text-slate-500">by ALZA Business Solutions LLP</span>
       </span>
     ) : variant === 'footer' ? (
-      <span className="flex flex-col items-start gap-3">
+      <span className="mkt-ft-lockup">
         <img
           src={wordmark}
           alt=""
@@ -52,8 +52,9 @@ export function PublicBrandLink({
           height={127}
           className="mkt-wordmark mkt-wordmark--footer"
         />
-        <span className="leading-tight">
-          <span className="block text-sm font-bold tracking-wide text-brand-navy">ALZA FLOW</span>
+        <span className="mkt-ft-rule" aria-hidden="true" />
+        <span className="mkt-ft-product">
+          <span className="block text-[0.95rem] font-bold tracking-wide text-brand-navy">ALZA FLOW</span>
           <span className="mt-1 block text-xs font-medium text-slate-500">
             by ALZA Business Solutions LLP
           </span>
@@ -85,7 +86,7 @@ export function PublicBrandLink({
           : variant === 'text'
             ? className
             : variant === 'footer'
-              ? className
+              ? `mkt-ft-home ${className}`.trim()
       : `flex items-center gap-2.5 ${className}`
       }
       aria-label="ALZA Flow home"

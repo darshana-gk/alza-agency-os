@@ -7,7 +7,7 @@ export function BackToTopButton() {
   const reduced = usePrefersReducedMotion()
 
   useEffect(() => {
-    const onScroll = () => setVisible(window.scrollY > 420)
+    const onScroll = () => setVisible(window.scrollY > Math.max(window.innerHeight * 1.4, 1100))
     onScroll()
     window.addEventListener('scroll', onScroll, { passive: true })
     return () => window.removeEventListener('scroll', onScroll)

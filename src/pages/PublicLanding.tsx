@@ -2,20 +2,20 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { ArrowRight, Menu, X } from 'lucide-react'
 import { BackToTopButton } from '../components/marketing/BackToTopButton'
+import { AmsRelationship } from '../components/marketing/AmsRelationship'
+import { CommissionStory } from '../components/marketing/CommissionStory'
+import { ExceptionStory } from '../components/marketing/ExceptionStory'
+import { FlowJourney } from '../components/marketing/FlowJourney'
+import { ProducerCommissionStory } from '../components/marketing/ProducerCommissionStory'
+import { ReportingStory } from '../components/marketing/ReportingStory'
 import { PublicBrandLink } from '../components/marketing/PublicBrandLink'
 import {
-  CommissionJourney,
   MarketingOrbs,
   OpsTicker,
   Reveal,
   usePrefersReducedMotion,
 } from '../components/marketing/LandingMotion'
-import {
-  DashboardProductFrame,
-  ExceptionsProductFrame,
-  ProducerProductFrame,
-  ReconciliationProductFrame,
-} from '../components/marketing/ProductPreview'
+import { DashboardProductFrame, ReconciliationProductFrame } from '../components/marketing/ProductPreview'
 import { TalkToAlzaLink } from '../components/marketing/TalkToAlzaLink'
 import {
   PUBLIC_GET_STARTED_PATH,
@@ -134,7 +134,7 @@ export function PublicLandingPage() {
       </header>
 
       <main id="main">
-        <section id="hero" className="relative overflow-hidden px-4 pb-10 pt-16 sm:px-6 sm:pt-20 lg:px-8 lg:pb-4 lg:pt-24">
+        <section id="hero" className="relative overflow-hidden px-4 pb-8 pt-14 sm:px-6 sm:pt-16 lg:px-8 lg:pb-2 lg:pt-20">
           <MarketingOrbs />
           <div className="relative mx-auto grid max-w-7xl items-center gap-12 lg:grid-cols-[minmax(0,26.5rem)_minmax(0,1fr)] lg:gap-10 xl:grid-cols-[minmax(0,28rem)_minmax(0,1fr)]">
             <div className="lg:pb-12">
@@ -150,10 +150,10 @@ export function PublicLandingPage() {
                 Reconcile carrier and MGA statements, catch commission discrepancies, track producer
                 commissions, and see what your agency has earned — all in one place.
               </p>
-              <p className="mkt-enter-4 mt-5 text-lg font-semibold leading-snug text-brand-navy">
-                <span className="block">Know what you've earned.</span>
-                <span className="block">Know what you've received.</span>
-                <span className="block">Know what's missing.</span>
+              <p className="mkt-truth">
+                <span>Know what you've earned.</span>
+                <span>Know what you've received.</span>
+                <span>Know what's missing.</span>
               </p>
               <div className="mkt-enter-5 mt-9 flex flex-col gap-3 sm:flex-row">
                 <Link
@@ -164,10 +164,10 @@ export function PublicLandingPage() {
                   <ArrowRight className="ml-2 h-4 w-4" aria-hidden="true" />
                 </Link>
                 <a
-                  href="#product"
+                  href="#how-it-works"
                   className="inline-flex h-12 items-center justify-center rounded-xl bg-white px-7 text-sm font-semibold text-brand-navy ring-1 ring-slate-200 hover:bg-brand-neutral"
                 >
-                  Explore ALZA Flow
+                  See How It Works
                 </a>
               </div>
             </div>
@@ -187,40 +187,20 @@ export function PublicLandingPage() {
 
         <OpsTicker />
 
-        <section id="problem" className="scroll-mt-24 bg-white px-4 py-24 sm:px-6 lg:px-8 lg:py-28">
-          <div className="mx-auto max-w-7xl">
-            <Reveal className="max-w-3xl">
-              <p className="text-xs font-semibold uppercase tracking-[0.22em] text-brand-teal">
-                The problem we solve
-              </p>
-              <h2 className="mt-4 text-3xl font-bold tracking-tight text-brand-navy sm:text-4xl lg:text-[2.6rem] lg:leading-tight">
-                Commission chaos, reconciled.
-              </h2>
-              <p className="mt-5 max-w-2xl text-base leading-relaxed text-slate-600 sm:text-lg">
-                Agencies can lose visibility into commissions when expected amounts, carrier and MGA
-                statements, exceptions and producer commissions are tracked across disconnected files
-                and workflows. ALZA Flow brings that activity into one reviewable commission workflow.
-              </p>
-              <TalkToAlzaLink className="mt-10 inline-flex h-12 items-center justify-center rounded-xl bg-brand-teal px-7 text-sm font-semibold text-brand-navy shadow-sm hover:opacity-90">
-                Talk to us about ALZA Flow
-                <ArrowRight className="ml-2 h-4 w-4" aria-hidden="true" />
-              </TalkToAlzaLink>
-            </Reveal>
-          </div>
-        </section>
+        <CommissionStory />
 
-        <section id="product" className="scroll-mt-24 bg-brand-neutral px-4 py-24 sm:px-6 lg:px-8 lg:py-28">
+        <section id="product" className="scroll-mt-24 bg-gradient-to-b from-brand-neutral from-70% to-white px-4 py-16 sm:px-6 lg:px-8 lg:pb-16 lg:pt-[4.5rem]">
           <div className="mx-auto max-w-7xl">
             <Reveal className="mx-auto max-w-3xl text-center">
               <h2 className="text-3xl font-bold tracking-tight text-brand-navy sm:text-4xl lg:text-[2.6rem] lg:leading-tight">
                 One place to understand your commission business.
               </h2>
-              <p className="mt-5 text-base leading-relaxed text-slate-600 sm:text-lg">
+              <p className="mt-4 text-base leading-relaxed text-slate-600 sm:text-lg">
                 From expected commissions to received payments, discrepancies, producer commissions, and
                 reporting — ALZA Flow keeps the workflow connected.
               </p>
             </Reveal>
-            <Reveal delayMs={90} className="mx-auto mt-14 w-full max-w-6xl">
+            <Reveal delayMs={80} className="mx-auto mt-8 w-full max-w-6xl">
               <div className="mkt-hover-lift">
                 <DashboardProductFrame />
               </div>
@@ -228,22 +208,22 @@ export function PublicLandingPage() {
           </div>
         </section>
 
-        <CommissionJourney />
+        <FlowJourney />
 
         <section
           id="reconciliation"
-          className="scroll-mt-24 bg-gradient-to-b from-brand-sky via-white to-white px-4 py-24 sm:px-6 lg:px-8 lg:py-28"
+          className="scroll-mt-24 bg-gradient-to-b from-brand-sky via-white to-white px-4 pb-8 pt-14 sm:px-6 lg:px-8 lg:pb-5 lg:pt-16"
         >
           <div className="mx-auto max-w-7xl">
             <Reveal>
               <p className="text-xs font-semibold uppercase tracking-[0.22em] text-brand-teal">Reconciliation</p>
-              <h2 className="mt-4 max-w-3xl text-3xl font-bold tracking-tight text-brand-navy sm:text-4xl lg:text-[2.6rem] lg:leading-tight">
+              <h2 className="mt-3 max-w-3xl text-3xl font-bold tracking-tight text-brand-navy sm:text-4xl lg:text-[2.6rem] lg:leading-tight">
                 Turn commission statements into answers.
               </h2>
-              <p className="mt-5 max-w-2xl text-base leading-relaxed text-slate-600 sm:text-lg">
+              <p className="mt-4 max-w-2xl text-base leading-relaxed text-slate-600 sm:text-lg">
                 Bring in carrier and MGA statements and compare them against what your agency expected.
               </p>
-              <div className="mt-10 flex flex-wrap gap-3">
+              <div className="mt-7 flex flex-wrap gap-3">
                 {OUTCOME_CHIPS.map((chip) => (
                   <span
                     key={chip.label}
@@ -259,7 +239,7 @@ export function PublicLandingPage() {
                 ))}
               </div>
             </Reveal>
-            <Reveal delayMs={80} className="mt-14 w-full">
+            <Reveal delayMs={80} className="mt-7 w-full">
               <div className="mkt-hover-lift">
                 <ReconciliationProductFrame />
               </div>
@@ -267,164 +247,47 @@ export function PublicLandingPage() {
           </div>
         </section>
 
-        <section id="exceptions" className="scroll-mt-24 bg-white px-4 py-24 sm:px-6 lg:px-8 lg:py-28">
-          <div className="relative mx-auto max-w-7xl lg:min-h-[38rem]">
-            <Reveal className="lg:ml-[32%] lg:w-[68%]">
-              <ExceptionsProductFrame />
-            </Reveal>
-            <Reveal className="mt-10 rounded-3xl bg-white p-8 shadow-[0_24px_80px_-28px_rgba(15,23,42,0.35)] ring-1 ring-slate-200 lg:absolute lg:left-0 lg:top-16 lg:mt-0 lg:w-[38%] lg:p-10">
-              <p className="text-xs font-semibold uppercase tracking-[0.22em] text-brand-teal">Exceptions</p>
-              <h2 className="mt-4 text-3xl font-bold tracking-tight text-brand-navy sm:text-[2.15rem] sm:leading-tight">
-                Spot the commissions that need attention.
-              </h2>
-              <p className="mt-4 text-base leading-relaxed text-slate-600">
-                ALZA Flow surfaces missing, underpaid, overpaid, and unmatched activity so your team can focus
-                on the exceptions instead of searching for them.
-              </p>
-            </Reveal>
-          </div>
-        </section>
+        <ExceptionStory />
 
-        <section id="producers" className="scroll-mt-24 bg-brand-sky/60 px-4 py-24 sm:px-6 lg:px-8 lg:py-28">
-          <div className="mx-auto max-w-7xl">
-            <Reveal className="max-w-2xl">
-              <p className="text-xs font-semibold uppercase tracking-[0.22em] text-brand-teal">Producer commissions</p>
-              <h2 className="mt-4 text-3xl font-bold tracking-tight text-brand-navy sm:text-4xl lg:text-[2.6rem] lg:leading-tight">
-                Producer commissions,
-                <br />
-                without the spreadsheet chase.
-              </h2>
-              <p className="mt-5 text-base leading-relaxed text-slate-600 sm:text-lg">
-                Track producer commissions, approval status, and commission amounts in the same operational
-                workflow.
-              </p>
-              <p className="mt-4 text-sm font-medium text-brand-navy">
-                From commission earned to commission status, keep the trail clear.
-              </p>
-            </Reveal>
-            <Reveal delayMs={80} className="mt-14 w-full">
-              <div className="mkt-hover-lift">
-                <ProducerProductFrame />
-              </div>
-            </Reveal>
-          </div>
-        </section>
+        <ProducerCommissionStory />
 
-        <section
-          id="reporting"
-          className="relative scroll-mt-24 overflow-hidden bg-brand-navy px-4 py-24 sm:px-6 lg:px-8 lg:py-32"
-        >
-          <MarketingOrbs variant="dark" />
-          <div className="relative mx-auto max-w-7xl">
-            <Reveal className="relative max-w-3xl">
-              <div
-                className="pointer-events-none absolute -inset-x-4 -inset-y-3 rounded-3xl bg-gradient-to-r from-brand-navy/90 via-brand-navy/70 to-transparent sm:-inset-x-6"
-                aria-hidden="true"
-              />
-              <div className="relative">
-                <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[#7ee8de]">Dashboard</p>
-                <h2 className="mt-4 text-3xl font-bold tracking-tight text-white sm:text-4xl lg:text-[2.7rem] lg:leading-tight">
-                  See the business behind your commissions.
-                </h2>
-                <p className="mt-5 max-w-2xl text-base leading-relaxed text-white/80 sm:text-lg">
-                  Understand agency commission revenue, producer commissions, discrepancies, and commission
-                  status from one operational view.
-                </p>
-              </div>
-            </Reveal>
-            <Reveal delayMs={80} className="mt-14 w-full">
-              <div className="mkt-hover-lift">
-                <DashboardProductFrame />
-              </div>
-            </Reveal>
-          </div>
-        </section>
+        <ReportingStory />
 
-        <section id="positioning" className="scroll-mt-24 bg-white px-4 py-24 sm:px-6 lg:px-8 lg:py-28">
-          <div className="mx-auto max-w-7xl">
-            <Reveal>
-              <p className="text-xs font-semibold uppercase tracking-[0.22em] text-brand-teal">
-                Built for insurance agencies
-              </p>
-              <h2 className="mt-4 max-w-3xl text-3xl font-bold tracking-tight text-brand-navy sm:text-4xl lg:text-[2.6rem] lg:leading-tight">
-                Keep your AMS.
-                <br />
-                Give commissions their own workflow.
-              </h2>
-              <p className="mt-5 max-w-2xl text-base leading-relaxed text-slate-600 sm:text-lg">
-                ALZA Flow works alongside your existing systems, giving your team one place for reconciliation,
-                discrepancies, producer commissions, and reporting.
-              </p>
-              <p className="mt-6 text-lg font-semibold text-brand-navy">No AMS replacement required.</p>
-            </Reveal>
-            <Reveal delayMs={80} className="mt-14 flex flex-col items-stretch gap-5 lg:flex-row lg:items-center">
-              <div className="flex-1 rounded-3xl bg-brand-neutral p-8">
-                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
-                  Your existing systems
-                </p>
-                <ul className="mt-6 space-y-3 text-base text-slate-700">
-                  <li>Policies</li>
-                  <li>Clients</li>
-                  <li>Documents</li>
-                </ul>
-              </div>
-              <p className="hidden text-2xl font-semibold text-slate-300 lg:block" aria-hidden="true">
-                →
-              </p>
-              <p className="text-center text-sm font-semibold uppercase tracking-[0.16em] text-slate-400 lg:hidden">
-                to
-              </p>
-              <div className="flex-1 rounded-3xl bg-brand-navy p-8 text-white shadow-xl">
-                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-brand-teal">ALZA Flow</p>
-                <ul className="mt-6 space-y-3 text-base">
-                  <li>Reconciliation</li>
-                  <li>Discrepancies</li>
-                  <li>Producer commissions</li>
-                  <li>Reporting</li>
-                </ul>
-              </div>
-            </Reveal>
-          </div>
-        </section>
+        <AmsRelationship />
 
-        <section id="get-started" className="bg-brand-navy px-4 py-20 sm:px-6 lg:px-8 lg:py-24">
+        <section id="get-started" className="bg-brand-navy px-4 py-14 sm:px-6 lg:px-8 lg:py-[4.5rem]">
           <Reveal className="mx-auto max-w-3xl text-center">
             <h2 className="text-3xl font-bold tracking-tight text-white sm:text-4xl sm:leading-tight">
               Ready to make your commission operations easier?
             </h2>
-            <div className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row">
+            <div className="mt-7 flex flex-col items-center justify-center gap-4 sm:flex-row">
               <Link
                 to={PUBLIC_GET_STARTED_PATH}
                 className="inline-flex h-12 w-full items-center justify-center rounded-xl bg-brand-teal px-7 text-sm font-semibold text-brand-navy hover:opacity-90 sm:w-auto"
               >
                 Get Started
               </Link>
-              <Link
-                to={PUBLIC_GET_STARTED_PATH}
-                className="inline-flex h-12 w-full items-center justify-center rounded-xl border border-white/20 bg-white/5 px-7 text-sm font-semibold text-white hover:bg-white/10 sm:w-auto"
-              >
-                View Pricing
-              </Link>
+              <TalkToAlzaLink className="inline-flex h-12 w-full items-center justify-center rounded-xl border border-white/20 bg-white/5 px-7 text-sm font-semibold text-white hover:bg-white/10 sm:w-auto">
+                Talk to Us
+              </TalkToAlzaLink>
             </div>
-            <p className="mt-6 text-sm text-white/60">
-              <TalkToAlzaLink className="font-medium text-white/85 hover:text-white">Talk to us</TalkToAlzaLink>
-            </p>
           </Reveal>
         </section>
       </main>
 
-      <footer className="border-t border-slate-200 bg-white px-4 py-10 sm:px-6 lg:px-8">
-        <div className="mx-auto flex max-w-7xl flex-col gap-6 sm:flex-row sm:items-end sm:justify-between">
-          <div>
+      <footer className="border-t border-slate-200 bg-white px-4 py-9 sm:px-6 lg:px-8">
+        <div className="mkt-ft">
+          <div className="mkt-ft-brand">
             <PublicBrandLink variant="footer" />
-            <p className="mt-5 text-[10px] font-semibold uppercase tracking-[0.2em] text-brand-teal">
-              Operations. Talent. Technology.
-            </p>
-            <p className="mt-1.5 max-w-xs text-xs tracking-[0.02em] text-slate-500">
-              A more efficient. More connected tomorrow.
-            </p>
+            <div className="mkt-ft-tag">
+              <p className="mkt-ft-kicker">
+                OPERATIONS <span className="mkt-ft-dot">•</span> TALENT <span className="mkt-ft-dot">•</span>{' '}
+                TECHNOLOGY <span className="mkt-ft-dot">•</span>
+              </p>
+              <p className="mkt-ft-line">A More Efficient. More Connected Tomorrow.</p>
+            </div>
           </div>
-          <nav className="flex flex-wrap gap-x-5 gap-y-2 text-sm text-slate-600" aria-label="Footer">
+          <nav className="mkt-ft-nav" aria-label="Footer">
             <Link to={PUBLIC_GET_STARTED_PATH} className="hover:text-brand-navy">
               Pricing
             </Link>

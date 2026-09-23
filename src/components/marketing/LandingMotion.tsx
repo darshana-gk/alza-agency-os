@@ -31,6 +31,25 @@ export function usePrefersReducedMotion() {
   return reduced
 }
 
+export function observeSectionPlay(
+  el: Element,
+  play: () => void,
+  { ratio = 0.2 }: { ratio?: number } = {},
+) {
+  const visibleEnough = (entry: IntersectionObserverEntry) => entry.intersectionRatio >= ratio
+
+  const io = new IntersectionObserver(
+    ([entry]) => {
+      if (!visibleEnough(entry)) return
+      play()
+      io.disconnect()
+    },
+    { threshold: [0, 0.12, 0.2, 0.28, 0.35, 0.5], rootMargin: '0px 0px -8% 0px' },
+  )
+  io.observe(el)
+  return () => io.disconnect()
+}
+
 export function Reveal({
   children,
   className = '',
@@ -54,44 +73,7 @@ export function Reveal({
       return
     }
 
-    const isOnscreen = () => {
-      const rect = el.getBoundingClientRect()
-      const vh = window.innerHeight || document.documentElement.clientHeight
-      return rect.bottom > -160 && rect.top < vh + 160
-    }
-
-    if (isOnscreen()) show()
-
-    const io = new IntersectionObserver(
-      ([entry]) => {
-        if (entry.isIntersecting || entry.intersectionRatio > 0) {
-          show()
-          io.disconnect()
-        }
-      },
-      { threshold: 0, rootMargin: '160px 0px 160px 0px' },
-    )
-    io.observe(el)
-
-    const onScrollOrResize = () => {
-      if (isOnscreen()) {
-        show()
-        window.removeEventListener('scroll', onScrollOrResize)
-        window.removeEventListener('resize', onScrollOrResize)
-      }
-    }
-    window.addEventListener('scroll', onScrollOrResize, { passive: true })
-    window.addEventListener('resize', onScrollOrResize)
-
-    // Never leave marketing content at opacity 0 if the observer misses a tall section.
-    const safety = window.setTimeout(show, 800)
-
-    return () => {
-      window.clearTimeout(safety)
-      io.disconnect()
-      window.removeEventListener('scroll', onScrollOrResize)
-      window.removeEventListener('resize', onScrollOrResize)
-    }
+    return observeSectionPlay(el, show, { ratio: 0.14 })
   }, [reduced])
 
   return (

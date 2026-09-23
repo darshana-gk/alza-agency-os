@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { PublicMarketingHeader } from '../components/marketing/TalkToAlzaLink'
+import { PublicMarketingFooter, PublicMarketingHeader } from '../components/marketing/TalkToAlzaLink'
 import {
   parseSalesInquirySource,
   SALES_INQUIRY_HONEYPOT_FIELD,
@@ -77,157 +77,163 @@ export function ContactSalesPage() {
   }
 
   return (
-    <div className="relative min-h-screen overflow-x-hidden bg-brand-neutral">
-      <div className="pointer-events-none absolute inset-0">
-        <div className="absolute -left-24 top-0 h-72 w-72 rounded-full bg-brand-sky blur-3xl" />
-        <div className="absolute right-0 top-24 h-80 w-80 rounded-full bg-brand-teal/20 blur-3xl" />
-      </div>
+    <div className="mkt-conv min-h-screen overflow-x-hidden bg-white text-brand-navy">
       <PublicMarketingHeader />
 
-      <main className="relative mx-auto w-full max-w-2xl px-4 py-14 sm:px-6 lg:py-20">
-        <p className="mkt-eyebrow">Contact</p>
-        <h1 className="mkt-display mt-4 text-3xl sm:text-4xl">Talk to ALZA</h1>
-        <p className="mt-4 max-w-xl text-base text-slate-600">
-          Tell us a little about your agency and we'll get back to you.
-        </p>
+      <main className="relative">
+        <div className="pointer-events-none absolute inset-x-0 top-0 h-[22rem] bg-gradient-to-b from-brand-sky/70 to-white" />
 
-        {received ? (
-          <div className="mt-10 rounded-3xl border border-slate-200 bg-white p-8 shadow-[0_18px_50px_-28px_rgba(15,23,42,0.35)]">
-            <p className="text-xl font-semibold text-brand-navy">Inquiry received.</p>
-            <p className="mt-3 text-sm leading-relaxed text-slate-600">{RECEIVED_COPY}</p>
-            {acknowledged ? (
-              <p className="mt-4 text-sm text-slate-500">We've also sent a confirmation to your work email.</p>
-            ) : null}
-          </div>
-        ) : (
-          <form className="mt-10 rounded-3xl border border-slate-200 bg-white p-6 shadow-[0_18px_50px_-28px_rgba(15,23,42,0.35)] sm:p-8" onSubmit={handleSubmit} noValidate>
-            <div className="mkt-hp" aria-hidden="true">
-              <input
-                id={SALES_INQUIRY_HONEYPOT_FIELD}
-                name={SALES_INQUIRY_HONEYPOT_FIELD}
-                tabIndex={-1}
-                autoComplete="off"
-                value={honeypot}
-                onChange={(e) => setHoneypot(e.target.value)}
-              />
+        <div className="relative mx-auto w-full max-w-3xl px-4 py-14 sm:px-6 lg:py-[4.5rem]">
+          <p className="mkt-eyebrow">Contact</p>
+          <h1 className="mkt-display mt-4 text-[2.15rem] sm:text-4xl lg:text-[2.75rem]">
+            Talk to us about ALZA Flow
+          </h1>
+          <p className="mt-5 max-w-xl text-base leading-relaxed text-slate-600">
+            Tell us a little about your agency and we'll get back to you.
+          </p>
+
+          {received ? (
+            <div className="mkt-contact-sheet mt-10 p-8">
+              <p className="text-xl font-semibold text-brand-navy">Inquiry received.</p>
+              <p className="mt-3 text-sm leading-relaxed text-slate-600">{RECEIVED_COPY}</p>
+              {acknowledged ? (
+                <p className="mt-4 text-sm text-slate-500">We've also sent a confirmation to your work email.</p>
+              ) : null}
             </div>
+          ) : (
+            <form className="mkt-contact-sheet mt-10 p-6 sm:p-8" onSubmit={handleSubmit} noValidate>
+              <div className="mkt-hp" aria-hidden="true">
+                <input
+                  id={SALES_INQUIRY_HONEYPOT_FIELD}
+                  name={SALES_INQUIRY_HONEYPOT_FIELD}
+                  tabIndex={-1}
+                  autoComplete="off"
+                  value={honeypot}
+                  onChange={(e) => setHoneypot(e.target.value)}
+                />
+              </div>
 
-            <div className="grid gap-5">
-              <Field label="Full Name" htmlFor="fullName" required>
-                <input
-                  id="fullName"
-                  name="fullName"
-                  autoComplete="name"
-                  required
-                  maxLength={SALES_INQUIRY_LIMITS.fullName}
-                  value={fullName}
-                  onChange={(e) => setFullName(e.target.value)}
-                  className={inputClass}
-                />
-              </Field>
-              <Field label="Work Email" htmlFor="workEmail" required>
-                <input
-                  id="workEmail"
-                  name="workEmail"
-                  type="email"
-                  autoComplete="email"
-                  required
-                  maxLength={SALES_INQUIRY_LIMITS.workEmail}
-                  value={workEmail}
-                  onChange={(e) => setWorkEmail(e.target.value)}
-                  className={inputClass}
-                />
-              </Field>
-              <Field label="Company Name" htmlFor="companyName" required>
-                <input
-                  id="companyName"
-                  name="agencyName"
-                  autoComplete="organization"
-                  required
-                  maxLength={SALES_INQUIRY_LIMITS.agencyName}
-                  value={agencyName}
-                  onChange={(e) => setAgencyName(e.target.value)}
-                  className={inputClass}
-                />
-              </Field>
-              <Field label="Job Title / Designation" htmlFor="jobTitle" required>
-                <input
-                  id="jobTitle"
-                  name="jobTitle"
-                  autoComplete="organization-title"
-                  required
-                  maxLength={SALES_INQUIRY_LIMITS.jobTitle}
-                  placeholder="e.g. Agency Owner, Operations Manager"
-                  value={jobTitle}
-                  onChange={(e) => setJobTitle(e.target.value)}
-                  className={inputClass}
-                />
-              </Field>
-              <Field label="Number of Users" htmlFor="userBand" required>
-                <select
-                  id="userBand"
-                  name="userBand"
-                  required
-                  value={userBand}
-                  onChange={(e) => setUserBand(e.target.value)}
-                  className={inputClass}
-                >
-                  <option value="">Select a range</option>
-                  {SALES_INQUIRY_USER_BANDS.map((band) => (
-                    <option key={band} value={band}>
-                      {band === '500+' ? '500+' : band.replace('-', '–')}
-                    </option>
-                  ))}
-                </select>
-              </Field>
-              <Field label="Phone" htmlFor="phone">
-                <input
-                  id="phone"
-                  name="phone"
-                  type="tel"
-                  autoComplete="tel"
-                  maxLength={SALES_INQUIRY_LIMITS.phone}
-                  value={phone}
-                  onChange={(e) => setPhone(e.target.value)}
-                  className={inputClass}
-                />
-              </Field>
-              <Field label="Message / What can we help with?" htmlFor="message" required>
-                <textarea
-                  id="message"
-                  name="message"
-                  rows={5}
-                  required
-                  minLength={SALES_INQUIRY_LIMITS.messageMin}
-                  maxLength={SALES_INQUIRY_LIMITS.message}
-                  value={message}
-                  onChange={(e) => setMessage(e.target.value)}
-                  className={`${inputClass} min-h-[8rem] resize-y`}
-                />
-              </Field>
-              <label className="flex items-start gap-3 text-sm text-slate-700">
-                <input
-                  type="checkbox"
-                  className="mt-1 h-4 w-4 rounded border-slate-300 text-brand-teal"
-                  checked={consent}
-                  onChange={(e) => setConsent(e.target.checked)}
-                />
-                <span>I agree to be contacted by ALZA regarding my inquiry.</span>
-              </label>
-            </div>
+              <div className="grid gap-5 sm:grid-cols-2">
+                <Field label="Full Name" htmlFor="fullName" required>
+                  <input
+                    id="fullName"
+                    name="fullName"
+                    autoComplete="name"
+                    required
+                    maxLength={SALES_INQUIRY_LIMITS.fullName}
+                    value={fullName}
+                    onChange={(e) => setFullName(e.target.value)}
+                    className={inputClass}
+                  />
+                </Field>
+                <Field label="Work Email" htmlFor="workEmail" required>
+                  <input
+                    id="workEmail"
+                    name="workEmail"
+                    type="email"
+                    autoComplete="email"
+                    required
+                    maxLength={SALES_INQUIRY_LIMITS.workEmail}
+                    value={workEmail}
+                    onChange={(e) => setWorkEmail(e.target.value)}
+                    className={inputClass}
+                  />
+                </Field>
+                <Field label="Company Name" htmlFor="companyName" required>
+                  <input
+                    id="companyName"
+                    name="agencyName"
+                    autoComplete="organization"
+                    required
+                    maxLength={SALES_INQUIRY_LIMITS.agencyName}
+                    value={agencyName}
+                    onChange={(e) => setAgencyName(e.target.value)}
+                    className={inputClass}
+                  />
+                </Field>
+                <Field label="Job Title / Designation" htmlFor="jobTitle" required>
+                  <input
+                    id="jobTitle"
+                    name="jobTitle"
+                    autoComplete="organization-title"
+                    required
+                    maxLength={SALES_INQUIRY_LIMITS.jobTitle}
+                    placeholder="e.g. Agency Owner, Operations Manager"
+                    value={jobTitle}
+                    onChange={(e) => setJobTitle(e.target.value)}
+                    className={inputClass}
+                  />
+                </Field>
+                <Field label="Number of Users" htmlFor="userBand" required>
+                  <select
+                    id="userBand"
+                    name="userBand"
+                    required
+                    value={userBand}
+                    onChange={(e) => setUserBand(e.target.value)}
+                    className={inputClass}
+                  >
+                    <option value="">Select a range</option>
+                    {SALES_INQUIRY_USER_BANDS.map((band) => (
+                      <option key={band} value={band}>
+                        {band === '500+' ? '500+' : band.replace('-', '–')}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+                <Field label="Phone" htmlFor="phone">
+                  <input
+                    id="phone"
+                    name="phone"
+                    type="tel"
+                    autoComplete="tel"
+                    maxLength={SALES_INQUIRY_LIMITS.phone}
+                    value={phone}
+                    onChange={(e) => setPhone(e.target.value)}
+                    className={inputClass}
+                  />
+                </Field>
+                <div className="sm:col-span-2">
+                  <Field label="Message / What can we help with?" htmlFor="message" required>
+                    <textarea
+                      id="message"
+                      name="message"
+                      rows={5}
+                      required
+                      minLength={SALES_INQUIRY_LIMITS.messageMin}
+                      maxLength={SALES_INQUIRY_LIMITS.message}
+                      value={message}
+                      onChange={(e) => setMessage(e.target.value)}
+                      className={`${inputClass} min-h-[8rem] resize-y`}
+                    />
+                  </Field>
+                </div>
+                <label className="flex items-start gap-3 text-sm text-slate-700 sm:col-span-2">
+                  <input
+                    type="checkbox"
+                    className="mt-1 h-4 w-4 rounded border-slate-300 text-brand-teal"
+                    checked={consent}
+                    onChange={(e) => setConsent(e.target.checked)}
+                  />
+                  <span>I agree to be contacted by ALZA regarding my inquiry.</span>
+                </label>
+              </div>
 
-            {error ? <p className="mt-5 text-sm text-red-700">{error}</p> : null}
+              {error ? <p className="mt-5 text-sm text-red-700">{error}</p> : null}
 
-            <button
-              type="submit"
-              disabled={submitting}
-              className="mkt-btn mkt-btn-primary mt-8 inline-flex h-12 w-full items-center justify-center text-sm disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {submitting ? 'Sending…' : 'Send Inquiry'}
-            </button>
-          </form>
-        )}
+              <button
+                type="submit"
+                disabled={submitting}
+                className="mt-8 inline-flex h-12 w-full items-center justify-center rounded-xl bg-brand-teal px-7 text-sm font-semibold text-brand-navy shadow-sm hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {submitting ? 'Sending…' : 'Send Inquiry'}
+              </button>
+            </form>
+          )}
+        </div>
       </main>
+
+      <PublicMarketingFooter />
     </div>
   )
 }
