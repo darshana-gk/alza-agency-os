@@ -8,7 +8,7 @@ import {
   validateSelfServeSignupProfile,
 } from '../lib/selfServeSignup'
 import { purchaseIntentFromSearchParams } from '../lib/purchaseIntent'
-import { PUBLIC_LOGIN_PATH } from '../lib/publicSite'
+import { PUBLIC_LOGIN_PATH, PUBLIC_PRICING_PATH } from '../lib/publicSite'
 import { quoteBillingSelection } from '../lib/billingCatalog'
 
 export function SignupPage() {
@@ -38,7 +38,7 @@ export function SignupPage() {
   }, [intent])
 
   useEffect(() => {
-    document.title = 'Create account · ALZA Flow'
+    document.title = 'Continue to checkout · ALZA Flow'
   }, [])
 
   if (status === 'authenticated') {
@@ -46,6 +46,10 @@ export function SignupPage() {
       ? `/admin/subscription-billing?plan_key=${encodeURIComponent(intent.planKey)}`
       : '/admin/subscription-billing'
     return <Navigate to={billingTarget} replace />
+  }
+
+  if (!intent) {
+    return <Navigate to={PUBLIC_PRICING_PATH} replace />
   }
 
   async function handleSubmit(e: FormEvent) {
@@ -114,7 +118,7 @@ export function SignupPage() {
           <PublicBrandLink variant="stacked" />
           <h1 className="sr-only">ALZA FLOW</h1>
           <p className="mt-3 text-sm text-slate-600">
-            Create your company account to get started.
+            Enter your details to continue to checkout for your selected plan.
           </p>
         </div>
 
@@ -239,7 +243,7 @@ export function SignupPage() {
               disabled={loading}
               className="inline-flex h-11 w-full items-center justify-center rounded-lg bg-brand-teal text-sm font-medium text-brand-navy shadow-sm transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
             >
-              {loading ? 'Creating account…' : 'Create account'}
+              {loading ? 'Continuing to checkout…' : 'Continue to Checkout'}
             </button>
 
             <p className="text-center text-sm text-slate-600">
@@ -257,7 +261,7 @@ export function SignupPage() {
         </div>
 
         <p className="mt-6 text-center text-xs text-slate-500">
-          New customers can create an account here. Invited teammates still use the invite email.
+          Checkout opens after you submit these details. Invited teammates still use the invite email.
         </p>
       </div>
     </div>

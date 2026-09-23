@@ -765,6 +765,9 @@ export function SubscriptionBillingPage() {
                     )}
                     {!isActive && (primaryAction === 'subscribe' || primaryAction === 'resume') && (
                       <>
+                        <p className="text-sm text-slate-600">
+                          Complete checkout for your selected plan to activate your workspace.
+                        </p>
                         <button
                           type="button"
                           data-testid="billing-checkout-cta"
@@ -781,7 +784,7 @@ export function SubscriptionBillingPage() {
                               ? 'Resume Payment'
                               : checkoutCta === 'Change Plan'
                                 ? 'Change Plan'
-                                : 'Continue to Checkout'}
+                                : 'Proceed to Secure Checkout'}
                         </button>
                         {allowCheckout || canResume ? (
                           <p className="text-center text-xs text-slate-500">

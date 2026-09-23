@@ -206,9 +206,14 @@ console.log('D. Pricing page + App route wiring present')
   assert(signup.includes('Work Email'), 'signup Work Email label')
   assert(signup.includes('Work Phone'), 'signup Work Phone field')
   assert(signup.includes('Confirm Password'), 'signup Confirm Password label')
-  assert(signup.includes('Create your company account to get started.'), 'signup intro copy')
   assert(
-    signup.includes('New customers can create an account here. Invited teammates still use the invite email.'),
+    signup.includes('Enter your details to continue to checkout for your selected plan.'),
+    'signup intro copy',
+  )
+  assert(signup.includes('Continue to Checkout'), 'signup CTA continues to checkout')
+  assert(signup.includes('PUBLIC_PRICING_PATH'), 'bare signup without plan_key returns to pricing')
+  assert(
+    signup.includes('Checkout opens after you submit these details. Invited teammates still use the invite email.'),
     'signup invited-teammate note',
   )
   assert(!signup.includes('Your name'), 'old Your name label removed')

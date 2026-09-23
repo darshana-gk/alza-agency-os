@@ -5,6 +5,7 @@ import {
   customerFacingRestriction,
   evaluateSubscriptionAccess,
   isAllowedWhileRestricted,
+  isSelfServeCheckoutPending,
   isSubscriptionInPeriod,
 } from '../src/lib/subscriptionAccess.ts'
 
@@ -85,6 +86,12 @@ assert(!isAllowedWhileRestricted('/clients'), 'clients blocked')
 assert(!isAllowedWhileRestricted('/onboarding'), 'onboarding blocked')
 assert(!isAllowedWhileRestricted('/admin/users'), 'users blocked')
 assert(!isAllowedWhileRestricted('/admin/agencies'), 'agencies not customer-allowed')
+assert(isSelfServeCheckoutPending('pending'), 'incomplete/created maps to checkout continuation')
+assert(!isSelfServeCheckoutPending('none'), 'no-billing admin path is not checkout continuation')
+assert(!isSelfServeCheckoutPending('cancelled'), 'cancelled is not checkout continuation')
+assert(!isSelfServeCheckoutPending('expired'), 'expired is not checkout continuation')
+assert(!isSelfServeCheckoutPending('past_due'), 'past_due is not checkout continuation')
+assert(!isSelfServeCheckoutPending('unavailable'), 'error is not checkout continuation')
 
 const noneCopy = customerFacingRestriction('none')
 assert(noneCopy.heading === 'Your ALZA Flow workspace is being activated', 'activation heading')
@@ -94,6 +101,16 @@ assert(customerFacingRestriction('cancelled').heading !== noneCopy.heading, 'can
 assert(customerFacingRestriction('expired').heading !== noneCopy.heading, 'expired copy differs')
 assert(customerFacingRestriction('past_due').heading !== noneCopy.heading, 'past_due copy differs')
 assert(customerFacingRestriction('unavailable').stateLabel.includes('temporarily unavailable'), 'error copy')
+assert(
+  customerFacingRestriction('pending').heading === 'Complete your subscription to activate ALZA Flow',
+  'pending self-serve heading',
+)
+assert(
+  customerFacingRestriction('pending').body.includes('Complete checkout for your selected plan'),
+  'pending self-serve body',
+)
+assert(!customerFacingRestriction('pending').body.includes('ALZA will enable'), 'pending copy is not staff-activation')
+assert(noneCopy.body.includes('ALZA will enable'), 'admin/manual none copy still staff-activation')
 
 if (failed) {
   console.error(`subscription access gate validator FAIL ${failed}`)

@@ -4,7 +4,7 @@ import { PublicBrandLink } from '../components/marketing/PublicBrandLink'
 import { useAuth } from '../lib/auth'
 import { passwordRecoveryRequestErrorMessage } from '../lib/passwordRecovery'
 import { supabase } from '../lib/supabase'
-import { PUBLIC_PRICING_PATH, PUBLIC_SIGNUP_PATH } from '../lib/publicSite'
+import { PUBLIC_PRICING_PATH } from '../lib/publicSite'
 
 export function LoginPage() {
   const { signIn } = useAuth()
@@ -142,7 +142,7 @@ export function LoginPage() {
                 View pricing
               </Link>
               {' · '}
-              <Link to={PUBLIC_SIGNUP_PATH} className="font-medium text-brand-teal hover:underline">
+              <Link to={PUBLIC_PRICING_PATH} className="font-medium text-brand-teal hover:underline">
                 Create an account
               </Link>
             </p>
@@ -150,7 +150,7 @@ export function LoginPage() {
         </div>
 
         <p className="mt-6 text-center text-xs text-slate-500">
-          Invited teammates use the invite email. New agencies can create an account to get started.
+          Invited teammates use the invite email. New agencies choose a plan on pricing, then continue to checkout.
         </p>
       </div>
     </div>

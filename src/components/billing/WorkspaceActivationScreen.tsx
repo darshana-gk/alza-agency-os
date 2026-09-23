@@ -48,7 +48,7 @@ export function WorkspaceActivationScreen({
           to="/admin/subscription-billing"
           className="inline-flex h-11 items-center justify-center rounded-lg border border-slate-200 bg-white text-sm font-medium text-slate-800 hover:bg-slate-50"
         >
-          Subscription & Billing
+          {reason === 'pending' ? 'Proceed to Secure Checkout' : 'Subscription & Billing'}
         </Link>
         <Link
           to="/support"

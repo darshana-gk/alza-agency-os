@@ -77,7 +77,9 @@ console.log('B. Signup page + pipeline wiring')
   assert(signup.includes('Confirm Password'), 'Confirm Password')
   assert(!signup.includes('Number of Users'), 'no Number of Users on signup')
   assert(!signup.includes('flow_1_3_monthly'), 'SKU hidden on signup page')
-  assert(signup.includes('intentQuote.displayPrice'), 'selected plan price')
+  assert(signup.includes('Continue to Checkout'), 'signup CTA continues to checkout')
+  assert(signup.includes('PUBLIC_PRICING_PATH'), 'signup without plan_key routes to pricing')
+  assert(!signup.includes("'Create account'"), 'old Create account CTA removed')
   assert(signup.includes('validateSelfServeSignupProfile'), 'client uses shared validator')
   {
     const order = [

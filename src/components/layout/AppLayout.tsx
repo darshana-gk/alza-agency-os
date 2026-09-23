@@ -5,7 +5,7 @@ import { Header } from './Header'
 import { X } from 'lucide-react'
 import { WorkspaceActivationScreen } from '@/components/billing/WorkspaceActivationScreen'
 import { useSubscriptionAccess } from '@/lib/subscriptionAccessContext'
-import { isAllowedWhileRestricted } from '@/lib/subscriptionAccess'
+import { isAllowedWhileRestricted, isSelfServeCheckoutPending } from '@/lib/subscriptionAccess'
 
 const pageTitles: Record<string, { title: string; subtitle?: string }> = {
   '/': { title: 'Dashboard', subtitle: 'Overview of your agency performance' },
@@ -59,7 +59,12 @@ export function AppLayout() {
   const gate = useSubscriptionAccess()
   const restricted = gate.applies && gate.state !== 'ACTIVE'
   const allowedWhileRestricted = isAllowedWhileRestricted(location.pathname)
+  const continueSelfServeCheckout =
+    restricted && isSelfServeCheckoutPending(gate.reason) && !allowedWhileRestricted
   const pageInfo = useMemo(() => {
+    if (continueSelfServeCheckout) {
+      return pageTitles['/admin/subscription-billing']
+    }
     if (restricted && !allowedWhileRestricted) {
       return {
         title: 'Workspace activation',
@@ -79,7 +84,7 @@ export function AppLayout() {
       }
     }
     return pageTitles[location.pathname] ?? { title: 'ALZA Flow' }
-  }, [location.pathname, restricted, allowedWhileRestricted])
+  }, [location.pathname, restricted, allowedWhileRestricted, continueSelfServeCheckout])
 
   useEffect(() => {
     const pageName = pageInfo.title.trim()
@@ -126,6 +131,8 @@ export function AppLayout() {
             <div className="mx-auto max-w-xl rounded-2xl border border-slate-200 bg-white p-8 text-sm text-slate-600 shadow-sm">
               Checking workspace activation…
             </div>
+          ) : continueSelfServeCheckout ? (
+            <Navigate to="/admin/subscription-billing" replace />
           ) : restricted && !allowedWhileRestricted ? (
             <>
               {location.pathname !== '/' ? <Navigate to="/" replace /> : null}

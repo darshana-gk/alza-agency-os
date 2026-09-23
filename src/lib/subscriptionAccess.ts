@@ -155,11 +155,23 @@ export function customerFacingRestriction(reason: RestrictedReason): {
       stateLabel: 'Status temporarily unavailable',
     }
   }
+  if (reason === 'pending') {
+    return {
+      heading: 'Complete your subscription to activate ALZA Flow',
+      body: 'Your account details are ready. Complete checkout for your selected plan to activate your workspace.',
+      stateLabel: 'Checkout required',
+    }
+  }
   return {
     heading: 'Your ALZA Flow workspace is being activated',
     body: 'Your account has been created successfully. ALZA will enable your workspace once your subscription setup is complete.',
-    stateLabel: reason === 'pending' ? 'Activation in progress' : 'Not activated yet',
+    stateLabel: 'Not activated yet',
   }
+}
+
+/** Incomplete/created checkout — not cancelled, expired, or admin-provisioned with no billing row. */
+export function isSelfServeCheckoutPending(reason: RestrictedReason): boolean {
+  return reason === 'pending'
 }
 
 export function isAllowedWhileRestricted(pathname: string): boolean {
