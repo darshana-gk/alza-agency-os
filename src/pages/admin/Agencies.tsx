@@ -150,11 +150,11 @@ export function AgenciesPage() {
         <h2 className="text-sm font-semibold text-slate-900">Create Customer</h2>
         <div className="mt-4 grid gap-3 sm:grid-cols-2">
           <label className="text-sm text-slate-700">
-            Agency Name *
+            Company Name *
             <input className={fieldClass} required value={form.agencyName} onChange={(e) => setForm((f) => ({ ...f, agencyName: e.target.value }))} />
           </label>
           <label className="text-sm text-slate-700">
-            Agency Email *
+            Company Email *
             <input type="email" className={fieldClass} required value={form.agencyEmail} onChange={(e) => setForm((f) => ({ ...f, agencyEmail: e.target.value }))} />
           </label>
           <label className="text-sm text-slate-700">
