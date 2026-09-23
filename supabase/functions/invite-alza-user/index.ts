@@ -360,11 +360,31 @@ async function handleInvite(opts: {
     return fail('invalid_status', 'Status must be active or inactive.')
   }
 
+  const { data: agency, error: agencyError } = await adminClient
+    .from('agency_profile')
+    .select('agency_name')
+    .eq('id', callerAgencyProfileId)
+    .maybeSingle()
+  if (agencyError) {
+    return fail('agency_lookup_failed', `Unable to load agency: ${agencyError.message}`, 500)
+  }
+  const agencyName = String(agency?.agency_name ?? '').trim()
+  if (!agencyName) {
+    return fail('agency_not_found', 'Your agency workspace could not be found.')
+  }
+
+  const inviteData = {
+    full_name: fullName,
+    agency_name: agencyName,
+    role,
+    invited_by: 'ALZA Flow',
+  }
+
   let authUserId: string | null = null
   let inviteMode: 'invite' | 'create' = 'invite'
 
   const inviteResult = await adminClient.auth.admin.inviteUserByEmail(email, {
-    data: { full_name: fullName, role },
+    data: inviteData,
     redirectTo: inviteRedirectTo,
   })
 
@@ -372,7 +392,7 @@ async function handleInvite(opts: {
     const createResult = await adminClient.auth.admin.createUser({
       email,
       email_confirm: false,
-      user_metadata: { full_name: fullName, role },
+      user_metadata: inviteData,
     })
     if (createResult.error || !createResult.data.user) {
       return fail(
