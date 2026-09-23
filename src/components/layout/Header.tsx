@@ -170,7 +170,7 @@ export function Header({ title, subtitle, onMenuClick, hideOperationalChrome = f
         <button
           type="button"
           onClick={onMenuClick}
-          className="rounded-lg p-2 text-slate-500 hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-alza-blue-500/40 lg:hidden"
+          className="rounded-lg p-2 text-slate-500 hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-teal/40 lg:hidden"
           aria-label="Open menu"
         >
           <Menu className="h-5 w-5" />
@@ -215,7 +215,7 @@ export function Header({ title, subtitle, onMenuClick, hideOperationalChrome = f
             onBlur={handleSearchBlur}
             onKeyDown={handleSearchKeyDown}
             placeholder="Search..."
-            className="h-9 w-64 rounded-lg border border-slate-200 bg-slate-50 pl-9 pr-4 text-sm text-slate-900 placeholder:text-slate-400 focus:border-alza-blue-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-alza-blue-500/20"
+            className="h-9 w-64 rounded-lg border border-slate-200 bg-slate-50 pl-9 pr-4 text-sm text-slate-900 placeholder:text-slate-400 focus:border-brand-teal focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-teal/20"
           />
         </div>
         )}
@@ -226,7 +226,7 @@ export function Header({ title, subtitle, onMenuClick, hideOperationalChrome = f
           <button
             type="button"
             onClick={() => setMenuOpen((open) => !open)}
-            className="flex items-center gap-3 rounded-lg px-1 py-1 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-alza-blue-500/40"
+            className="flex items-center gap-3 rounded-lg px-1 py-1 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-teal/40"
             aria-haspopup="menu"
             aria-expanded={menuOpen}
             aria-label="User menu"
@@ -235,7 +235,7 @@ export function Header({ title, subtitle, onMenuClick, hideOperationalChrome = f
               <p className="text-sm font-medium text-slate-900">{displayName}</p>
               <p className="text-xs text-slate-500">{displayRole}</p>
             </div>
-            <div className="flex h-9 w-9 items-center justify-center rounded-full gradient-alza text-sm font-semibold text-white shadow-sm">
+            <div className="flex h-9 w-9 items-center justify-center rounded-full bg-brand-teal text-sm font-semibold text-white shadow-sm">
               {initials}
             </div>
           </button>

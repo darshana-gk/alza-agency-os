@@ -19,8 +19,8 @@ export function WorkspaceActivationScreen({
 
   return (
     <div className="mx-auto max-w-xl rounded-2xl border border-slate-200 bg-white p-8 shadow-sm">
-      <p className="text-xs font-semibold uppercase tracking-wide text-alza-teal-800">ALZA Flow</p>
-      <h1 className="mt-2 text-2xl font-semibold text-slate-900">{copy.heading}</h1>
+      <p className="text-xs font-semibold uppercase tracking-wide text-brand-teal">ALZA Flow</p>
+      <h1 className="mt-2 text-2xl font-semibold text-brand-navy">{copy.heading}</h1>
       <p className="mt-3 text-sm leading-relaxed text-slate-600">{copy.body}</p>
 
       <dl className="mt-6 space-y-3 rounded-xl border border-slate-100 bg-slate-50 px-4 py-4 text-sm">
@@ -39,7 +39,7 @@ export function WorkspaceActivationScreen({
           type="button"
           disabled={checking}
           onClick={() => void onCheck()}
-          className="inline-flex h-11 items-center justify-center gap-2 rounded-lg gradient-alza text-sm font-medium text-white shadow-sm hover:opacity-90 disabled:opacity-50"
+          className="inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-brand-teal text-sm font-medium text-white shadow-sm hover:opacity-90 disabled:opacity-50"
         >
           <RefreshCw className={`h-4 w-4 ${checking ? 'animate-spin' : ''}`} />
           {checking ? 'Checking…' : 'Check activation status'}

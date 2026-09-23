@@ -16,7 +16,6 @@ import {
   UserCircle,
   CreditCard,
   ChevronDown,
-  Zap,
   Settings,
   LifeBuoy,
   Inbox,
@@ -35,6 +34,7 @@ import {
   type AdminNavUmbrella,
   type SidebarNavItemSpec,
 } from '@/lib/sidebarNav'
+import wordmark from '../../assets/brand/alza-wordmark.png'
 
 const ICONS: Record<string, LucideIcon> = {
   '/': LayoutDashboard,
@@ -80,7 +80,7 @@ function NavLinkItem({ item, indented }: { item: NavItem; indented?: boolean }) 
             indented ? 'px-3 pl-7' : 'px-3'
           } ${
             isActive
-              ? 'bg-white/15 text-white shadow-sm'
+              ? 'bg-brand-teal/20 text-white shadow-sm'
               : 'text-slate-300 hover:bg-white/10 hover:text-white'
           }`
         }
@@ -264,14 +264,20 @@ export function Sidebar() {
   }, [nav])
 
   return (
-    <aside className="fixed inset-y-0 left-0 z-30 flex w-64 flex-col bg-gradient-to-b from-alza-blue-900 via-alza-blue-800 to-alza-teal-900 shadow-xl">
-      <div className="flex items-center gap-3 border-b border-white/10 px-4 py-3">
-        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg gradient-alza shadow-md">
-          <Zap className="h-5 w-5 text-white" />
+    <aside className="fixed inset-y-0 left-0 z-30 flex w-64 flex-col bg-brand-navy shadow-xl">
+      <div className="border-b border-white/10 px-4 py-3">
+        <div className="inline-flex max-w-full items-center rounded-lg bg-white px-3 py-2">
+          <img
+            src={wordmark}
+            alt=""
+            width={430}
+            height={127}
+            className="h-auto w-[6.25rem] max-w-full object-contain object-left"
+          />
         </div>
-        <div className="min-w-0 leading-tight">
-          <h1 className="text-base font-bold tracking-wide text-white">ALZA FLOW</h1>
-          <p className="mt-0.5 text-[9px] font-medium leading-snug text-white/55">
+        <div className="mt-1.5 min-w-0 leading-tight">
+          <h1 className="text-xs font-semibold tracking-wide text-white/90">ALZA FLOW</h1>
+          <p className="mt-0.5 text-[9px] font-medium leading-snug text-white/50">
             by ALZA Business Solutions LLP
           </p>
         </div>
