@@ -54,8 +54,10 @@ import { purchaseIntentFromSearchParams, resolvePurchaseIntent } from '../../lib
 const fieldLabelClass = 'mb-1.5 block text-xs font-medium uppercase tracking-wide text-slate-500'
 const selectClass =
   'h-11 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-900 shadow-sm focus:border-alza-blue-500 focus:outline-none focus:ring-2 focus:ring-alza-blue-500/20 disabled:cursor-not-allowed disabled:opacity-60'
-/** Sidebar `bg-brand-navy` (#0B1F3B) into brand teal (#00B3A4). Presentation only. */
-const alzaBrandFill = 'bg-gradient-to-r from-brand-navy to-brand-teal'
+/** Navy-dominant fill: sidebar `brand-navy` (#0B1F3B) with a muted `alza-teal-800` (#115E59) edge. Not bright `brand-teal`. */
+const alzaBrandFill = 'bg-gradient-to-r from-brand-navy via-brand-navy to-alza-teal-800'
+/** Selected frequency: solid sidebar navy. */
+const alzaBrandSolid = 'bg-brand-navy'
 
 export function SubscriptionBillingPage() {
   const { profile } = useAuth()
@@ -624,7 +626,7 @@ export function SubscriptionBillingPage() {
                           data-selected={selected ? 'true' : 'false'}
                           className={`relative flex flex-1 items-center justify-center gap-1.5 rounded-md px-2 text-sm font-semibold transition-all disabled:cursor-not-allowed disabled:opacity-50 ${
                             selected
-                              ? `${alzaBrandFill} text-white shadow-sm`
+                              ? `${alzaBrandSolid} text-white shadow-sm`
                               : 'bg-white text-slate-600 hover:bg-slate-50 hover:text-slate-900'
                           }`}
                         >
