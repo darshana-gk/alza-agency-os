@@ -146,8 +146,12 @@ export async function createRazorpaySubscription(plan: BillingPlanKey): Promise<
   const { data, error } = await supabase.functions.invoke('create-razorpay-subscription', {
     body: { plan },
   })
+
   if (error) {
-    return { data: null, error: error.message || 'Unable to call create-razorpay-subscription.' }
+    return {
+      data: null,
+      error: error.message || 'Unable to call create-razorpay-subscription.',
+    }
   }
 
   const payload = data as {
@@ -184,20 +188,30 @@ export async function cancelRazorpaySubscription(): Promise<{ error: string | nu
   const { data, error } = await supabase.functions.invoke('cancel-razorpay-subscription', {
     body: {},
   })
+
   if (error) {
-    return { error: error.message || 'Unable to call cancel-razorpay-subscription.' }
+    return {
+      error: error.message || 'Unable to call cancel-razorpay-subscription.',
+    }
   }
+
   const payload = data as { ok?: boolean; message?: string } | null
+
   if (!payload?.ok) {
-    return { error: payload?.message || 'Cancellation failed.' }
+    return {
+      error: payload?.message || 'Cancellation failed.',
+    }
   }
+
   return { error: null }
 }
 
 /** Show plan selection when there is no usable active/pending subscription. */
 export function shouldShowSubscribe(status: string | null | undefined): boolean {
   const v = (status ?? '').trim().toLowerCase()
-  // `created` means a Razorpay subscription already exists (awaiting Checkout / webhook).
+
+  // `created` means a Razorpay subscription already exists
+  // (awaiting Checkout / webhook).
   return (
     !v ||
     v === 'incomplete' ||
@@ -210,31 +224,51 @@ export function shouldShowSubscribe(status: string | null | undefined): boolean 
 
 export function canCancelSubscription(status: string | null | undefined): boolean {
   const v = (status ?? '').trim().toLowerCase()
-  return v === 'authenticated' || v === 'active' || v === 'pending' || v === 'paused' || v === 'created'
+
+  return (
+    v === 'authenticated' ||
+    v === 'active' ||
+    v === 'pending' ||
+    v === 'paused' ||
+    v === 'created'
+  )
 }
 
 declare global {
   interface Window {
-    Razorpay?: new (options: Record<string, unknown>) => { open: () => void }
+    Razorpay?: new (options: Record<string, unknown>) => {
+      open: () => void
+    }
   }
 }
 
 export async function loadRazorpayCheckoutScript(): Promise<void> {
   if (typeof window === 'undefined') return
   if (window.Razorpay) return
+
   await new Promise<void>((resolve, reject) => {
-    const existing = document.querySelector<HTMLScriptElement>('script[data-alza-razorpay]')
+    const existing = document.querySelector<HTMLScriptElement>(
+      'script[data-alza-razorpay]',
+    )
+
     if (existing) {
       existing.addEventListener('load', () => resolve())
-      existing.addEventListener('error', () => reject(new Error('Failed to load Razorpay Checkout.')))
+      existing.addEventListener('error', () =>
+        reject(new Error('Failed to load Razorpay Checkout.')),
+      )
       return
     }
+
     const script = document.createElement('script')
     script.src = 'https://checkout.razorpay.com/v1/checkout.js'
     script.async = true
     script.dataset.alzaRazorpay = '1'
+
     script.onload = () => resolve()
-    script.onerror = () => reject(new Error('Failed to load Razorpay Checkout.'))
+
+    script.onerror = () =>
+      reject(new Error('Failed to load Razorpay Checkout.'))
+
     document.body.appendChild(script)
   })
 }
@@ -245,41 +279,67 @@ export async function openRazorpaySubscriptionCheckout(input: {
   agencyName: string
   planName: string
   onDismiss?: () => void
-}): Promise<{ dismissed: boolean; error: string | null }> {
+}): Promise<{
+  dismissed: boolean
+  error: string | null
+}> {
   try {
     await loadRazorpayCheckoutScript()
   } catch (err) {
     return {
       dismissed: false,
-      error: err instanceof Error ? err.message : 'Unable to load Razorpay Checkout.',
+      error:
+        err instanceof Error
+          ? err.message
+          : 'Unable to load Razorpay Checkout.',
     }
   }
 
   if (!window.Razorpay) {
-    return { dismissed: false, error: 'Razorpay Checkout is unavailable in this browser.' }
+    return {
+      dismissed: false,
+      error: 'Razorpay Checkout is unavailable in this browser.',
+    }
   }
 
   return await new Promise((resolve) => {
     const rzp = new window.Razorpay!({
       key: input.keyId,
       subscription_id: input.subscriptionId,
+
       name: 'ALZA FLOW',
       description: input.planName,
+
       notes: {
         alza_product: 'alza_flow',
       },
-      theme: { color: '#0B5FFF' },
-      handler: () => {
-        // Browser callback is not authoritative — webhook mirrors status.
-        resolve({ dismissed: false, error: null })
+
+      // ALZA brand navy-blue
+      theme: {
+        color: '#1B4B6A',
       },
+
+      handler: () => {
+        // Browser callback is not authoritative.
+        // Razorpay webhook mirrors the final subscription status.
+        resolve({
+          dismissed: false,
+          error: null,
+        })
+      },
+
       modal: {
         ondismiss: () => {
           input.onDismiss?.()
-          resolve({ dismissed: true, error: null })
+
+          resolve({
+            dismissed: true,
+            error: null,
+          })
         },
       },
     })
+
     rzp.open()
   })
 }
