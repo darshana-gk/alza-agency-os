@@ -28,11 +28,13 @@ import {
 import { nextTableSort, sortRows, type TableSortState } from '../lib/tableSort'
 
 const selectClass =
-  'h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-900 focus:border-alza-blue-500 focus:outline-none focus:ring-2 focus:ring-alza-blue-500/20'
+  'h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-900 focus:border-brand-navy focus:outline-none focus:ring-2 focus:ring-brand-navy/20'
 const inputClass =
-  'h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-900 placeholder:text-slate-400 focus:border-alza-blue-500 focus:outline-none focus:ring-2 focus:ring-alza-blue-500/20'
+  'h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-900 placeholder:text-slate-400 focus:border-brand-navy focus:outline-none focus:ring-2 focus:ring-brand-navy/20'
 const textareaClass =
-  'w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-alza-blue-500 focus:outline-none focus:ring-2 focus:ring-alza-blue-500/20'
+  'w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-brand-navy focus:outline-none focus:ring-2 focus:ring-brand-navy/20'
+const alzaNavyButton =
+  'rounded-lg bg-brand-navy text-sm font-medium text-white hover:opacity-90 disabled:opacity-50'
 
 function formatWhen(iso: string | null | undefined): string {
   if (!iso) return '—'
@@ -248,7 +250,7 @@ export function SupportCenterPage() {
         <button
           type="button"
           onClick={() => openConversation(null)}
-          className="inline-flex items-center gap-1 text-sm font-medium text-alza-blue-700 hover:underline"
+          className="inline-flex items-center gap-1 text-sm font-medium text-brand-navy hover:underline"
         >
           <ArrowLeft className="h-4 w-4" />
           Back to Support Center
@@ -266,7 +268,7 @@ export function SupportCenterPage() {
         <button
           type="button"
           onClick={() => openConversation(null)}
-          className="inline-flex items-center gap-1 text-sm font-medium text-alza-blue-700 hover:underline"
+          className="inline-flex items-center gap-1 text-sm font-medium text-brand-navy hover:underline"
         >
           <ArrowLeft className="h-4 w-4" />
           Back to Support Center
@@ -320,7 +322,7 @@ export function SupportCenterPage() {
               <div
                 key={m.id}
                 className={`rounded-xl border px-4 py-3 shadow-sm ${
-                  isAlza ? 'border-alza-blue-100 bg-alza-blue-50/40' : 'border-slate-200 bg-white'
+                  isAlza ? 'border-brand-sky bg-brand-sky/70' : 'border-slate-200 bg-white'
                 }`}
               >
                 <div className="flex flex-wrap items-center justify-between gap-2">
@@ -345,7 +347,7 @@ export function SupportCenterPage() {
               type="button"
               disabled={busy}
               onClick={() => void handleReopen()}
-              className="mt-3 h-10 rounded-lg bg-alza-blue-700 px-4 text-sm font-medium text-white hover:bg-alza-blue-800 disabled:opacity-50"
+              className={`mt-3 h-10 px-4 ${alzaNavyButton}`}
             >
               Reopen conversation
             </button>
@@ -367,7 +369,7 @@ export function SupportCenterPage() {
                 type="button"
                 disabled={busy || !reply.trim()}
                 onClick={() => void handleReply()}
-                className="h-10 rounded-lg bg-alza-blue-700 px-4 text-sm font-medium text-white hover:bg-alza-blue-800 disabled:opacity-50"
+                className={`h-10 px-4 ${alzaNavyButton}`}
               >
                 Send Reply
               </button>
@@ -391,7 +393,7 @@ export function SupportCenterPage() {
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="flex items-center gap-2 text-2xl font-semibold text-slate-900">
-            <LifeBuoy className="h-6 w-6 text-alza-blue-700" />
+            <LifeBuoy className="h-6 w-6 text-brand-navy" />
             Help &amp; Support
           </h1>
           <p className="mt-1 max-w-2xl text-sm text-slate-500">
@@ -404,7 +406,7 @@ export function SupportCenterPage() {
             setComposerOpen(true)
             setSuccess(null)
           }}
-          className="inline-flex items-center gap-2 rounded-lg bg-alza-blue-700 px-4 py-2.5 text-sm font-medium text-white hover:bg-alza-blue-800"
+          className={`inline-flex items-center gap-2 px-4 py-2.5 ${alzaNavyButton}`}
         >
           <MessageSquarePlus className="h-4 w-4" />
           New Support Request
@@ -434,7 +436,7 @@ export function SupportCenterPage() {
             onClick={() => setTab(id)}
             className={`border-b-2 px-3 py-2 text-sm font-medium ${
               tab === id
-                ? 'border-alza-blue-700 text-alza-blue-800'
+                ? 'border-brand-teal text-brand-navy'
                 : 'border-transparent text-slate-500 hover:text-slate-800'
             }`}
           >
@@ -589,7 +591,7 @@ export function SupportCenterPage() {
                 <button
                   type="submit"
                   disabled={busy}
-                  className="h-10 rounded-lg bg-alza-blue-700 px-4 text-sm font-medium text-white hover:bg-alza-blue-800 disabled:opacity-50"
+                  className={`h-10 px-4 ${alzaNavyButton}`}
                 >
                   {busy ? 'Submitting…' : 'Submit request'}
                 </button>
