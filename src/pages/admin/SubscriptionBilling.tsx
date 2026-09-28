@@ -54,9 +54,7 @@ import { purchaseIntentFromSearchParams, resolvePurchaseIntent } from '../../lib
 const fieldLabelClass = 'mb-1.5 block text-xs font-medium uppercase tracking-wide text-slate-500'
 const selectClass =
   'h-11 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-900 shadow-sm focus:border-alza-blue-500 focus:outline-none focus:ring-2 focus:ring-alza-blue-500/20 disabled:cursor-not-allowed disabled:opacity-60'
-/** Navy-dominant fill: sidebar `brand-navy` (#0B1F3B) with a muted `alza-teal-800` (#115E59) edge. Not bright `brand-teal`. */
-const alzaBrandFill = 'bg-gradient-to-r from-brand-navy via-brand-navy to-alza-teal-800'
-/** Selected frequency: solid sidebar navy. */
+/** Solid sidebar navy (#0B1F3B). Teal is accent-only, never a fill endpoint. */
 const alzaBrandSolid = 'bg-brand-navy'
 
 export function SubscriptionBillingPage() {
@@ -664,11 +662,11 @@ export function SubscriptionBillingPage() {
                 data-testid="billing-price-result"
                 data-billing-quote="quote-first"
               >
-                <div className={`${alzaBrandFill} px-6 py-6 text-white sm:px-8 sm:py-7`}>
+                <div className={`${alzaBrandSolid} px-6 py-6 text-white sm:px-8 sm:py-7`}>
                   <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-white/75">
                     {product === 'alza_flow' ? 'ALZA FLOW' : quote.productName.toUpperCase()}
                     {isRecommendedSelection ? (
-                      <span className="text-white/90"> — RECOMMENDED</span>
+                      <span className="text-brand-teal"> — RECOMMENDED</span>
                     ) : null}
                     {selectedProduct?.comingSoon ? (
                       <span className="ml-2 rounded bg-white/15 px-1.5 py-0.5 text-[10px] font-medium tracking-wide normal-case">
@@ -761,7 +759,7 @@ export function SubscriptionBillingPage() {
                           data-testid="start-onboarding-cta"
                           disabled={busy || processing || handoffBusy}
                           onClick={() => void attemptOnboardingHandoff(status)}
-                          className={`inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-xl ${alzaBrandFill} px-5 py-3.5 text-base font-semibold text-white shadow-md hover:opacity-90 disabled:opacity-50`}
+                          className={`inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-xl ${alzaBrandSolid} px-5 py-3.5 text-base font-semibold text-white shadow-md hover:opacity-90 disabled:opacity-50`}
                         >
                           {handoffBusy ? 'Confirming access…' : 'Start Onboarding'}
                         </button>
@@ -779,7 +777,7 @@ export function SubscriptionBillingPage() {
                           onClick={() =>
                             void (primaryAction === 'resume' ? handleResumePayment() : handleSubscribe())
                           }
-                          className={`inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-xl ${alzaBrandFill} px-5 py-3.5 text-base font-semibold text-white shadow-md hover:opacity-90 disabled:opacity-50`}
+                          className={`inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-xl ${alzaBrandSolid} px-5 py-3.5 text-base font-semibold text-white shadow-md hover:opacity-90 disabled:opacity-50`}
                         >
                           <CreditCard className="h-5 w-5" />
                           {busy
@@ -810,7 +808,7 @@ export function SubscriptionBillingPage() {
                         type="button"
                         data-testid="flow-pay-waitlist-cta"
                         onClick={openFlowPayWaitlist}
-                        className={`inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-xl ${alzaBrandFill} px-5 py-3.5 text-base font-semibold text-white shadow-md hover:opacity-90`}
+                        className={`inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-xl ${alzaBrandSolid} px-5 py-3.5 text-base font-semibold text-white shadow-md hover:opacity-90`}
                       >
                         Join Flow Pay Waitlist
                       </button>
@@ -886,7 +884,7 @@ export function SubscriptionBillingPage() {
                 <button
                   type="button"
                   onClick={closeFlowPayWaitlist}
-                  className={`mt-3 inline-flex min-h-11 w-full items-center justify-center rounded-xl ${alzaBrandFill} px-4 text-sm font-semibold text-white hover:opacity-90`}
+                  className={`mt-3 inline-flex min-h-11 w-full items-center justify-center rounded-xl ${alzaBrandSolid} px-4 text-sm font-semibold text-white hover:opacity-90`}
                 >
                   Close
                 </button>
@@ -931,7 +929,7 @@ export function SubscriptionBillingPage() {
                 <button
                   type="submit"
                   disabled={waitlistBusy}
-                  className={`inline-flex min-h-11 w-full items-center justify-center rounded-xl ${alzaBrandFill} px-4 text-sm font-semibold text-white hover:opacity-90 disabled:opacity-50`}
+                  className={`inline-flex min-h-11 w-full items-center justify-center rounded-xl ${alzaBrandSolid} px-4 text-sm font-semibold text-white hover:opacity-90 disabled:opacity-50`}
                 >
                   {waitlistBusy ? 'Joining…' : 'Join Waitlist'}
                 </button>
