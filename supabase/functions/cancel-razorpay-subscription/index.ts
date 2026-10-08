@@ -7,10 +7,15 @@ import {
   getCallerAgency,
   getOrCreateBillingRow,
   requireOwnerOrAdmin,
+  razorpayGetSubscription,
   razorpayRequest,
   unixToIso,
   normalizeRazorpayStatus,
 } from '../_shared/billing.ts'
+import {
+  createdSubscriptionCancelRoute,
+  localCreatedCancellationPatch,
+} from '../_shared/razorpayCancellation.ts'
 import { corsHeaders, fail, ok } from '../_shared/http.ts'
 
 Deno.serve(async (req) => {
@@ -53,6 +58,55 @@ Deno.serve(async (req) => {
     return fail('already_cancelled', 'Subscription is already cancelled or completed.', 400)
   }
 
+  // Incomplete checkout stays resumable until the owner explicitly cancels.
+  // Razorpay rejects POST /cancel while the subscription is still `created`.
+  if (status === 'created') {
+    const remote = await razorpayGetSubscription(subscriptionId)
+    if (!remote.ok) {
+      return fail(
+        'razorpay_lookup_failed',
+        remote.message,
+        remote.status >= 400 ? remote.status : 500,
+      )
+    }
+
+    const remoteStatus = String(remote.data.status ?? '').trim().toLowerCase()
+    if (!remoteStatus) {
+      return fail('razorpay_lookup_failed', 'Razorpay did not return a subscription status.', 502)
+    }
+    if (createdSubscriptionCancelRoute(remoteStatus) === 'local_cancel') {
+      const now = new Date().toISOString()
+      const nextStatus = remoteStatus === 'completed' ? 'completed' : 'cancelled'
+      const { data: updated, error: updateError } = await admin
+        .from('billing_subscriptions')
+        .update({
+          ...localCreatedCancellationPatch(now),
+          status: nextStatus,
+        })
+        .eq('id', billing.data.id)
+        .eq('agency_profile_id', agency.data.id)
+        .eq('status', 'created')
+        .select('id')
+
+      if (updateError) {
+        return fail('billing_persist_failed', updateError.message, 500)
+      }
+      if (!updated?.length) {
+        return fail(
+          'cancel_race',
+          'Subscription status changed before cancellation was saved. Refresh and try again.',
+          409,
+        )
+      }
+
+      return ok({
+        status: nextStatus,
+        subscriptionId,
+        locallyCancelled: nextStatus === 'cancelled',
+      })
+    }
+  }
+
   const cancelRes = await razorpayRequest(`/subscriptions/${subscriptionId}/cancel`, {
     method: 'POST',
     body: JSON.stringify({ cancel_at_cycle_end: 0 }),
@@ -74,6 +128,7 @@ Deno.serve(async (req) => {
       updated_at: new Date().toISOString(),
     })
     .eq('id', billing.data.id)
+    .eq('agency_profile_id', agency.data.id)
 
   if (updateError) {
     return fail('billing_persist_failed', updateError.message, 500)

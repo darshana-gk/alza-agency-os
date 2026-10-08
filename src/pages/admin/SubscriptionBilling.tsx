@@ -10,6 +10,10 @@ import {
 } from '../../lib/onboardingHandoff'
 import { canManageBilling, rolesOf } from '../../lib/permissions'
 import {
+  CancelledSubscriptionReconciliationNotice,
+  useCancelledPaymentReconciliationNotice,
+} from '../../components/billing/CancelledSubscriptionReconciliationNotice'
+import {
   formatBillingPlan,
   canCancelSubscription,
   cancelRazorpaySubscription,
@@ -83,6 +87,7 @@ export function SubscriptionBillingPage() {
   const [waitlistBusy, setWaitlistBusy] = useState(false)
   const [handoffBusy, setHandoffBusy] = useState(false)
   const [handoffBlocked, setHandoffBlocked] = useState<string | null>(null)
+  const [paymentConflictFromSync, setPaymentConflictFromSync] = useState(false)
   const pollRef = useRef<number | null>(null)
   const recommendedInitialized = useRef(false)
   const queryInitialized = useRef(false)
@@ -261,14 +266,17 @@ export function SubscriptionBillingPage() {
   const handleRefresh = useCallback(async () => {
     setError(null)
     const current = billing
+    let reconciliationRequired = false
     if (shouldAttemptRazorpaySync(current?.status, current?.razorpaySubscriptionId)) {
       const synced = await syncRazorpaySubscription()
-      if (synced.error) {
+      reconciliationRequired = synced.data?.reconciliationRequired === true
+      if (!reconciliationRequired && synced.error) {
         setInfo(RAZORPAY_SYNC_RETRY_MESSAGE)
       }
     }
     const row = await load()
-    if (row && billingAllowsOnboardingHandoff(row.status)) {
+    if (reconciliationRequired) setPaymentConflictFromSync(true)
+    if (row && !reconciliationRequired && billingAllowsOnboardingHandoff(row.status)) {
       void attemptOnboardingHandoff(row.status)
     }
   }, [attemptOnboardingHandoff, billing, load])
@@ -276,6 +284,7 @@ export function SubscriptionBillingPage() {
   const recommendedBand = useMemo(() => recommendUserBand(userCount), [userCount])
   const quote = quoteBillingSelection({ product, userBand, interval })
   const status = billing?.status ?? 'incomplete'
+  const watchedPaymentConflict = useCancelledPaymentReconciliationNotice(canManage)
   const legacyActive = isLegacyActiveSubscription(billing?.planKey, status)
   const allowCheckout = allowsNewCheckout(status, billing?.planKey) && !processing
   const canResume = canResumeCheckout(status, billing?.razorpaySubscriptionId)
@@ -400,6 +409,13 @@ export function SubscriptionBillingPage() {
     setInfo(null)
 
     const synced = await syncRazorpaySubscription()
+    if (synced.data?.reconciliationRequired) {
+      const row = await fetchBillingSubscription()
+      if (row.data) setBilling(row.data)
+      setPaymentConflictFromSync(true)
+      setBusy(false)
+      return
+    }
     if (synced.data?.workspaceUnlock || synced.data?.status === 'active') {
       const row = await fetchBillingSubscription()
       if (row.data) setBilling(row.data)
@@ -529,6 +545,9 @@ export function SubscriptionBillingPage() {
         )}
       </div>
 
+      <CancelledSubscriptionReconciliationNotice
+        visible={watchedPaymentConflict || paymentConflictFromSync}
+      />
       {info && (
         <div className="rounded-lg border border-alza-blue-100 bg-alza-blue-50 px-3 py-2 text-sm text-alza-blue-900">
           {info}

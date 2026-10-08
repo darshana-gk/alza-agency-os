@@ -144,12 +144,15 @@ Deno.serve(async (req) => {
     return fail('mirror_failed', mirrored.error, 500)
   }
 
+  const reconciliationRequired = Boolean(mirrored.discrepancy)
   return ok({
     synced: true,
-    status: remoteStatus,
+    status: mirrored.applied ? remoteStatus : 'cancelled',
     remoteStatus,
     subscriptionId: storedId,
-    mirrored: true,
-    workspaceUnlock: remoteStatus === 'active',
+    mirrored: mirrored.applied,
+    workspaceUnlock: mirrored.applied && remoteStatus === 'active',
+    reconciliationRequired,
+    reconciliationCode: mirrored.discrepancy?.code ?? null,
   })
 })

@@ -1,6 +1,11 @@
 import { LifeBuoy, LogOut, RefreshCw } from 'lucide-react'
 import { Link } from 'react-router-dom'
+import {
+  CancelledSubscriptionReconciliationNotice,
+  useCancelledPaymentReconciliationNotice,
+} from '@/components/billing/CancelledSubscriptionReconciliationNotice'
 import { useAuth } from '@/lib/auth'
+import { canManageBilling, rolesOf } from '@/lib/permissions'
 import { customerFacingRestriction, type RestrictedReason } from '@/lib/subscriptionAccess'
 
 export function WorkspaceActivationScreen({
@@ -14,7 +19,10 @@ export function WorkspaceActivationScreen({
   checking: boolean
   onCheck: () => Promise<unknown>
 }) {
-  const { signOut } = useAuth()
+  const { profile, signOut } = useAuth()
+  const paymentConflict = useCancelledPaymentReconciliationNotice(
+    reason === 'cancelled' && canManageBilling(rolesOf(profile)),
+  )
   const copy = customerFacingRestriction(reason)
 
   return (
@@ -22,6 +30,7 @@ export function WorkspaceActivationScreen({
       <p className="text-xs font-semibold uppercase tracking-wide text-brand-teal">ALZA Flow</p>
       <h1 className="mt-2 text-2xl font-semibold text-brand-navy">{copy.heading}</h1>
       <p className="mt-3 text-sm leading-relaxed text-slate-600">{copy.body}</p>
+      <CancelledSubscriptionReconciliationNotice visible={paymentConflict} className="mt-4" />
 
       <dl className="mt-6 space-y-3 rounded-xl border border-slate-100 bg-slate-50 px-4 py-4 text-sm">
         <div className="flex items-start justify-between gap-4">

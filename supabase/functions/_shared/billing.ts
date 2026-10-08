@@ -1,5 +1,11 @@
 import { createClient, type SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2.49.1'
 import { fail } from './http.ts'
+import {
+  CANCELLED_SUBSCRIPTION_PAYMENT_CODE,
+  cancelledSubscriptionMirrorAction,
+  subscriptionIdsConflict,
+  tenantNoteConflicts,
+} from './razorpayCancellation.ts'
 
 export function adminClient(): SupabaseClient {
   const url = Deno.env.get('SUPABASE_URL') ?? ''
@@ -329,9 +335,133 @@ export async function maybeMarkBillingPending(
     .eq('lifecycle', 'prospect')
 }
 
+export type RazorpayCancellationDiscrepancy = {
+  code: typeof CANCELLED_SUBSCRIPTION_PAYMENT_CODE
+  subscriptionId: string
+  agencyProfileId: string
+  localStatus: string
+  remoteStatus: string
+}
+
 export type MirrorSubscriptionResult =
-  | { ok: true; agencyProfileId: string | null }
+  | {
+      ok: true
+      agencyProfileId: string | null
+      applied: boolean
+      discrepancy: RazorpayCancellationDiscrepancy | null
+    }
   | { ok: false; error: string }
+
+type BillingMirrorRow = {
+  id: string
+  agency_profile_id: string | null
+  status: string | null
+  razorpay_subscription_id: string | null
+}
+
+async function selectBillingRows(
+  admin: SupabaseClient,
+  column: 'razorpay_subscription_id' | 'razorpay_customer_id' | 'agency_profile_id',
+  value: string,
+): Promise<{ rows: BillingMirrorRow[] | null; error: string | null }> {
+  const { data, error } = await admin
+    .from('billing_subscriptions')
+    .select('id, agency_profile_id, status, razorpay_subscription_id')
+    .eq(column, value)
+  if (error) return { rows: null, error: error.message }
+  return { rows: (data ?? []) as BillingMirrorRow[], error: null }
+}
+
+async function lookupMirrorRow(
+  admin: SupabaseClient,
+  subscription: Record<string, unknown>,
+  remoteStatus: string,
+): Promise<
+  | {
+      ok: true
+      row: BillingMirrorRow
+      subscriptionId: string
+      agencyFromNotes: string | null
+      remoteStatus: string
+    }
+  | { ok: false; error: string }
+> {
+  const subscriptionId = String(subscription.id ?? '').trim()
+  if (!subscriptionId) return { ok: false, error: 'Missing subscription id' }
+
+  const notes = asRecord(subscription.notes) ?? {}
+  const agencyFromNotes = String(notes.agency_profile_id ?? '').trim() || null
+
+  const bySub = await selectBillingRows(admin, 'razorpay_subscription_id', subscriptionId)
+  if (bySub.error) return { ok: false, error: bySub.error }
+  if ((bySub.rows?.length ?? 0) > 1) {
+    return { ok: false, error: 'More than one workspace is linked to this Razorpay subscription.' }
+  }
+  if (bySub.rows?.length === 1) {
+    return { ok: true, row: bySub.rows[0], subscriptionId, agencyFromNotes, remoteStatus }
+  }
+
+  const customerId = typeof subscription.customer_id === 'string' ? subscription.customer_id.trim() : ''
+  if (customerId) {
+    const byCustomer = await selectBillingRows(admin, 'razorpay_customer_id', customerId)
+    if (byCustomer.error) return { ok: false, error: byCustomer.error }
+    const fallback = singleUnclaimedRow(byCustomer.rows ?? [], subscriptionId, agencyFromNotes)
+    if (fallback && 'error' in fallback) return { ok: false, error: fallback.error }
+    if (fallback) return { ok: true, row: fallback, subscriptionId, agencyFromNotes, remoteStatus }
+  }
+
+  if (agencyFromNotes) {
+    const byAgency = await selectBillingRows(admin, 'agency_profile_id', agencyFromNotes)
+    if (byAgency.error) return { ok: false, error: byAgency.error }
+    const fallback = singleUnclaimedRow(byAgency.rows ?? [], subscriptionId, agencyFromNotes)
+    if (fallback && 'error' in fallback) return { ok: false, error: fallback.error }
+    if (fallback) return { ok: true, row: fallback, subscriptionId, agencyFromNotes, remoteStatus }
+  }
+
+  return {
+    ok: false,
+    error: 'No billing_subscriptions row matched this Razorpay subscription.',
+  }
+}
+
+/**
+ * Read-only check for a payment reported after local cancellation.
+ * Never updates a billing row and never promotes a workspace.
+ */
+export async function findCancellationPaymentDiscrepancy(
+  admin: SupabaseClient,
+  subscription: Record<string, unknown>,
+): Promise<
+  | { ok: true; discrepancy: RazorpayCancellationDiscrepancy | null }
+  | { ok: false; error: string }
+> {
+  const remoteStatus = normalizeRazorpayStatus(String(subscription.status ?? ''))
+  const found = await lookupMirrorRow(admin, subscription, remoteStatus)
+  if (!found.ok) {
+    if (found.error === 'No billing_subscriptions row matched this Razorpay subscription.') {
+      return { ok: true, discrepancy: null }
+    }
+    return found
+  }
+  if (tenantNoteConflicts(found.agencyFromNotes, found.row.agency_profile_id)) {
+    return { ok: false, error: 'Subscription notes do not match this workspace.' }
+  }
+  if (cancelledSubscriptionMirrorAction(found.row.status, found.remoteStatus) !== 'discrepancy') {
+    return { ok: true, discrepancy: null }
+  }
+  const agencyProfileId = String(found.row.agency_profile_id ?? '').trim()
+  if (!agencyProfileId) return { ok: false, error: 'Billing row is not linked to a workspace.' }
+  return {
+    ok: true,
+    discrepancy: {
+      code: CANCELLED_SUBSCRIPTION_PAYMENT_CODE,
+      subscriptionId: found.subscriptionId,
+      agencyProfileId,
+      localStatus: String(found.row.status ?? ''),
+      remoteStatus: found.remoteStatus,
+    },
+  }
+}
 
 /** Shared Razorpay → billing_subscriptions mirror used by webhook and GET sync. */
 export async function mirrorSubscriptionEntity(
@@ -342,7 +472,6 @@ export async function mirrorSubscriptionEntity(
   if (!subscriptionId) return { ok: false, error: 'Missing subscription id' }
 
   const notes = asRecord(subscription.notes) ?? {}
-  const agencyFromNotes = String(notes.agency_profile_id ?? '').trim() || null
   const planKeyRaw = String(notes.alza_plan ?? '').trim().toLowerCase()
   const planKey = planKeyRaw || null
 
@@ -373,46 +502,83 @@ export async function mirrorSubscriptionEntity(
     payload.canceled_at = unixToIso(subscription.ended_at) ?? new Date().toISOString()
   }
 
-  const bySub = await admin
+  const found = await lookupMirrorRow(admin, subscription, status)
+  if (!found.ok) return { ok: false, error: found.error }
+  return applyMirroredSubscription(
+    admin,
+    found.row,
+    found.subscriptionId,
+    found.agencyFromNotes,
+    payload,
+    found.remoteStatus,
+  )
+}
+
+function singleUnclaimedRow(
+  rows: BillingMirrorRow[],
+  subscriptionId: string,
+  agencyFromNotes: string | null,
+): BillingMirrorRow | { error: string } | null {
+  const eligible = rows.filter((row) => !subscriptionIdsConflict(row.razorpay_subscription_id, subscriptionId))
+  if (eligible.length === 0) return null
+  if (eligible.length > 1) return { error: 'More than one billing row matched this Razorpay event.' }
+  if (tenantNoteConflicts(agencyFromNotes, eligible[0].agency_profile_id)) {
+    return { error: 'Subscription notes do not match this workspace.' }
+  }
+  return eligible[0]
+}
+
+async function applyMirroredSubscription(
+  admin: SupabaseClient,
+  row: BillingMirrorRow,
+  subscriptionId: string,
+  agencyFromNotes: string | null,
+  payload: Record<string, unknown>,
+  remoteStatus: string,
+): Promise<MirrorSubscriptionResult> {
+  const agencyProfileId = String(row.agency_profile_id ?? '').trim()
+  if (!agencyProfileId) return { ok: false, error: 'Billing row is not linked to a workspace.' }
+  if (tenantNoteConflicts(agencyFromNotes, agencyProfileId)) {
+    return { ok: false, error: 'Subscription notes do not match this workspace.' }
+  }
+
+  const action = cancelledSubscriptionMirrorAction(row.status, remoteStatus)
+  if (action === 'discrepancy') {
+    return {
+      ok: true,
+      agencyProfileId,
+      applied: false,
+      discrepancy: {
+        code: CANCELLED_SUBSCRIPTION_PAYMENT_CODE,
+        subscriptionId,
+        agencyProfileId,
+        localStatus: String(row.status ?? ''),
+        remoteStatus,
+      },
+    }
+  }
+  if (action === 'hold') {
+    return { ok: true, agencyProfileId, applied: false, discrepancy: null }
+  }
+
+  let update = admin
     .from('billing_subscriptions')
     .update(payload)
-    .eq('razorpay_subscription_id', subscriptionId)
-    .select('id, agency_profile_id')
-  if (!bySub.error && (bySub.data?.length ?? 0) > 0) {
-    const agencyId = String(bySub.data?.[0]?.agency_profile_id ?? agencyFromNotes ?? '')
-    if (agencyId) await maybeMarkBillingPending(admin, agencyId, status)
-    return { ok: true, agencyProfileId: agencyId || agencyFromNotes }
+    .eq('id', row.id)
+    .eq('agency_profile_id', agencyProfileId)
+  const storedSubscriptionId = String(row.razorpay_subscription_id ?? '').trim()
+  if (storedSubscriptionId) {
+    update = update.eq('razorpay_subscription_id', subscriptionId)
+  } else {
+    update = update.is('razorpay_subscription_id', null)
   }
 
-  const customerId =
-    typeof subscription.customer_id === 'string' ? subscription.customer_id : null
-  if (customerId) {
-    const byCustomer = await admin
-      .from('billing_subscriptions')
-      .update(payload)
-      .eq('razorpay_customer_id', customerId)
-      .select('id, agency_profile_id')
-    if (!byCustomer.error && (byCustomer.data?.length ?? 0) > 0) {
-      const agencyId = String(byCustomer.data?.[0]?.agency_profile_id ?? agencyFromNotes ?? '')
-      if (agencyId) await maybeMarkBillingPending(admin, agencyId, status)
-      return { ok: true, agencyProfileId: agencyId || agencyFromNotes }
-    }
+  const { data, error } = await update.select('id')
+  if (error) return { ok: false, error: error.message }
+  if (!data?.length) {
+    return { ok: false, error: 'Billing row changed before the Razorpay event was saved.' }
   }
 
-  if (agencyFromNotes) {
-    const byAgency = await admin
-      .from('billing_subscriptions')
-      .update(payload)
-      .eq('agency_profile_id', agencyFromNotes)
-      .select('id, agency_profile_id')
-    if (!byAgency.error && (byAgency.data?.length ?? 0) > 0) {
-      await maybeMarkBillingPending(admin, agencyFromNotes, status)
-      return { ok: true, agencyProfileId: agencyFromNotes }
-    }
-  }
-
-  return {
-    ok: false,
-    error: 'No billing_subscriptions row matched this Razorpay subscription.',
-  }
+  await maybeMarkBillingPending(admin, agencyProfileId, remoteStatus)
+  return { ok: true, agencyProfileId, applied: true, discrepancy: null }
 }

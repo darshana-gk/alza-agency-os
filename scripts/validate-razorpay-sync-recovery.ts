@@ -110,7 +110,10 @@ console.log('6. sync rejections')
 
 console.log('7–8. remote ACTIVE unlocks; non-active does not')
 {
-  assert(syncFn.includes("workspaceUnlock: remoteStatus === 'active'"), 'unlock flag only when remote active')
+  assert(
+    syncFn.includes("workspaceUnlock: mirrored.applied && remoteStatus === 'active'"),
+    'unlock only when the mirror applied an active subscription',
+  )
   assert(shouldAttemptRazorpaySync('created', 'sub_Tan9mBG1A0sm0i'), 'created + sub id may sync')
   assert(shouldAttemptRazorpaySync('pending', 'sub_Tan9mBG1A0sm0i'), 'pending + sub id may sync')
   assert(shouldAttemptRazorpaySync('incomplete', 'sub_Tan9mBG1A0sm0i'), 'incomplete + sub id may sync')

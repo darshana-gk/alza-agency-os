@@ -368,12 +368,15 @@ export async function resumeRazorpayCheckout(): Promise<{
   }
 }
 
+export { CANCELLED_SUBSCRIPTION_RECONCILIATION_MESSAGE } from '../../supabase/functions/_shared/razorpayCancellation.ts'
+
 export interface RazorpaySyncResult {
   synced: boolean
   status: string
   remoteStatus: string
   subscriptionId: string
   workspaceUnlock: boolean
+  reconciliationRequired: boolean
 }
 
 /**
@@ -405,6 +408,7 @@ export async function syncRazorpaySubscription(): Promise<{
     remoteStatus?: string
     subscriptionId?: string
     workspaceUnlock?: boolean
+    reconciliationRequired?: boolean
     message?: string
   } | null
 
@@ -415,17 +419,47 @@ export async function syncRazorpaySubscription(): Promise<{
     }
   }
 
-  const status = String(payload.remoteStatus || payload.status || '').trim().toLowerCase()
+  const reconciliationRequired = payload.reconciliationRequired === true
+  const status = String(payload.status || payload.remoteStatus || '').trim().toLowerCase()
+  const remoteStatus = String(payload.remoteStatus || payload.status || '').trim().toLowerCase()
   return {
     data: {
       synced: payload.synced !== false,
-      status,
-      remoteStatus: status,
+      status: reconciliationRequired ? 'cancelled' : status,
+      remoteStatus,
       subscriptionId: String(payload.subscriptionId ?? ''),
-      workspaceUnlock: payload.workspaceUnlock === true || status === 'active',
+      workspaceUnlock: reconciliationRequired
+        ? false
+        : payload.workspaceUnlock === true || status === 'active',
+      reconciliationRequired,
     },
     error: null,
   }
+}
+
+/**
+ * Reads the caller's own cancellation payment discrepancy.
+ * Sends no agency id or subscription id. Does not call Razorpay.
+ */
+export async function fetchCancelledSubscriptionReconciliation(): Promise<{
+  visible: boolean
+  error: string | null
+}> {
+  const authz = await rejectUnlessRole(isAdminDirectoryRole)
+  if (!authz.ok) return { visible: false, error: authz.message }
+
+  const { data, error } = await supabase.functions.invoke('billing-reconciliation-notice', {
+    body: {},
+  })
+  if (error || !data) {
+    return { visible: false, error: 'Unable to check reconciliation.' }
+  }
+
+  const payload = data as { ok?: boolean; visible?: boolean } | null
+  if (!payload?.ok) {
+    return { visible: false, error: 'Unable to check reconciliation.' }
+  }
+  return { visible: payload.visible === true, error: null }
 }
 
 export async function cancelRazorpaySubscription(): Promise<{ error: string | null }> {
