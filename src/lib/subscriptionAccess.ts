@@ -73,11 +73,35 @@ export function isSubscriptionInPeriod(
   return end >= earliestToday
 }
 
+export function formatPaidThroughDate(value: string | null | undefined): string | null {
+  const day = calendarDatePrefix(value)
+  if (!day) return null
+  const [year, month, date] = day.split('-').map(Number)
+  if (!year || !month || !date) return null
+  return new Date(Date.UTC(year, month - 1, date)).toLocaleDateString('en-US', {
+    timeZone: 'UTC',
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+  })
+}
+
 export function evaluateSubscriptionAccess(input: {
   status: string | null | undefined
   currentPeriodEnd?: string | null
+  cancelAtPeriodEnd?: boolean
   now?: Date
 }): SubscriptionAccessDecision {
+  const now = input.now ?? new Date()
+  if (input.cancelAtPeriodEnd) {
+    if (!calendarDatePrefix(input.currentPeriodEnd)) {
+      return { open: false, reason: 'unavailable' }
+    }
+    if (isSubscriptionInPeriod(input.currentPeriodEnd, now)) {
+      return { open: true, reason: 'none' }
+    }
+    return { open: false, reason: 'expired' }
+  }
   const status = String(input.status ?? '').trim().toLowerCase()
   if (!status) return { open: false, reason: 'none' }
   if (status === 'cancelled' || status === 'canceled' || status === 'completed') {
@@ -87,7 +111,7 @@ export function evaluateSubscriptionAccess(input: {
   if (status !== 'active') {
     return { open: false, reason: PENDING_STATUSES.has(status) ? 'pending' : 'other' }
   }
-  if (!isSubscriptionInPeriod(input.currentPeriodEnd, input.now)) {
+  if (!isSubscriptionInPeriod(input.currentPeriodEnd, now)) {
     return { open: false, reason: 'expired' }
   }
   return { open: true, reason: 'none' }

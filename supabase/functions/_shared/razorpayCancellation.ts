@@ -180,3 +180,159 @@ export function reconciliationNoticeVisible(
 ): boolean {
   return records.some((record) => reconciliationNoticeMatchesWorkspace(record, workspace))
 }
+
+/** Razorpay cancels at the end of the current cycle. Boolean true is the documented value. */
+export function cycleEndCancelRequestBody(): { cancel_at_cycle_end: true } {
+  return { cancel_at_cycle_end: true }
+}
+
+/** Immediate cancel. Used only when Razorpay reports that no billing cycle has started. */
+export function immediateCancelRequestBody(): { cancel_at_cycle_end: false } {
+  return { cancel_at_cycle_end: false }
+}
+
+export function classifyCycleEndCancelFailure(
+  message: string,
+): 'no_active_cycle' | 'final_cycle' | 'already_cancelled' | 'other' {
+  const value = message.toLowerCase()
+  if (value.includes('no billing cycle')) return 'no_active_cycle'
+  if (value.includes('final cycle')) return 'final_cycle'
+  if (value.includes('not cancellable in cancelled') || value.includes('not cancellable in canceled')) {
+    return 'already_cancelled'
+  }
+  return 'other'
+}
+
+export function unixSecondsToIso(seconds: unknown): string | null {
+  const n = typeof seconds === 'number' ? seconds : Number(seconds)
+  if (!Number.isFinite(n) || n <= 0) return null
+  return new Date(n * 1000).toISOString()
+}
+
+export function readRemoteCancelAtCycleEnd(subscription: Record<string, unknown>): boolean | null {
+  const value = subscription.cancel_at_cycle_end
+  if (value === true || value === 1 || value === '1' || value === 'true') return true
+  if (value === false || value === 0 || value === '0' || value === 'false') return false
+  return null
+}
+
+export type CycleEndCancelPlan =
+  | { action: 'schedule'; paidThroughIso: string; statusToStore: string }
+  | { action: 'unconfirmed' }
+  | { action: 'already_ended'; statusToStore: 'cancelled' | 'completed' }
+
+/**
+ * The paid-through instant is Razorpay current_end. A 30-day or 365-day offset is never used.
+ * A cancelled status with current_end still in the future stays a scheduled cancellation.
+ */
+export function planCycleEndCancellation(input: {
+  remoteStatus: string
+  currentEndUnix: unknown
+  nowIso: string
+}): CycleEndCancelPlan {
+  const paidThroughIso = unixSecondsToIso(input.currentEndUnix)
+  if (!paidThroughIso) return { action: 'unconfirmed' }
+  const remote = input.remoteStatus.trim().toLowerCase()
+  const ended = remote === 'cancelled' || remote === 'canceled' || remote === 'completed'
+  const endMs = Date.parse(paidThroughIso)
+  const nowMs = Date.parse(input.nowIso)
+  if (ended && Number.isFinite(endMs) && Number.isFinite(nowMs) && endMs <= nowMs) {
+    return {
+      action: 'already_ended',
+      statusToStore: remote === 'completed' ? 'completed' : 'cancelled',
+    }
+  }
+  const statusToStore =
+    remote === 'active' || remote === 'pending' || remote === 'authenticated' || remote === 'paused'
+      ? remote
+      : 'active'
+  return { action: 'schedule', paidThroughIso, statusToStore }
+}
+
+export type ScheduledCancellationMirror = {
+  status: string
+  cancelAtPeriodEnd: boolean
+  paidThroughIso: string | null
+}
+
+function isoMillis(value: string | null | undefined): number | null {
+  if (!value) return null
+  const parsed = Date.parse(value)
+  return Number.isFinite(parsed) ? parsed : null
+}
+
+/**
+ * Keeps a scheduled cancellation through duplicate, delayed, and older webhooks.
+ * A later Razorpay current_end may move the paid-through date forward. An older one cannot.
+ * A terminal status does not close access while that paid-through instant is still ahead.
+ */
+export function reconcileScheduledCancellation(input: {
+  localStatus: string | null | undefined
+  localCancelAtPeriodEnd: boolean
+  localPaidThroughIso: string | null
+  remoteStatus: string
+  remotePaidThroughIso: string | null
+  remoteCancelAtCycleEnd: boolean | null
+  nowIso: string
+}): ScheduledCancellationMirror {
+  const now = isoMillis(input.nowIso) ?? Date.now()
+  const remote = input.remoteStatus.trim().toLowerCase()
+  const local = String(input.localStatus ?? '').trim().toLowerCase()
+  const terminal = remote === 'cancelled' || remote === 'canceled' || remote === 'completed'
+  const remoteEnd = isoMillis(input.remotePaidThroughIso)
+  const localEnd = isoMillis(input.localPaidThroughIso)
+  const futureEnd =
+    (remoteEnd != null && remoteEnd > now) || (remoteEnd == null && localEnd != null && localEnd > now)
+  const scheduled = input.localCancelAtPeriodEnd || input.remoteCancelAtCycleEnd === true
+
+  if (terminal && futureEnd && scheduled) {
+    const statusToStore =
+      local === 'active' || local === 'pending' || local === 'authenticated' || local === 'paused'
+        ? local
+        : 'active'
+    return {
+      status: statusToStore,
+      cancelAtPeriodEnd: true,
+      paidThroughIso: input.remotePaidThroughIso ?? input.localPaidThroughIso,
+    }
+  }
+
+  if (terminal) {
+    return {
+      status: remote === 'completed' ? 'completed' : 'cancelled',
+      cancelAtPeriodEnd: false,
+      paidThroughIso: input.remotePaidThroughIso ?? input.localPaidThroughIso,
+    }
+  }
+
+  let paidThrough = input.localPaidThroughIso
+  if (input.remotePaidThroughIso) {
+    const remoteMs = isoMillis(input.remotePaidThroughIso)
+    const localMs = isoMillis(paidThrough)
+    if (!paidThrough || localMs == null || (remoteMs != null && remoteMs > localMs)) {
+      paidThrough = input.remotePaidThroughIso
+    }
+  }
+
+  return {
+    status: remote || local || 'active',
+    cancelAtPeriodEnd: scheduled,
+    paidThroughIso: paidThrough,
+  }
+}
+
+export function cancellationConfirmationEmail(paidThroughLabel: string): { subject: string; text: string } {
+  return {
+    subject: 'ALZA Flow cancellation scheduled',
+    text: [
+      'ALZA Flow has scheduled this subscription to stop renewing.',
+      '',
+      `Operational access continues until ${paidThroughLabel}, the paid-through date confirmed by Razorpay.`,
+      'Future renewal charges are scheduled to stop after that date.',
+      'Unused paid time is not automatically refunded.',
+      'A renewal charge that is already in progress may still complete. This message does not confirm that a charge was prevented.',
+      '',
+      'Questions: support@alzabusiness.com',
+    ].join('\n'),
+  }
+}

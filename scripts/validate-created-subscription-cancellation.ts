@@ -89,7 +89,9 @@ console.log('3. Cancellation endpoint keeps tenant isolation')
   )
   assert(!localBranch.includes('/cancel'), 'local created path does not call the cancel API')
   assert(cancel.includes('/subscriptions/${subscriptionId}/cancel'), 'authenticated path still calls Razorpay cancel')
-  assert(cancel.includes('cancel_at_cycle_end: 0'), 'immediate cancel flag is unchanged')
+  assert(cancel.includes('cycleEndCancelRequestBody()'), 'paid cancellation asks Razorpay to end at the current cycle')
+  assert(cancel.includes('immediateCancelRequestBody()'), 'pre-charge cancellation can still cancel immediately')
+  assert(!cancel.includes('cancel_at_cycle_end: 0'), 'paid cancellation does not force immediate cancel')
 }
 
 console.log('4. Webhook and Refresh sync cannot reopen a local cancellation')

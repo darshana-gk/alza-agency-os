@@ -462,21 +462,50 @@ export async function fetchCancelledSubscriptionReconciliation(): Promise<{
   return { visible: payload.visible === true, error: null }
 }
 
-export async function cancelRazorpaySubscription(): Promise<{ error: string | null }> {
+export async function cancelRazorpaySubscription(): Promise<{
+  error: string | null
+  paidThrough: string | null
+  cancelAtPeriodEnd: boolean
+  chargeConfirmedStopped: boolean
+  emailSent: boolean
+  emailStatus: string | null
+}> {
+  const empty = {
+    paidThrough: null,
+    cancelAtPeriodEnd: false,
+    chargeConfirmedStopped: false,
+    emailSent: false,
+    emailStatus: null as string | null,
+  }
   const authz = await rejectUnlessRole(isAdminDirectoryRole)
-  if (!authz.ok) return { error: authz.message }
+  if (!authz.ok) return { error: authz.message, ...empty }
 
   const { data, error } = await supabase.functions.invoke('cancel-razorpay-subscription', {
     body: {},
   })
   if (error) {
-    return { error: error.message || 'Unable to call cancel-razorpay-subscription.' }
+    return { error: error.message || 'Unable to call cancel-razorpay-subscription.', ...empty }
   }
-  const payload = data as { ok?: boolean; message?: string } | null
+  const payload = data as {
+    ok?: boolean
+    message?: string
+    paidThrough?: string | null
+    cancelAtPeriodEnd?: boolean
+    chargeConfirmedStopped?: boolean
+    emailSent?: boolean
+    emailStatus?: string | null
+  } | null
   if (!payload?.ok) {
-    return { error: payload?.message || 'Cancellation failed.' }
+    return { error: payload?.message || 'Cancellation failed.', ...empty }
   }
-  return { error: null }
+  return {
+    error: null,
+    paidThrough: payload.paidThrough ?? null,
+    cancelAtPeriodEnd: payload.cancelAtPeriodEnd === true,
+    chargeConfirmedStopped: payload.chargeConfirmedStopped === true,
+    emailSent: payload.emailSent === true,
+    emailStatus: payload.emailStatus ?? null,
+  }
 }
 
 declare global {

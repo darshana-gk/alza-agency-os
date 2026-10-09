@@ -4,6 +4,7 @@ import { CreditCard, Loader2, RefreshCw, X, XCircle } from 'lucide-react'
 import { useAuth } from '../../lib/auth'
 import { useAgency } from '../../lib/agencyContext'
 import { useSubscriptionAccess } from '../../lib/subscriptionAccessContext'
+import { formatPaidThroughDate } from '../../lib/subscriptionAccess'
 import {
   billingAllowsOnboardingHandoff,
   confirmOnboardingHandoff,
@@ -290,7 +291,7 @@ export function SubscriptionBillingPage() {
   const canResume = canResumeCheckout(status, billing?.razorpaySubscriptionId)
   const planLocked = !canChangePlanBeforeCheckout(status)
   const showCatalog = shouldShowBillingCatalog()
-  const showCancel = canCancelSubscription(status)
+  const showCancel = canCancelSubscription(status) && !billing?.cancelAtPeriodEnd
   const bands = billingUserBands(product)
   const recommendedLabel =
     billingUserBands('alza_flow').find((b) => b.key === recommendedBand)?.label ?? recommendedBand
@@ -452,8 +453,19 @@ export function SubscriptionBillingPage() {
   }
 
   async function handleCancel() {
+    const paidThroughLabel = formatPaidThroughDate(billing?.currentPeriodEnd)
+    const preCharge = billing?.status === 'created' || billing?.status === 'authenticated'
     const confirmed = window.confirm(
-      'Cancel this ALZA FLOW subscription immediately? This cannot be undone from the app. You can subscribe again later.',
+      preCharge
+        ? 'No paid billing period has started. Cancel this subscription before the first charge? Unused time is not refunded because no paid period is open.'
+        : [
+            'Stop future renewals for this ALZA Flow subscription?',
+            paidThroughLabel
+              ? `If Razorpay accepts the request, operational access continues until ${paidThroughLabel}.`
+              : 'The final access date will be the paid-through date Razorpay confirms. It is not estimated.',
+            'Unused paid time is not automatically refunded.',
+            'A renewal charge that is already in progress may still complete. This does not confirm that the next charge was prevented.',
+          ].join(' '),
     )
     if (!confirmed) return
 
@@ -466,7 +478,22 @@ export function SubscriptionBillingPage() {
       setError(result.error)
       return
     }
-    setInfo('Cancellation requested. Status will refresh shortly.')
+    const confirmedDate = formatPaidThroughDate(result.paidThrough)
+    if (result.cancelAtPeriodEnd && confirmedDate) {
+      const emailNote =
+        result.emailSent
+          ? ' A confirmation email was requested.'
+          : ' The confirmation email was not sent.'
+      setInfo(
+        `Cancellation pending. Future renewals are scheduled to stop. Operational access continues until ${confirmedDate}. Unused paid time is not automatically refunded.${emailNote}`,
+      )
+    } else if (result.cancelAtPeriodEnd) {
+      setInfo(
+        'Razorpay accepted the cancellation request but did not confirm the final access date. The renewal has not been confirmed as stopped.',
+      )
+    } else {
+      setInfo('No paid period was open, so the subscription was cancelled before the first charge.')
+    }
     void load()
   }
 
@@ -538,12 +565,25 @@ export function SubscriptionBillingPage() {
             {' · '}
             {formatBillingPlan(billing).intervalLabel}
             {' · '}
-            {billing.status}
+            {billing.cancelAtPeriodEnd ? 'Cancellation pending' : billing.status}
           </p>
         ) : (
           <p className="mt-2 text-sm text-slate-500">No paid subscription yet. Choose a plan below.</p>
         )}
       </div>
+
+      {billing?.cancelAtPeriodEnd ? (
+        <div className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-950" role="status">
+          <p className="font-medium">Cancellation pending</p>
+          <p className="mt-1">
+            Future renewals will stop.
+            {formatPaidThroughDate(billing.currentPeriodEnd)
+              ? ` Operational access continues until ${formatPaidThroughDate(billing.currentPeriodEnd)}.`
+              : ' Razorpay has not confirmed the final access date yet.'}
+          </p>
+          <p className="mt-1">Unused paid time is not automatically refunded.</p>
+        </div>
+      ) : null}
 
       <CancelledSubscriptionReconciliationNotice
         visible={watchedPaymentConflict || paymentConflictFromSync}

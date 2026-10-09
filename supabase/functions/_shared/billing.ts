@@ -3,6 +3,8 @@ import { fail } from './http.ts'
 import {
   CANCELLED_SUBSCRIPTION_PAYMENT_CODE,
   cancelledSubscriptionMirrorAction,
+  readRemoteCancelAtCycleEnd,
+  reconcileScheduledCancellation,
   subscriptionIdsConflict,
   tenantNoteConflicts,
 } from './razorpayCancellation.ts'
@@ -357,6 +359,8 @@ type BillingMirrorRow = {
   agency_profile_id: string | null
   status: string | null
   razorpay_subscription_id: string | null
+  cancel_at_period_end: boolean | null
+  current_period_end: string | null
 }
 
 async function selectBillingRows(
@@ -366,7 +370,9 @@ async function selectBillingRows(
 ): Promise<{ rows: BillingMirrorRow[] | null; error: string | null }> {
   const { data, error } = await admin
     .from('billing_subscriptions')
-    .select('id, agency_profile_id, status, razorpay_subscription_id')
+    .select(
+      'id, agency_profile_id, status, razorpay_subscription_id, cancel_at_period_end, current_period_end',
+    )
     .eq(column, value)
   if (error) return { rows: null, error: error.message }
   return { rows: (data ?? []) as BillingMirrorRow[], error: null }
@@ -485,7 +491,6 @@ export async function mirrorSubscriptionEntity(
     current_period_end: unixToIso(subscription.current_end),
     charge_at: unixToIso(subscription.charge_at),
     trial_end: null,
-    cancel_at_period_end: false,
     updated_at: new Date().toISOString(),
   }
 
@@ -497,13 +502,24 @@ export async function mirrorSubscriptionEntity(
   if (userBand) payload.user_band_key = userBand
   if (interval) payload.billing_interval = interval
 
-  const status = String(payload.status)
-  if (status === 'cancelled' || status === 'completed') {
+  const found = await lookupMirrorRow(admin, subscription, String(payload.status))
+  if (!found.ok) return { ok: false, error: found.error }
+  const preserved = reconcileScheduledCancellation({
+    localStatus: found.row.status,
+    localCancelAtPeriodEnd: Boolean(found.row.cancel_at_period_end),
+    localPaidThroughIso: found.row.current_period_end,
+    remoteStatus: String(payload.status),
+    remotePaidThroughIso:
+      typeof payload.current_period_end === 'string' ? payload.current_period_end : null,
+    remoteCancelAtCycleEnd: readRemoteCancelAtCycleEnd(subscription),
+    nowIso: new Date().toISOString(),
+  })
+  payload.status = preserved.status
+  payload.cancel_at_period_end = preserved.cancelAtPeriodEnd
+  if (preserved.paidThroughIso) payload.current_period_end = preserved.paidThroughIso
+  if (preserved.status === 'cancelled' || preserved.status === 'completed') {
     payload.canceled_at = unixToIso(subscription.ended_at) ?? new Date().toISOString()
   }
-
-  const found = await lookupMirrorRow(admin, subscription, status)
-  if (!found.ok) return { ok: false, error: found.error }
   return applyMirroredSubscription(
     admin,
     found.row,
